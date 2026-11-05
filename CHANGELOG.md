@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.5.0 — 2026-11-04
+
+- **Living** (was *Family*): the living spaces everyone shares, each room with its main
+  devices — like a hand-made "family" page. Bedrooms, bathrooms, outdoor areas and family
+  members' rooms are left out; living room, kitchen and dining come first. `living_rooms`
+  picks them by hand (also in the settings editor). `family` / `pages_config.family` in an
+  existing config still work and mean Living.
+- **Rooms** now means one page per family member's room (Ben, Lucy, Hana …), as on a
+  hand-made dashboard. Default order: Widgets · Home · Living · Rooms · Energy · Cameras.
+  `members` in `pages` still works and means `rooms`.
+- **All rooms**: the directory of every room (by floor), optional (`all_rooms`); `rooms`
+  falls back to it in a home without member rooms.
+- The old people + calendar page is still there as an optional **People** page.
+- **Photo slideshow** on Widgets (in the camera's place): a Home Assistant media folder,
+  albums included, shuffled, cross-fading, portrait photos over a blurred fill, tap for the
+  next one. Found automatically (a folder named Photos / Pictures / Slideshow …) or set with
+  `widgets.slideshow`; `slideshow_interval`, `slideshow_thumbnail` (NAS thumbnails) and
+  `widgets.camera`, also in the settings editor.
+- **Widgets fits one screen** on tablets and desktops: the board fills the space below the
+  page bar with three equal rows (no more cut-off agenda / forecast); the weather switches
+  to a compact high / low when its cell is short, and the agenda fades out instead of being
+  cut mid-line.
+- **Tile grid like a hand-made HomeView:** phones 2 square tiles across (14 px padding, 10 px
+  gap); tablets and browsers 5 across (Home, member rooms, your pages) or 6 (Living, all rooms,
+  room pages, energy, cameras), 2.5 vw padding, 16 px gap; square tiles, or 1.28 : 1 / 1.1 : 1 on
+  screens wider than 3:2 (Pixel Tablet, laptops) so a page fits the screen; more columns on
+  very wide screens (tiles ≤ ~300 px). `tile_size` / `max_columns` still override.
+- Home's "Lights" no longer count rooms like "Garden" as main rooms.
+
 ## 0.4.0 — 2026-11-04
 
 A redesign, closer to a hand-made dashboard:

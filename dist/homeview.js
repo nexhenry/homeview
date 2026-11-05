@@ -11,7 +11,7 @@
  * Home, Widgets, Family, Rooms (plus one page per room), Energy and Cameras. Everything is
  * optional and can be tuned in the strategy config — see README.md.
  */
-const HV_VERSION = '0.4.0';
+const HV_VERSION = '0.5.0';
 // where this file was loaded from (to re-download it after an update)
 const HV_URL = (() => { try { return import.meta.url; } catch (e) { return null; } })();
 
@@ -22,14 +22,24 @@ const HV_URL = (() => { try { return import.meta.url; } catch (e) { return null;
 const PAGE_DEFS = {
   home:    { title: 'Home',    icon: 'mdi:home',                    hue: 28 },
   widgets: { title: 'Widgets', icon: 'mdi:view-dashboard-variant',  hue: 200, sat: 0.35 },
-  family:  { title: 'Family',  icon: 'mdi:account-group',           hue: 265 },
-  rooms:   { title: 'Rooms',   icon: 'mdi:sofa',                    hue: 110 },
+  living:  { title: 'Living',  icon: 'mdi:sofa-outline',            hue: 28 },
+  people:  { title: 'People',  icon: 'mdi:account-group',           hue: 265 },
+  all_rooms: { title: 'All rooms', icon: 'mdi:floor-plan',          hue: 110 },
   energy:  { title: 'Energy',  icon: 'mdi:lightning-bolt',          hue: 42 },
   cameras: { title: 'Cameras', icon: 'mdi:cctv',                    hue: 215, sat: 0.4 },
-  members: { title: 'Members', icon: 'mdi:account-multiple',       hue: 335 },
+  rooms:   { title: 'Rooms',   icon: 'mdi:bed-outline',             hue: 335 },
 };
-// swipe order (wraps from the last back to the first); `members` = one page per family member
-const DEFAULT_PAGES = ['widgets', 'home', 'family', 'rooms', 'members', 'cameras', 'energy'];
+// swipe order (wraps from the last back to the first). `rooms` = one page per family member's
+// room (Ben, Lucy, Hana …); with no member rooms it is the all-rooms directory instead.
+const DEFAULT_PAGES = ['widgets', 'home', 'living', 'rooms', 'energy', 'cameras'];
+// old page names still work in `pages:`
+const PAGE_ALIASES = { family: 'living', shared: 'living', members: 'rooms' };
+// rooms that aren't living spaces: private, wet or outside
+const PRIVATE_ROOM = /bed|bath|shower|toilet|\bwc\b|powder|closet|nursery|en.?suite/i;
+const OUTDOOR_ROOM = /garden|yard|patio|deck|porch|outdoor|outside|front|back|pool|pond|koi|driveway|balcony|terrace|shed|farm/i;
+const MAIN_ROOM = /living|lounge|kitchen|dining|family|great|\bden\b/i;
+// tablet / browser columns per page (phones always get 2)
+const PAGE_COLUMNS = { home: 5, member: 5, custom: 5, people: 5, living: 6, all_rooms: 6, room: 6, energy: 6, cameras: 6 };
 
 // Room tints, assigned in order to rooms without their own colour
 const ROOM_HUES = [28, 110, 45, 205, 265, 335, 170, 15, 230, 80];
@@ -47,7 +57,7 @@ const COLOR_CYCLE = ['orange', 'green', 'amber', 'blue', 'purple', 'pink', 'teal
 const KNOWN_OPTIONS = ['type', 'title', 'theme', 'pages', 'pages_config', 'room_order', 'hide_rooms', 'rooms',
   'exclude_entities', 'customize', 'people', 'calendars', 'weather', 'cameras', 'home', 'pills', 'battery_low',
   'people_chips', 'energy', 'tile_size', 'max_columns', 'swipe', 'custom_pages', 'edit_button', 'update_notice',
-  'kiosk', 'kiosk_chip', 'members'];
+  'kiosk', 'kiosk_chip', 'members', 'living_rooms', 'widgets'];
 
 // What a room page / room row shows, in this order
 const ROOM_GROUPS = [
@@ -713,6 +723,17 @@ const TILE_CSS = `
   color:#fff; display:flex; align-items:center; justify-content:center; --mdc-icon-size:17px; backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px); }
 .edit button[data-edit=unfav] { background:#FF9F0A; }
 .t.bare { background:transparent; border:none; box-shadow:none; }
+.fc-hl { display:none; font-weight:600; font-size:clamp(12px, 9cqh, 18px); }
+@container (max-height: 300px) { .fc-rows { display:none; } .fc-hl { display:block; } }
+.ag-list { overflow:hidden; flex:1; min-height:0; -webkit-mask-image:linear-gradient(#000 78%, transparent); mask-image:linear-gradient(#000 78%, transparent); }
+.t.slide { padding:0; background:#5E6E72; overflow:hidden; border-radius:var(--hv-radius, 28px); box-shadow:0 8px 22px rgba(0,0,0,.18); }
+.sl { position:absolute; inset:0; }
+.sl img { position:absolute; inset:0; width:100%; height:100%; display:block; object-fit:cover; object-position:50% 35%; }
+.sl img.blur { filter:blur(22px) brightness(.75); transform:scale(1.15); }
+.sl.fade { animation:hv-fade 1.2s ease both; }
+@keyframes hv-fade { from { opacity:0; } to { opacity:1; } }
+.sl-msg { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; color:#E9EEEF; text-align:center;
+  padding:0 18px; font-size:15px; font-weight:500; --mdc-icon-size:44px; }
 .t.bare.white { background:transparent; }
 .t.card { align-items:flex-start; justify-content:center; text-align:left; padding:0 7%; gap:0; }
 .t.card .hd { display:flex; align-items:center; gap:6px; }
@@ -939,7 +960,8 @@ R.forecast = {
       <div style="display:flex;align-items:center;gap:10px"><span style="font-size:min(24cqh,72px);font-weight:300;letter-spacing:-.04em">${fmt(st?.attributes?.temperature, 0)}°</span>
       <span class="ic" style="--mdc-icon-size:min(14cqh,44px)"><i data-i="${icon}"></i></span></div>
       <div style="font-weight:600;margin-bottom:4%">${esc(cond)}</div>
-      <div style="font-size:clamp(12px,4.5cqi,17px);border-top:1px solid var(--hv-line);padding-top:3%">${rows}</div></div>`;
+      ${fc[0] ? `<div class="fc-hl">H:${fmt(Math.max(fc[0].temperature ?? -99, st?.attributes?.temperature ?? -99), 0)}°&nbsp;&nbsp;L:${fmt(Math.min(fc[0].templow ?? 99, st?.attributes?.temperature ?? 99), 0)}°</div>` : ''}
+      <div class="fc-rows" style="font-size:clamp(12px,4.5cqi,17px);border-top:1px solid var(--hv-line);padding-top:3%">${rows}</div></div>`;
   },
   action: (h, s, tile) => moreInfo(tile, s.entity),
 };
@@ -1031,7 +1053,7 @@ R.agenda = {
     if (!rows) rows = `<div class="sb" style="margin-top:8px">${evs === undefined ? 'Loading…' : 'Nothing planned'}</div>`;
     return `<div class="t" style="align-items:stretch;justify-content:flex-start;text-align:left;padding:6% 7%;cursor:default;font-size:clamp(12px,4cqi,16px)">
       <div style="display:flex;align-items:center;gap:8px" class="up"><span class="ic" style="--mdc-icon-size:1.4em"><i data-i="mdi:calendar-month-outline"></i></span>${esc(s.title || 'Up next')}</div>
-      <div style="overflow:hidden">${rows}</div></div>`;
+      <div class="ag-list">${rows}</div></div>`;
   },
 };
 
@@ -1318,6 +1340,131 @@ R.energy_flow = {
   action(h, s, tile) { moreInfo(tile, s.power.home || s.power.grid || s.power.solar); },
 };
 
+// ---- photo slideshow from a Home Assistant media folder ----------------------------------------
+// widgets: { slideshow: media-source://… | false, slideshow_interval: 60 (s),
+//            slideshow_thumbnail: '{dir}/.@__thumb/s800{name}' (a smaller copy to try first) }
+const PHOTO_RE = /\.(jpe?g|png|webp|gif|heic|avif)$/i;
+const isPhoto = (c) => c.media_class === 'image' || PHOTO_RE.test(c.title || '') || PHOTO_RE.test(c.media_content_id || '');
+const skipFolder = (c) => /^[.@#]/.test(c.title || '') || /@eaDir|\.@__thumb|\$RECYCLE|lost\+found/i.test(c.media_content_id || '');
+
+/** The first media folder named like Photos / Pictures / Slideshow … (auto mode). */
+function findPhotoFolder(hass, onUpdate) {
+  return cached('slides:auto', 6 * 3600e3, async () => {
+    const want = /photo|picture|slide ?show|wallpaper|gallery|album/i;
+    const queue = [['media-source://media_source', 0]];
+    let n = 0;
+    while (queue.length && n < 80) {
+      const [id, depth] = queue.shift();
+      n++;
+      let r;
+      try { r = await ws(hass, { type: 'media_source/browse_media', media_content_id: id }); } catch (e) { continue; }
+      for (const c of r?.children || []) {
+        if (!c.can_expand || skipFolder(c)) continue;
+        if (want.test(c.title || '')) return c.media_content_id;
+        if (depth < 3) queue.push([c.media_content_id, depth + 1]);
+      }
+    }
+    return null;
+  }, onUpdate);
+}
+
+const slideStore = {};
+function slideState(folder) {
+  if (!slideStore[folder]) {
+    const st = { items: null, busy: false, next: 0, urls: {}, ok: {}, bad: {}, dim: {}, pending: {}, err: null };
+    try { const v = JSON.parse(localStorage.getItem(`homeview-photos:${folder}`) || 'null'); if (Array.isArray(v) && v.length) st.items = v; } catch (e) { /* private mode */ }
+    slideStore[folder] = st;
+  }
+  return slideStore[folder];
+}
+// a shuffle every device agrees on, different each full pass (nothing repeats within a pass)
+function shuffled(n, pass) {
+  let a = (pass * 2654435761 + n) >>> 0;
+  const rnd = () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  const o = Array.from({ length: n }, (_, i) => i);
+  for (let i = n - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [o[i], o[j]] = [o[j], o[i]]; }
+  return o;
+}
+R.slideshow = {
+  tick: 4000,
+  key: (h, s) => `slides:${s.folder}`,
+  html: () => `<div class="t slide"><div class="sl-msg"><ha-icon icon="mdi:image-multiple-outline"></ha-icon><span>Loading photos…</span></div></div>`,
+  update(h, s, tile) {
+    const st = slideState(s.folder);
+    const box = tile.shadowRoot.querySelector('.slide');
+    if (!box) return;
+    // (re)scan the folder: album subfolders included (3 levels, 300 folders), hourly
+    if (!st.busy && Date.now() >= st.next) {
+      st.busy = true;
+      (async () => {
+        const items = [], queue = [[s.folder, 0]];
+        let folders = 0;
+        while (queue.length && folders < 300) {
+          const [id, depth] = queue.shift();
+          folders++;
+          const r = await ws(h, { type: 'media_source/browse_media', media_content_id: id });
+          for (const c of r?.children || []) {
+            if (c.can_expand) { if (depth < 3 && !skipFolder(c)) queue.push([c.media_content_id, depth + 1]); } else if (isPhoto(c)) items.push(c.media_content_id);
+          }
+        }
+        return items;
+      })().then((items) => {
+        st.items = items; st.err = items.length ? null : 'No photos in this folder';
+        try { localStorage.setItem(`homeview-photos:${s.folder}`, JSON.stringify(items.slice(0, 5000))); } catch (e) { /* full / private */ }
+        st.next = Date.now() + (st.err ? 60e3 : 3600e3);
+      }, (e) => { st.err = e?.message || String(e); st.next = Date.now() + 60e3; })
+        .finally(() => { st.busy = false; R.slideshow.update(h, s, tile); });
+    }
+    const msg = (text) => { if (!box.querySelector('img')) box.innerHTML = `<div class="sl-msg"><ha-icon icon="mdi:image-off-outline"></ha-icon><span>${esc(text)}</span></div>`; };
+    if (!st.items?.length) { if (st.err) msg(st.err); return; }
+    if (!tile.visible) return;
+    // which photo now: one per interval, `tile._skip` moves ahead (tap)
+    const n = st.items.length, ms = Math.max(5, Number(s.interval) || 60) * 1000;
+    const slot = Math.floor(Date.now() / ms) + (tile._skip || 0);
+    const at = (k) => { const x = slot + k; return st.items[shuffled(n, Math.floor(x / n))[((x % n) + n) % n]]; };
+    const load = (id, then) => {
+      const c = st.urls[id];
+      if (c && c.exp > Date.now() && st.ok[c.url]) { then?.(c.url); return; }
+      if (st.pending[id]) return;
+      st.pending[id] = true;
+      const thumb = s.thumbnail && !st.bad[id] ? id.replace(/^(.*)\/([^/]+)$/, (m0, dir, name) => s.thumbnail.replace('{dir}', dir).replace('{name}', name)) : id;
+      ws(h, { type: 'media_source/resolve_media', media_content_id: thumb, expires: 86400 })
+        .then((r) => new Promise((ok, fail) => {
+          if (!r?.url) { fail(); return; }
+          const img = new Image();
+          img.onload = () => { st.urls[id] = { url: r.url, exp: Date.now() + 82800e3 }; st.ok[r.url] = true; st.dim[r.url] = img.naturalHeight ? img.naturalWidth / img.naturalHeight : 1.5; ok(r.url); };
+          img.onerror = fail;
+          img.src = r.url;
+        }))
+        .then((url) => then?.(url), () => { if (s.thumbnail && !st.bad[id]) st.bad[id] = true; })   // the full photo next time
+        .finally(() => { delete st.pending[id]; });
+    };
+    const cur = at(0);
+    load(at(1)); load(at(2));
+    if (tile._slideId === cur && box.querySelector('img')) return;
+    load(cur, (url) => {
+      if (tile._slideId === cur) return;
+      tile._slideId = cur;
+      // cross-fade: the new photo fades in over the old one, which is removed after
+      const layer = document.createElement('div');
+      layer.className = 'sl fade';
+      const portrait = (st.dim[url] || 1.5) < 1;
+      layer.innerHTML = portrait
+        ? `<img src="${url}" alt="" class="blur"><img src="${url}" alt="" style="object-fit:contain">`
+        : `<img src="${url}" alt="">`;
+      box.querySelector('.sl-msg')?.remove();
+      box.appendChild(layer);
+      const old = [...box.querySelectorAll('.sl')].slice(0, -1);
+      setTimeout(() => old.forEach((x) => x.remove()), 1600);
+    });
+  },
+  action(h, s, tile, kind) {
+    if (kind !== 'tap') return;
+    tile._skip = (tile._skip || 0) + 1;
+    R.slideshow.update(h, s, tile);
+  },
+};
+
 // ---- any Lovelace card (rendered by <homeview-tile> itself) -----------------------------------
 R.card = { key: () => 'card', html: () => '' };
 
@@ -1595,11 +1742,18 @@ const nonGroupLights = (h, ids) => asList(ids).filter((id) => !Array.isArray(h.s
 
 const PAGES = {
   // a tinted board: big date, big clock, camera, up next, weather — for a wall tablet
-  widgets(h, m) {
+  widgets(h, m, cfg, opts, page) {
+    const wc = cfg.widgets || {};
     const board = [{ kind: 'date', area: 'date', bare: true }, { kind: 'clock', area: 'clock', bare: true }];
     if (m.weather) board.push({ kind: 'forecast', entity: m.weather, days: 3, area: 'weather', bare: true });
     if (m.calendars.length) board.push({ kind: 'agenda', calendars: m.calendars, days: 7, max: 5, area: 'next', bare: true, title: 'Up next' });
-    if (m.cameras[0]) board.push({ kind: 'camera', entity: m.cameras[0], area: 'cam' });
+    // the photo slideshow takes the camera's place (widgets.camera: <entity> brings the camera back)
+    const folder = wc.slideshow === false ? null : (wc.slideshow || findPhotoFolder(h, () => page.scheduleRebuild()));
+    if (folder && !wc.camera) {
+      board.push({ kind: 'slideshow', folder, interval: wc.slideshow_interval || 60, thumbnail: wc.slideshow_thumbnail, area: 'cam' });
+    } else if (wc.camera !== false && (wc.camera || m.cameras[0])) {
+      board.push({ kind: 'camera', entity: wc.camera || m.cameras[0], area: 'cam' });
+    }
     return { title: 'Widgets', minimalHead: true, board, sections: [] };
   },
 
@@ -1621,7 +1775,7 @@ const PAGES = {
       tiles.push(entTile(id, { showRoom: true, areaName: room?.name, size: domainOf(id) === 'climate' ? [2, 1] : [1, 1] }));
     });
     // "Lights" for the main rooms: tap = all on / off, hold = the room
-    const main = /living|lounge|kitchen|dining|family|great|den/i;
+    const main = /living|lounge|kitchen|dining|family|great|\bden\b/i;
     const lightRooms = (pc.light_rooms ? asList(pc.light_rooms).map((id) => m.areaById[id]).filter(Boolean)
       : m.rooms.filter((r) => nonGroupLights(h, r.groups.lights).length)
         .map((r, i) => ({ r, score: (main.test(r.name) ? 100 : 0) + nonGroupLights(h, r.groups.lights).length - i / 100 }))
@@ -1637,24 +1791,39 @@ const PAGES = {
     return { title: cfg.title || h.config.location_name || 'Home', pills: true, people: true, sections };
   },
 
-  family(h, m) {
+  // the rooms everyone uses, each with its main devices (living spaces first)
+  living(h, m, cfg) {
+    const memberRooms = new Set(m.members.map((x) => x.room?.id).filter(Boolean));
+    const list = cfg.living_rooms ? asList(cfg.living_rooms).map((id) => m.areaById[id]).filter(Boolean)
+      : m.rooms.filter((r) => !memberRooms.has(r.id) && !PRIVATE_ROOM.test(r.name) && !OUTDOOR_ROOM.test(r.name))
+        .map((r, i) => ({ r, k: (MAIN_ROOM.test(r.name) ? 0 : 1) * 1000 + i })).sort((a, b) => a.k - b.k).map((x) => x.r);
+    const sections = list.map((r) => {
+      const ids = (r.pinned || ROOM_ROW_DOMAINS.flatMap((d) => r.entities.filter((id) => domainOf(id) === d
+        && !UNAVAILABLE.includes(h.states[id]?.state) && !(d === 'light' && Array.isArray(h.states[id]?.attributes?.entity_id))))).slice(0, 11);
+      return { title: r.name, hue: r.hue, tiles: [roomTile(r), ...ids.map((id) => entTile(id, { areaName: r.name, hue: r.hue }))] };
+    });
+    return { title: 'Living', pills: true, sections, compactSections: true,
+      note: list.length ? null : 'No living spaces found. List them with living_rooms: [living_room, kitchen, …].' };
+  },
+
+  // every person, the members' rooms and the family calendar (optional page: pages: [..., people])
+  people(h, m) {
     const sections = [];
     if (m.persons.length) sections.push({ title: 'People', tiles: m.persons.map((id) => ({ kind: 'person', entity: id, battery: personBattery(h, id), size: [2, 1] })) });
     if (m.members.some((x) => x.room)) {
       sections.push({ title: 'Their rooms', tiles: m.members.filter((x) => x.room).map((x) => ({ ...roomTile(x.room), navigate: `member-${x.slug}` })) });
     }
     if (m.calendars.length) sections.push({ title: 'Calendar', tiles: [{ kind: 'agenda', calendars: m.calendars, size: [4, 2], days: 14, max: 12, title: 'Next two weeks' }] });
-    return { title: 'Family', sections };
+    return { title: 'People', sections };
   },
 
-  rooms(h, m) {
-    const sections = m.rooms.map((r) => {
-      const ids = (r.pinned || ROOM_ROW_DOMAINS.flatMap((d) => r.entities.filter((id) => domainOf(id) === d
-        && !UNAVAILABLE.includes(h.states[id]?.state) && !(d === 'light' && Array.isArray(h.states[id]?.attributes?.entity_id))))).slice(0, 11);
-      return { title: r.name, sub: r.floor, hue: r.hue,
-        tiles: [roomTile(r), ...ids.map((id) => entTile(id, { areaName: r.name, hue: r.hue }))] };
-    });
-    return { title: 'Rooms', pills: true, sections, compactSections: true };
+  // a directory of every room (by floor when floors are set up): tap one for its page
+  all_rooms(h, m) {
+    const floors = [...new Set(m.rooms.map((r) => r.floor || ''))];
+    const sections = floors.map((f) => ({ title: floors.length > 1 ? (f || 'Other rooms') : null, tiles: m.rooms.filter((r) => (r.floor || '') === f).map((r) => roomTile(r)) }));
+    // a member's room opens their page
+    for (const sec of sections) for (const t of sec.tiles) { const mem = m.members.find((x) => x.room?.id === t.room.id); if (mem) t.navigate = `member-${mem.slug}`; }
+    return { title: 'Rooms', pills: true, sections };
   },
 
   room(h, m, cfg, opts) {
@@ -1819,10 +1988,11 @@ const PAGE_CSS = `
 .grid.cams { grid-template-columns:repeat(auto-fill, minmax(min(100%, 300px), 1fr)); grid-auto-rows:auto; }
 .grid.cams > homeview-tile { aspect-ratio:16 / 9; height:auto; }
 .board { display:grid; gap:var(--hv-gap); padding:clamp(16px, 3vw, 40px); border-radius:34px; background:var(--hv-board); color:var(--hv-fg);
-  grid-template-columns:repeat(3, minmax(0, 1fr)); grid-template-rows:calc(var(--hv-row) * 1.3) calc(var(--hv-row) * 1.3) calc(var(--hv-row) * 1.15);
-  grid-template-areas:"date clock clock" "date clock clock" "cam next weather"; }
+  grid-template-columns:repeat(3, minmax(0, 1fr)); grid-template-rows:repeat(3, minmax(0, 1fr));
+  grid-template-areas:"date clock clock" "date clock clock" "cam next weather"; box-sizing:border-box; overflow:hidden;
+  height:var(--hv-board-h, calc(100vh - 140px)); min-height:420px; }
 .board > homeview-tile { min-height:0; min-width:0; }
-.board.narrow { grid-template-columns:1fr; grid-template-rows:none; grid-auto-rows:auto; grid-template-areas:"date" "clock" "weather" "next" "cam"; }
+.board.narrow { height:auto; min-height:0; grid-template-columns:1fr; grid-template-rows:none; grid-auto-rows:auto; grid-template-areas:"date" "clock" "weather" "next" "cam"; }
 .board.narrow > homeview-tile { height:240px; }
 .board.narrow > homeview-tile.a-date { height:270px; }
 .board.narrow > homeview-tile.a-clock { height:min(86vw, 380px); }
@@ -1905,9 +2075,11 @@ class HomeViewPage extends HTMLElement {
     }
     hvPagesOnScreen++;
     this._kiosk();
+    if (!this._onWinResize) { this._onWinResize = () => this._layout(); window.addEventListener('resize', this._onWinResize); }
   }
   disconnectedCallback() {
     this._ro?.disconnect(); this._ro = null;
+    if (this._onWinResize) { window.removeEventListener('resize', this._onWinResize); this._onWinResize = null; }
     hvPagesOnScreen = Math.max(0, hvPagesOnScreen - 1);
     // switching between HomeView pages reconnects at once; leaving HomeView doesn't
     setTimeout(() => { if (!hvPagesOnScreen) applyKiosk(false); }, 600);
@@ -1941,7 +2113,9 @@ class HomeViewPage extends HTMLElement {
     const page = builder ? builder(h, this._model, cfg, this._config, this) : { title: '?', sections: [] };
     this._page = page;
     const pd = PAGE_DEFS[this._config.page] || {};
-    const pageCfg = cfg.pages_config?.[this._config.page] || {};
+    const titleCfg = (cfg.pages_config?.[this._config.page] || (this._config.page === 'living' ? cfg.pages_config?.family || cfg.pages_config?.shared : null))?.title;
+    if (titleCfg && this._config.page !== 'room' && this._config.page !== 'member') page.title = titleCfg;
+    const pageCfg = cfg.pages_config?.[this._config.page] || (this._config.page === 'living' ? cfg.pages_config?.family || cfg.pages_config?.shared : null) || {};
     const hue = hueOf(pageCfg.color, page.hue ?? pd.hue ?? 28);
     const dark = isDark(h, cfg);
     this._dark = dark;
@@ -2190,22 +2364,49 @@ class HomeViewPage extends HTMLElement {
     return t;
   }
 
-  // columns from the width: iPhone 2, iPad portrait 4, iPad landscape / tablets 6, desktop up to 8
+  // Tile grid, as on a hand-made HomeView:
+  //   phone (< 600 px wide)  2 columns, square tiles, 14 px padding, 10 px gap
+  //   tablet / browser       5 columns (Home, a member's room, your pages) or 6 (Living, rooms,
+  //                          energy …), 2.5 vw padding, 16 px gap; square tiles, but on screens
+  //                          wider than 3:2 (Pixel Tablet, laptops) 1.28 : 1 (5 columns) or
+  //                          1.1 : 1 (6 columns) so the rows fit the screen; on big screens
+  //                          more columns, so a tile is never wider than ~300 px
+  // row height = (grid width - gaps) / columns / tile shape. tile_size / max_columns override.
   _layout() {
     const w = this.clientWidth || window.innerWidth;
     const cfg = this._config.options || {};
-    const pad = w < 500 ? 16 : w < 900 ? 22 : Math.round(clamp(w * 0.025, 24, 40));
-    const gap = w < 500 ? 12 : 16;
-    const minTile = cfg.tile_size || (w < 500 ? 150 : 175);
-    const cols = clamp(Math.floor((w - 2 * pad + gap) / (minTile + gap)), 2, cfg.max_columns || 8);
+    const phone = w < 600;
+    const pageCols = PAGE_COLUMNS[this._config.page] || 5;
+    let cols, pad, gap, aspect;
+    if (phone) {
+      cols = 2; pad = 14; gap = 10; aspect = 1;
+    } else {
+      pad = Math.round(clamp(w * 0.025, 16, 48)); gap = 16;
+      cols = w < 800 ? Math.min(pageCols, 4) : pageCols;
+      while ((w - 2 * pad - gap * (cols - 1)) / cols > 300 && cols < 12) cols++;
+      const wide = window.innerWidth / Math.max(1, window.innerHeight) >= 1.5;
+      aspect = wide ? (cols >= 6 ? 1.1 : 1.28) : 1;
+    }
+    if (cfg.tile_size) {   // the old rule: as many columns as fit tiles at least this wide
+      cols = clamp(Math.floor((w - 2 * pad + gap) / (cfg.tile_size + gap)), 2, 12);
+    }
+    if (cfg.max_columns) cols = Math.min(cols, cfg.max_columns);
+    cols = Math.max(2, cols);
     const colW = (w - 2 * pad - gap * (cols - 1)) / cols;
-    const ratio = window.innerWidth > window.innerHeight * 1.45 ? 1.2 : 1.05;   // wider tiles on wide screens
-    const row = Math.round(colW / ratio);
+    const row = Math.round(colW / aspect);
     this._root.style.setProperty('--hv-cols', cols);
     this._root.style.setProperty('--hv-row', `${row}px`);
     this._root.style.setProperty('--hv-gap', `${gap}px`);
     this._root.style.setProperty('--hv-pad', `${pad}px`);
-    this._root.querySelector('.board')?.classList.toggle('narrow', cols < 4);
+    const board = this._root.querySelector('.board');
+    if (board) {
+      board.classList.toggle('narrow', cols < 4);
+      // fill the screen below the page bar: measured once laid out (and again after a resize)
+      requestAnimationFrame(() => {
+        const top = board.getBoundingClientRect().top + (window.scrollY || 0);
+        if (top > 0) board.style.setProperty('--hv-board-h', `${Math.max(420, Math.round(window.innerHeight - top - pad))}px`);
+      });
+    }
     for (const t of this._tiles) {
       if (t._hvFree) continue;
       let [sw, sh] = t._hvSize;
@@ -2267,7 +2468,7 @@ class HomeViewPage extends HTMLElement {
         }).join('')}</div>` : ''}
       </div>
       ${pills.length ? `<div class="pills">${pills.map(([id, p]) => `<button class="pill${p.alert ? ' alert' : p.active ? ' active' : ''}" data-pill="${id}"><ha-icon icon="${p.icon}"></ha-icon>${esc(p.text)}${p.popup ? '<ha-icon icon="mdi:chevron-right" style="--mdc-icon-size:15px;opacity:.6"></ha-icon>' : ''}</button>`).join('')}</div>` : ''}`;
-    head.querySelector('[data-back]')?.addEventListener('click', () => (history.length > 1 ? history.back() : navigate(cfg.rooms_path || 'rooms')));
+    head.querySelector('[data-back]')?.addEventListener('click', () => (history.length > 1 ? history.back() : navigate('living')));
     head.querySelector('[data-edit-on]')?.addEventListener('click', () => this._setEditing(true));
     head.querySelector('[data-fresh]')?.addEventListener('click', () => reloadFresh());
     head.querySelectorAll('[data-nav-to]').forEach((el) => el.addEventListener('click', () => navigate(el.dataset.navTo)));
@@ -2338,6 +2539,10 @@ const EDITOR_LABELS = {
   update_notice: ['Tell me when a HomeView update is out', 'A banner for admins when HACS has a newer version.'],
   kiosk: ['Full screen (kiosk mode)', 'Hide Home Assistant\'s header and sidebar while HomeView is open. Each device can still switch it with the Menu chip.'],
   kiosk_chip: ['Show the Menu / Full screen chip', 'Turn off on a wall tablet so nobody leaves full screen by accident (?kiosk=off in the URL still works).'],
+  slideshow: ['Photo folder', 'A media folder, e.g. media-source://media_source/local/Photos. Empty = the first folder named Photos, Pictures, Slideshow … under Media.'],
+  slideshow_interval: ['Change photo every'],
+  slideshow_thumbnail: ['Smaller copy to try first (optional)', 'For NAS thumbnails, e.g. {dir}/.@__thumb/s800{name} on QNAP. Falls back to the full photo.'],
+  camera: ['Camera instead of photos'],
   favorites: ['Favourites', 'Tiles near the top of Home. Empty = automatic (alarm, locks, garage, thermostat).'],
   rooms: ['Show rooms on Home'],
   scenes: ['Show scenes on Home'],
@@ -2349,6 +2554,7 @@ const EDITOR_LABELS = {
   people_chips: ['People avatars under the Home title'],
   room_order: ['Room order', 'These rooms first, in this order; the rest after.'],
   hide_rooms: ['Hide rooms'],
+  living_rooms: ['Living page rooms', 'The rooms on the Living page, in this order. Empty = the indoor rooms that aren\'t a bedroom or bathroom, living spaces first.'],
   name: ['Name'], icon: ['Icon'], color: ['Colour'],
   entities: ['Show first', 'These entities first, in this order (instead of the automatic pick on the Rooms page).'],
   temperature: ['Temperature sensor'], humidity: ['Humidity sensor'],
@@ -2396,12 +2602,18 @@ function editorSchema(hass) {
       { name: 'theme', selector: { select: { mode: 'dropdown', options: [
         { value: 'auto', label: 'Follow Home Assistant' }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }] } } },
       { name: 'pages', selector: { select: { multiple: true, reorder: true,
-        options: DEFAULT_PAGES.map((p) => ({ value: p, label: PAGE_DEFS[p].title })) } } },
+        options: Object.keys(PAGE_DEFS).map((p) => ({ value: p, label: { rooms: 'Rooms (a page per family member)', all_rooms: 'All rooms (directory)' }[p] || PAGE_DEFS[p].title })) } } },
       { name: 'swipe', selector: { boolean: {} } },
       { name: 'edit_button', selector: { boolean: {} } },
       { name: 'update_notice', selector: { boolean: {} } },
       { name: 'kiosk', selector: { boolean: {} } },
       { name: 'kiosk_chip', selector: { boolean: {} } },
+    ] },
+    { type: 'expandable', name: 'widgets', title: 'Widgets page', icon: 'mdi:view-dashboard-variant-outline', schema: [
+      { name: 'slideshow', selector: { text: {} } },
+      { name: 'slideshow_interval', selector: { number: { min: 5, max: 3600, step: 5, unit_of_measurement: 's', mode: 'box' } } },
+      { name: 'slideshow_thumbnail', selector: { text: {} } },
+      { name: 'camera', selector: { entity: { filter: { domain: 'camera' } } } },
     ] },
     { type: 'expandable', name: 'home', title: 'Home page', icon: 'mdi:home-outline', schema: [
       { name: 'favorites', selector: { entity: { multiple: true } } },
@@ -2419,6 +2631,7 @@ function editorSchema(hass) {
     { type: 'expandable', name: '', flatten: true, title: 'Rooms', icon: 'mdi:sofa-outline', schema: [
       { name: 'room_order', selector: { select: { multiple: true, reorder: true, options: areas.map((a) => ({ value: a.area_id, label: a.name })) } } },
       { name: 'hide_rooms', selector: { area: { multiple: true } } },
+      { name: 'living_rooms', selector: { select: { multiple: true, reorder: true, options: areas.map((a) => ({ value: a.area_id, label: a.name })) } } },
       { type: 'expandable', name: 'rooms', title: 'Each room: name, icon, colour, what to show first', icon: 'mdi:floor-plan', schema:
         areas.map((a) => ({ type: 'expandable', name: a.area_id, title: a.name, icon: a.icon || 'mdi:floor-plan', schema: [
           { name: 'name', selector: { text: {} } },
@@ -2524,7 +2737,8 @@ class HomeViewStrategy extends HTMLElement {
     const { type, ...options } = config || {};
     const m = buildModel(hass, options);
     const customs = asList(options.custom_pages).map((d, i) => ({ ...d, idx: i, path: String(d.path || `page-${i + 1}`) }));
-    const wanted = asList(options.pages || DEFAULT_PAGES).filter((p) => PAGE_DEFS[p] || customs.some((c) => c.path === p));
+    const wanted = [...new Set(asList(options.pages || DEFAULT_PAGES).map((p) => PAGE_ALIASES[p] || p))]
+      .filter((p) => PAGE_DEFS[p] || customs.some((c) => c.path === p));
     let hasEnergy = false;
     if (wanted.includes('energy')) {
       try {
@@ -2534,13 +2748,14 @@ class HomeViewStrategy extends HTMLElement {
       if (options.energy) hasEnergy = true;
     }
     const available = {
-      home: true, widgets: true, rooms: m.rooms.length > 0, energy: hasEnergy, members: m.members.length > 0,
-      family: m.persons.length > 0 || m.calendars.length > 0, cameras: m.cameras.length > 0,
+      home: true, widgets: true, rooms: m.members.length > 0 || m.rooms.length > 0, all_rooms: m.rooms.length > 0, energy: hasEnergy,
+      living: m.rooms.length > 0, people: m.persons.length > 0 || m.calendars.length > 0, cameras: m.cameras.length > 0,
     };
     const pages = [...wanted.filter((p) => !PAGE_DEFS[p] || available[p]),
       ...customs.map((c) => c.path).filter((p) => !wanted.includes(p))];
     const pc = options.pages_config || {};
-    const paths = pages.flatMap((p) => (p === 'members' ? m.members.map((x) => `member-${x.slug}`) : [p]));
+    const paths = [...new Set(pages.flatMap((p) => (p !== 'rooms' ? [p]
+      : m.members.length ? m.members.map((x) => `member-${x.slug}`) : ['all_rooms'])))];
     const views = paths.map((p) => {
       const mem = m.members.find((x) => `member-${x.slug}` === p);
       if (mem) {
@@ -2552,14 +2767,16 @@ class HomeViewStrategy extends HTMLElement {
         return { title: c.title || 'Page', path: p, icon: c.icon || 'mdi:view-grid-outline', type: 'panel',
           cards: [{ type: 'custom:homeview-page', page: 'custom', custom: c.idx, path: p, order: paths, options }] };
       }
-      return { title: pc[p]?.title || PAGE_DEFS[p].title, path: p, icon: pc[p]?.icon || PAGE_DEFS[p].icon, type: 'panel',
+      const pcp = pc[p] || (p === 'living' ? pc.family || pc.shared : null) || {};
+      return { title: pcp.title || PAGE_DEFS[p].title, path: p, icon: pcp.icon || PAGE_DEFS[p].icon, type: 'panel',
         cards: [{ type: 'custom:homeview-page', page: p, path: p, order: paths, options }] };
     });
     const nav = views.map((v) => ({ path: v.path, title: v.title, icon: v.icon, letter: v.letter }));
     views.forEach((v) => { v.cards[0].nav = nav; delete v.letter; });
     for (const r of m.rooms) {
       views.push({
-        title: r.name, path: `room-${r.id}`, icon: r.icon, subview: true, back_path: pages.includes('rooms') ? 'rooms' : undefined,
+        title: r.name, path: `room-${r.id}`, icon: r.icon, subview: true,
+        back_path: paths.includes('living') ? 'living' : paths.includes('all_rooms') ? 'all_rooms' : undefined,
         type: 'panel',
         cards: [{ type: 'custom:homeview-page', page: 'room', area: r.id, order: [], options }],
       });

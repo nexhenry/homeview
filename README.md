@@ -13,13 +13,15 @@ no YAML per tile.
   dashboard, use the settings editor for everything else, or YAML if you prefer.
 - **No other cards needed:** HomeView draws its own tiles. You don't need button-card,
   card-mod, layout-card or anything else from HACS.
-- **One dashboard for every screen:** 2 columns on a phone, 4 on an iPad in portrait, 6 on a
-  tablet in landscape, up to 8 on a desktop.
+- **One dashboard for every screen:** 2 square tiles across on a phone; 5 across on an iPad,
+  a tablet and a browser (6 on the room-list pages), square on an iPad and a little wider than
+  tall (1.28 : 1, or 1.1 : 1 with 6 across) on screens wider than 3:2 — like the Pixel Tablet — so
+  a page fits the screen. Very wide screens get more columns.
 - **Light and dark:** follows your Home Assistant theme, each page and room with its own tint.
 - **Full screen like an app:** HA's header and sidebar are hidden; a Menu chip brings them back.
 - **Touch-first:** tap toggles, hold opens the details. Swipe left / right between pages.
 
-> Status: **0.4 (preview)**. The layout and config keys may still change before 1.0.
+> Status: **0.5 (preview)**. The layout and config keys may still change before 1.0.
 > Use at your own risk — see [Disclaimer](#disclaimer).
 
 ## Contents
@@ -34,17 +36,18 @@ no YAML per tile.
 
 | Page | What's on it |
 |---|---|
-| **Widgets** | One tinted panel for a wall tablet: a big date with sunrise / sunset, a big analog clock, the forecast, the week's agenda and a camera |
+| **Widgets** | One tinted panel for a wall tablet: a big date with sunrise / sunset, a big analog clock, the forecast, the week's agenda and a **photo slideshow** from a media folder (or a camera) |
 | **Home** | Date, title, people and status pills (alarm, climate, lights on, locks, doors & windows, leaks / smoke, batteries, now playing); the weather, air quality, the next event, a camera, a clock, your favourites (alarm, locks, garage, thermostat), *Lights* for the main rooms (tap = all on / off) and your scenes |
-| **Family** | Each person: home or away, since when, their phone's battery; the family members' rooms; the calendar for the next two weeks |
-| **Rooms** | Every room in its own colour with its lights, climate, locks, covers, fans and media. Tap a room for its page |
+| **Living** | The living spaces everyone shares — living room, kitchen, dining, family room, garage … — each in its own colour with its lights, climate, locks, covers, fans and media. Bedrooms, bathrooms and outdoor areas are left out (they have their own pages). Choose the rooms with `living_rooms` |
+| **Rooms** — a page per person | One page for each family member's own room (Ben, Lucy, Hana …): the room's temperature, comfort, humidity, doors and windows, its devices, their next event and where they are. Found automatically from rooms named after people ("Bedroom Lucy"), or set with `members` |
 | **Room pages** | 24-hour charts (temperature, humidity, light level), then everything in the room as compact tiles: lights, climate, doors & security, media, devices, scenes, cameras, sensors |
-| **A page per family member** | For each person with a room named after them ("Bedroom Lucy"): their room's temperature, humidity, doors and windows, its devices, their next event and where they are |
 | **Cameras** | Every camera in a 16:9 grid, refreshed every 10 s while on screen. Tap for the live stream |
 | **Energy** | A live flow diagram (solar, grid, battery, home), today's numbers and self-sufficiency, and the devices that used the most today — from your Energy dashboard settings |
+| **All rooms** *(optional)* | A directory of every room (by floor). Add `all_rooms` to `pages`. It's also what `rooms` shows in a home without member rooms |
+| **People** *(optional)* | Everyone with home / away, since when and phone battery, plus the family calendar. Add `people` to `pages` to use it |
 | **Your pages** | As many as you like, with your own tiles and any Home Assistant card |
 
-The pages come in this order, and swiping past Energy wraps back to Widgets.
+The pages come in this order, and swiping past the last one wraps back to Widgets.
 Pages that have nothing to show (no cameras, no energy set up …) are left out.
 
 The pills open a sheet with the matching devices, for example every light that's on or every
@@ -232,13 +235,17 @@ strategy:
   type: custom:homeview
   title: Our Home                 # Home page title (default: your location name)
   theme: auto                     # auto | light | dark
-  pages: [widgets, home, family, rooms, members, cameras, energy]   # which pages, in this order (+ custom page paths)
+  pages: [widgets, home, living, rooms, energy, cameras]   # which pages, in this order
+                                  # rooms = a page per family member's room
+                                  # optional: all_rooms, people, custom page paths
+                                  # old names: family = living, members = rooms
   pages_config:                   # per page: title, icon, color, sections
     home: { color: orange }
     rooms: { title: House, icon: mdi:floor-plan }
 
   # rooms (areas)
   room_order: [living_room, kitchen, bedroom]   # area ids first, the rest after
+  living_rooms: [living_room, kitchen, dining_room, garage]   # the Living page (default: shared indoor rooms)
   hide_rooms: [garage_attic]
   rooms:
     living_room:
@@ -265,6 +272,12 @@ strategy:
   members:                        # a page per family member (default: everyone whose name is in a room's name)
     person.lucy: { area: bedroom_lucy, calendars: [calendar.lucy_school] }
                                   # members: false = no member pages
+  widgets:
+    slideshow: media-source://media_source/local/Photos   # photo folder (default: the first media
+                                  # folder named Photos / Pictures / Slideshow / Gallery …; false = none)
+    slideshow_interval: 60        # seconds per photo
+    slideshow_thumbnail: '{dir}/.@__thumb/s800{name}'     # optional smaller copy to try first (QNAP NAS)
+    camera: camera.front_door     # show this camera instead of photos (false = neither)
   home:
     favorites: [alarm_control_panel.home, lock.front_door, cover.garage, climate.hallway]
                                   # default: automatic; [] = none
@@ -291,7 +304,7 @@ strategy:
   custom_pages: []                # see "Your own tiles, cards and pages"
 
   # layout and editing
-  tile_size: 175                  # smallest tile width in px (default 150 on phones, 175 above)
+  tile_size: 175                  # instead of the standard grid: as many columns as fit tiles this wide
   max_columns: 8
   swipe: true                     # swipe between pages
   edit_button: true               # the pencil (admins only)
@@ -305,6 +318,11 @@ strategy:
 - **Family members** get their own page when a room (area) is named after them — "Bedroom
   Lucy", "Ben's room" — or when you list them under `members`. A calendar with their name in
   it ("Lucy School") is used for their next event.
+- **Photos** for the slideshow come from Home Assistant's media: put them in **Media → My
+  media** (the `media` folder in your config), or add a network share as media. Album
+  subfolders are included and shuffled, nothing repeats until every photo has been shown, and
+  each photo cross-fades in once it has fully loaded. Portrait photos are shown whole over a
+  blurred fill. Tap the slideshow for the next photo.
 - **Rooms** are your Home Assistant **areas**. An entity belongs to a room through its own
   area or its device's area. Floors (if you use them) set the room order.
 - An entity is **left out** when it is hidden, disabled, or a configuration / diagnostic entity
