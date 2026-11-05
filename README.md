@@ -18,7 +18,7 @@ no YAML per tile.
   tall (1.28 : 1, or 1.1 : 1 with 6 across) on screens wider than 3:2 — like the Pixel Tablet — so
   a page fits the screen. Very wide screens get more columns.
 - **Light and dark:** follows your Home Assistant theme, each page and room with its own tint.
-- **Full screen like an app:** HA's header and sidebar are always hidden when HomeView opens; a small Menu icon brings them back (on phones and iPads it opens the sidebar too, so Settings is one tap away).
+- **Full screen like an app:** HA's header and sidebar are always hidden when HomeView opens; a small Menu icon in front of the page title brings them back (on phones and iPads it opens the sidebar too, so Settings is one tap away).
 - **Touch-first:** tap toggles, hold opens the details — a room's tile toggles its lights and
   holding it opens the room's page. Swipe left / right between pages, one page per swipe.
 
@@ -124,7 +124,7 @@ brand. A page with nothing to show is simply left out.
 | Alarm chip and pill | Any **alarm panel** (e.g. [Alarmo](https://github.com/nielsfaber/alarmo) from HACS, or your alarm's integration) | Settings → Devices & services |
 | Air quality tile | An AQI / PM2.5 / CO₂ / VOC **sensor** | — |
 | Photo slideshow | A folder of photos in **Media** (My media, or a network share) | Media → My media |
-| Update banner | HACS's update entity for HomeView (automatic once installed through HACS) | — |
+| Update icon | HACS's update entity for HomeView (automatic once installed through HACS) | — |
 
 **Internet:** until you add your own, the slideshow shows sample photos from
 [picsum.photos](https://picsum.photos), and people without a picture get avatars from
@@ -143,12 +143,12 @@ turn those requests off. Nothing else leaves your network.
 
 HACS checks for new versions by itself. When one is out you'll see it in three places:
 Home Assistant's **Settings** (a badge, and the update under *Updates*), **HACS**, and — for
-admins — a banner at the top of HomeView itself. Tap the banner for what's new and the
-**Update** button. Don't want the banner? `update_notice: false`.
+admins — a small ⬆ icon in front of HomeView's page title. Tap it for what's new and the
+**Update** button. Don't want it? `update_notice: false`.
 
 After updating, each screen has to load the new file. If a screen still runs the old version
 (Home Assistant lets browsers cache it), HomeView shows *"… is installed, but this screen
-still runs …"* — tap it to reload. Otherwise: hard reload (Ctrl/Cmd+Shift+R), or in the
+still runs …"* behind a ↻ icon — tap it to reload. Otherwise: hard reload (Ctrl/Cmd+Shift+R), or in the
 Companion app Settings → Companion App → Debugging → **Reset frontend cache**.
 
 **Behind Cloudflare or another caching proxy?** Home Assistant lets caches keep
@@ -184,10 +184,11 @@ changes: a new light in the kitchen appears on the Kitchen page by itself.
 
 HomeView opens **full screen**: Home Assistant's header and sidebar are hidden, and so is the
 page bar — move between pages by swiping (or with the ← / → keys). Tap the round **Menu** icon
-(top right) and the sidebar, header and HomeView's page bar come back.
+in front of the page title (top right on Widgets) and the sidebar, header and HomeView's page bar
+come back; on phones and iPads the sidebar opens in the same tap.
 Leave HomeView for another dashboard and the header and sidebar come back by themselves.
 
-- The round **Menu** icon (top right) brings the sidebar and header back until the page is
+- The round **Menu** icon brings the sidebar and header back until the page is
   reloaded or the app reopened — HomeView always opens full screen. Tap it again (now a
   full-screen icon) to hide them.
 - Add `?kiosk=off` to the URL to open with them shown.
@@ -384,6 +385,8 @@ strategy:
 
   pills: [alarm, climate, lights, locks, openings, safety, batteries, media]   # or false
   battery_low: 20                 # % under which a battery counts as low
+  screensaver: auto               # big clock after 2 min idle: auto = touch tablets only; true; false;
+                                  # or { idle: 120, color: '#4D7DB8', pages: [home, living] }
   comfort: thermostat             # Cold / Comfy / Warm on room tiles: thermostat (default) follows the
                                   # room's thermostat (its own, else the house's): heat setting − margin …
                                   # cool setting + margin; fixed = 66–77 °F (19–25 °C); or { cold: 68, warm: 76 }
@@ -429,7 +432,7 @@ strategy:
   edit_button: true               # the pencil (admins only)
   kiosk: true                     # full screen: hide HA's header and sidebar
   kiosk_chip: true                # the Menu / Full screen chip
-  update_notice: true             # a banner for admins when HACS has a newer HomeView
+  update_notice: true             # an update icon for admins when HACS has a newer HomeView
 ```
 
 ### What goes where

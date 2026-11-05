@@ -11,7 +11,7 @@
  * Home, Widgets, Family, Rooms (plus one page per room), Energy and Cameras. Everything is
  * optional and can be tuned in the strategy config — see README.md.
  */
-const HV_VERSION = '0.8.4';
+const HV_VERSION = '0.8.5';
 // where this file was loaded from (to re-download it after an update)
 const HV_URL = (() => { try { return import.meta.url; } catch (e) { return null; } })();
 
@@ -62,7 +62,7 @@ const KNOWN_OPTIONS = ['type', 'title', 'theme', 'pages', 'pages_config', 'room_
   'exclude_entities', 'customize', 'people', 'calendars', 'weather', 'cameras', 'home', 'pills', 'battery_low',
   'people_chips', 'energy', 'tile_size', 'max_columns', 'swipe', 'custom_pages', 'edit_button', 'update_notice',
   'kiosk', 'kiosk_chip', 'members', 'living_rooms', 'widgets', 'avatars', 'phone_favorites', 'access',
-  'comfort', 'comfort_thermostat', 'comfort_margin'];   // energy.* : see the energy page
+  'comfort', 'comfort_thermostat', 'comfort_margin', 'screensaver'];   // energy.* : see the energy page
 
 // What a room page / room row shows, in this order
 const ROOM_GROUPS = [
@@ -294,6 +294,88 @@ function setKioskWanted(on) { kioskMenu = !on; }
  * open the drawer too, so Settings, the integrations' panels and the profile are one tap away.
  * (A wide screen docks the sidebar, which comes back with the header.)
  */
+/**
+ * Screensaver: a big analog clock that fills the screen after a while without a touch — for a
+ * wall tablet (after the hand-made Slopeview HomeView's WallPanel clock). Built in, no plugin.
+ * screensaver: auto (default) = touch tablets only (a touch screen whose smaller side is ≥ 600
+ * px), never phones or desktops | true | false | { idle: 120, pages: [...], color: '#4D7DB8' }.
+ * Not on Cameras or while editing. Any touch closes it, and that touch doesn't reach the page.
+ */
+const hvScreensaver = (() => {
+  let enabled = false, idleMs = 120e3, color = '#4D7DB8', last = Date.now(), el = null, blockUntil = 0, timer = null, minute = null;
+  const now = () => Date.now();
+  const wake = () => { last = now(); };
+  const clockSvg = () => {
+    const d = new Date();
+    const sec = d.getHours() % 12 * 3600 + d.getMinutes() * 60 + d.getSeconds() + d.getMilliseconds() / 1000;
+    const ar = (window.innerWidth || 1180) / (window.innerHeight || 820);
+    const W = Math.max(100, 100 * ar), cx = W / 2, cy = 50;
+    const num = (t, x, y) => `<text x="${x}" y="${y}" text-anchor="middle" dominant-baseline="central" fill="#0B0B0C" font-size="56" font-weight="300" letter-spacing="-3">${t}</text>`;
+    const spin = (period) => `transform-origin:${cx}px ${cy}px;animation:hvss ${period}s linear infinite;animation-delay:-${(sec % period).toFixed(2)}s`;
+    const hand = (len, w, period) => `<g style="${spin(period)}"><line x1="${cx}" y1="${cy}" x2="${cx}" y2="${cy - 6}" stroke="#FFF" stroke-width="1.3" stroke-linecap="round"/><line x1="${cx}" y1="${cy - 6}" x2="${cx}" y2="${cy - len}" stroke="#FFF" stroke-width="${w}" stroke-linecap="round"/></g>`;
+    const wd = d.toLocaleDateString(hvHass?.locale?.language, { weekday: 'short' }).toUpperCase();
+    const dx = Math.min(36, 30 + (W - 100) * 0.15);
+    return `<svg viewBox="0 0 ${W.toFixed(2)} 100" preserveAspectRatio="xMidYMid slice" style="width:100%;height:100%;display:block;font-family:${FONT}">
+      <style>@keyframes hvss{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}</style>
+      <rect x="0" y="0" width="${W}" height="100" fill="${color}"/>
+      ${num('12', cx, 25)}${num('9', cx - dx, 51)}${num('3', cx + dx, 51)}${num('6', cx + 2, 77)}
+      <text x="5" y="94" fill="#0B0B0C" font-size="4.6" font-weight="700" letter-spacing="0.2">${esc(wd)} ${d.getDate()}</text>
+      <g style="filter:drop-shadow(0 0.4px 0.8px rgba(0,0,0,0.35))">${hand(25, 3.2, 43200)}${hand(39, 3.2, 3600)}</g>
+      <g style="${spin(60)}"><line x1="${cx}" y1="${cy + 8}" x2="${cx}" y2="3" stroke="#FFF" stroke-width="0.45" stroke-linecap="round"/></g>
+      <circle cx="${cx}" cy="${cy}" r="2.1" fill="#FFF"/><circle cx="${cx}" cy="${cy}" r="0.9" fill="${color}"/></svg>`;
+  };
+  const hide = () => {
+    if (!el) return;
+    el.remove(); el = null; clearInterval(minute); minute = null; wake();
+  };
+  const show = () => {
+    if (el) return;
+    el = document.createElement('div');
+    el.id = 'homeview-screensaver';
+    el.style.cssText = 'position:fixed;inset:0;z-index:2147483000;opacity:0;transition:opacity 2s;cursor:none;touch-action:none';
+    el.innerHTML = clockSvg();
+    // the touch that closes it must not press what's underneath
+    const close = (e) => { e.preventDefault(); e.stopPropagation(); blockUntil = now() + 700; hide(); };
+    el.addEventListener('pointerdown', close, { capture: true });
+    el.addEventListener('touchstart', close, { capture: true, passive: false });
+    document.body.appendChild(el);
+    requestAnimationFrame(() => { if (el) el.style.opacity = '1'; });
+    minute = setInterval(() => { if (el) el.innerHTML = clockSvg(); }, 60e3);   // the date; the hands run by themselves
+  };
+  // anything the person does counts as activity; right after closing, swallow the rest of that touch
+  const swallow = (e) => { if (now() < blockUntil) { e.preventDefault(); e.stopPropagation(); } };
+  let bound = false;
+  const bind = () => {
+    if (bound) return; bound = true;
+    for (const ev of ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart']) window.addEventListener(ev, wake, { capture: true, passive: true });
+    for (const ev of ['click', 'pointerup', 'touchend', 'mouseup']) window.addEventListener(ev, swallow, { capture: true });
+    document.addEventListener('visibilitychange', wake);
+  };
+  const tick = () => {
+    if (!enabled || el || document.visibilityState !== 'visible') return;
+    if (now() - last >= idleMs) show();
+  };
+  return {
+    /** page: the HomeView page on screen (null = none). */
+    update(page) {
+      const o = page?.isConnected ? page._config?.options || {} : null;
+      const opt = o ? (o.screensaver ?? 'auto') : false;
+      const pageId = page?._config?.path || page?._config?.page;
+      const obj = opt && typeof opt === 'object' ? opt : {};
+      const tablet = (navigator.maxTouchPoints || 0) > 0 && Math.min(screen.width, screen.height) >= 600;
+      const on = !!o && opt !== false && obj.enabled !== false && (opt === 'auto' ? tablet : true)
+        && !page._editing && (obj.pages ? asList(obj.pages).includes(pageId) : pageId !== 'cameras');
+      idleMs = Math.max(10, num(obj.idle) ?? 120) * 1000;
+      color = typeof obj.color === 'string' ? obj.color : '#4D7DB8';
+      if (on && !enabled) wake();
+      enabled = on;
+      if (!on) hide();
+      if (on) { bind(); if (!timer) timer = setInterval(tick, 2000); }
+      else if (timer) { clearInterval(timer); timer = null; }
+    },
+  };
+})();
+
 function openHaSidebar() {
   setTimeout(() => {
     const main = document.querySelector('home-assistant')?.shadowRoot?.querySelector('home-assistant-main');
@@ -414,6 +496,21 @@ function buildModel(hass, cfg) {
     model.areaById[a.area_id] = room;
   });
 
+  // A device's indicator light is not a room light: a switch's status LED, a speaker's LED ring.
+  // Name says LED / indicator / status / ring (not a strip / tape / bar / panel) and the device
+  // also has a real load (another light, a switch, a fan, a speaker …). Shown under Devices on its
+  // room's page, left out of the Lights tiles, the lights-on pill and a room's on-count.
+  const byDevice = {};
+  for (const [eid, r] of Object.entries(hass.entities || {})) if (r.device_id) (byDevice[r.device_id] = byDevice[r.device_id] || []).push(eid);
+  const LOADS = ['light', 'switch', 'fan', 'media_player', 'humidifier', 'climate', 'assist_satellite', 'cover', 'lock', 'vacuum'];
+  const indicatorLight = (id) => {
+    const nm = `${id.split('.')[1]} ${hass.states[id]?.attributes?.friendly_name || ''}`;
+    if (!/(^|[\s_.-])(led|leds|indicator|status|ring)([\s_.-]|$)/i.test(nm) || /strip|tape|bar|panel|bulb/i.test(nm)) return false;
+    const dev = hass.entities?.[id]?.device_id;
+    return !!dev && (byDevice[dev] || []).some((o) => o !== id && LOADS.includes(domainOf(o)) && !hass.entities?.[o]?.entity_category);
+  };
+  model.indicatorLights = [];
+
   // ---- entities
   for (const id of Object.keys(hass.states)) {
     if (exclude.has(id)) continue;
@@ -428,7 +525,9 @@ function buildModel(hass, cfg) {
     if (d === 'sensor' && dc === 'battery' && st.attributes.unit_of_measurement === '%') model.batteries.push(id);
     if (diag) continue;
     (model.byDomain[d] = model.byDomain[d] || []).push(id);
-    if (d === 'light' && !Array.isArray(st.attributes.entity_id)) model.lights.push(id);   // not light groups
+    const indicator = d === 'light' && indicatorLight(id);
+    if (indicator) model.indicatorLights.push(id);
+    if (d === 'light' && !indicator && !Array.isArray(st.attributes.entity_id)) model.lights.push(id);   // not light groups
     if (d === 'binary_sensor' && OPENING_CLASSES.includes(dc)) model.openings.push(id);
     if (d === 'cover' && ['garage', 'door', 'gate'].includes(dc)) model.openings.push(id);
     if (d === 'binary_sensor' && SAFETY_CLASSES.includes(dc)) model.safety.push(id);
@@ -439,7 +538,7 @@ function buildModel(hass, cfg) {
     const room = model.areaById[entityArea(hass, id)];
     if (!room) continue;
     room.entities.push(id);
-    const g = ROOM_GROUPS.find((x) => x.domains.includes(d));
+    const g = indicator ? ROOM_GROUPS.find((x) => x.id === 'devices') : ROOM_GROUPS.find((x) => x.domains.includes(d));
     if (!g) continue;
     if (d === 'sensor' && !SENSOR_CLASSES.includes(dc)) continue;
     if (d === 'binary_sensor' && !SENSOR_CLASSES.includes(dc)) continue;
@@ -2721,6 +2820,11 @@ img.lt { object-fit:cover; background:var(--hv-pill); }
 .upd { all:unset; cursor:pointer; flex-basis:100%; display:flex; align-items:center; gap:10px; padding:10px 14px; border-radius:16px;
   background:var(--hv-accent); color:#fff; font:500 14px ${FONT}; --mdc-icon-size:22px; box-sizing:border-box; }
 .upd b { font-weight:700; }
+.title .hb { flex:none; color:var(--hv-fg2); }
+.title .hb + .hb, .title .hb + .back { margin-left:-2px; }
+.hb.updi { background:var(--hv-accent); color:#fff; }
+.tbb { display:inline-flex; gap:8px; }
+.sheet.narrow { width:min(460px, 100%); }
 .hint { color:var(--hv-fg2); font-size:14px; line-height:1.45; margin:0 0 12px; }
 .yaml { background:var(--hv-tile); border-radius:14px; padding:14px 16px; font-size:13px; line-height:1.5; overflow:auto; white-space:pre;
   font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color:var(--hv-fg); user-select:text; -webkit-user-select:text; }
@@ -2753,7 +2857,7 @@ class HomeViewPage extends HTMLElement {
   set hass(h) {
     this._hass = h;
     hvHass = h;
-    if (this.isConnected && Date.now() - (this._kAt || 0) > 2500) { this._kAt = Date.now(); applyKiosk(kioskWanted(this._config?.options)); }
+    if (this.isConnected && Date.now() - (this._kAt || 0) > 2500) { this._kAt = Date.now(); applyKiosk(kioskWanted(this._config?.options)); hvScreensaver.update(this); }
     const sig = this._signature(h);
     if (sig !== this._sig) { this._sig = sig; this.rebuild(); return; }
     this._tiles.forEach((t) => { t.hass = h; });
@@ -2768,6 +2872,7 @@ class HomeViewPage extends HTMLElement {
     hvPagesOnScreen++;
     HomeViewPage._current = this;
     this._kiosk();
+    hvScreensaver.update(this);
     if (!this._onWinResize) { this._onWinResize = () => this._layout(); window.addEventListener('resize', this._onWinResize); }
   }
   disconnectedCallback() {
@@ -2775,7 +2880,7 @@ class HomeViewPage extends HTMLElement {
     if (this._onWinResize) { window.removeEventListener('resize', this._onWinResize); this._onWinResize = null; }
     hvPagesOnScreen = Math.max(0, hvPagesOnScreen - 1);
     // switching between HomeView pages reconnects at once; leaving HomeView doesn't
-    setTimeout(() => { if (!hvPagesOnScreen) applyKiosk(false); }, 600);
+    setTimeout(() => { if (!hvPagesOnScreen) { applyKiosk(false); hvScreensaver.update(null); } }, 600);
   }
 
   _kiosk() {
@@ -2927,6 +3032,7 @@ class HomeViewPage extends HTMLElement {
   _setEditing(on) {
     try { if (on) sessionStorage.setItem('homeview-edit', '1'); else sessionStorage.removeItem('homeview-edit'); } catch (e) { window.__homeviewEdit = on; }
     this.rebuild();
+    hvScreensaver.update(this);
   }
 
   _favorites() {
@@ -3197,18 +3303,21 @@ class HomeViewPage extends HTMLElement {
       const s = roomSummary(h, room);
       roomSub = [s.t !== null ? `${fmt(s.t, 1)}°` : null, s.hu !== null ? `${fmt(s.hu, 0)}%` : null].filter(Boolean).join(' · ');
     }
-    const updBanner = stale ? `<button class="upd" data-fresh><ha-icon icon="mdi:refresh-circle"></ha-icon>
-        <span><b>HomeView ${esc(stale)} is installed</b>, but this screen still runs ${esc(HV_VERSION)}. Tap to reload it.</span></button>`
-      : updOn ? `<button class="upd" data-more="${esc(this._updEnt)}"><ha-icon icon="mdi:arrow-up-circle"></ha-icon>
-        <span><b>HomeView ${esc(updOn)} is available</b> (you have ${esc(HV_VERSION)}). Tap to see what's new and update.</span></button>` : '';
-    const solo = !(nav.length > 1) && !page.minimalHead;   // just the Menu icon: float it top right
-    head.classList.toggle('padr', !!(solo && chip));
-    const topbar = nav.length > 1 || chip ? `<div class="topbar${solo ? ' solo' : ''}">
+    // Menu / Full screen and the update icon sit in front of the page title (on a page without a
+    // title — Widgets — top right). Update: ⬆ a new release (tap: what's new / update), ↻ HACS has
+    // installed it but this screen still runs the old copy (tap: reload).
+    const menuBtn = chip ? `<button class="back hb" data-kiosk title="${kiosk ? 'Menu: show Home Assistant\'s sidebar and header' : 'Full screen: hide Home Assistant\'s sidebar and header'}" aria-label="${kiosk ? 'Menu' : 'Full screen'}"><ha-icon icon="${kiosk ? 'mdi:menu' : 'mdi:fullscreen'}"></ha-icon></button>` : '';
+    const updBtn = stale ? `<button class="back hb updi" data-upd="fresh" title="HomeView ${esc(stale)} is installed, but this screen still runs ${esc(HV_VERSION)}" aria-label="Reload HomeView"><ha-icon icon="mdi:refresh"></ha-icon></button>`
+      : updOn ? `<button class="back hb updi" data-upd="new" title="HomeView ${esc(updOn)} is available" aria-label="Update HomeView"><ha-icon icon="mdi:arrow-up"></ha-icon></button>` : '';
+    const solo = !(nav.length > 1) && !!page.minimalHead;   // a page without a title: the icons float top right
+    const barBtns = page.minimalHead ? `${updBtn}${menuBtn}` : '';
+    head.classList.toggle('padr', !!(solo && barBtns));
+    const topbar = nav.length > 1 || barBtns ? `<div class="topbar${solo ? ' solo' : ''}">
         <div class="nav">${nav.length > 1 ? nav.map((v) => `<button class="nv${v.path === here ? ' on' : ''}" data-nav-to="${esc(v.path)}" title="${esc(v.title)}">${v.avatar ? `<img class="lt" src="${esc(v.avatar)}" alt="">` : v.letter ? `<span class="lt">${esc(v.letter)}</span>` : `<ha-icon icon="${esc(v.icon)}"></ha-icon>`}<span>${esc(v.title)}</span></button>`).join('') : ''}</div>
-        ${chip ? `<button class="chip" data-kiosk title="${kiosk ? 'Menu: show Home Assistant\'s sidebar and header' : 'Full screen: hide Home Assistant\'s sidebar and header'}" aria-label="${kiosk ? 'Menu' : 'Full screen'}"><ha-icon icon="${kiosk ? 'mdi:dock-left' : 'mdi:fullscreen'}"></ha-icon></button>` : ''}</div>` : '';
-    head.innerHTML = page.minimalHead ? `${updBanner}${topbar}` : `${updBanner}${topbar}<div>
+        ${barBtns ? `<span class="tbb">${barBtns}</span>` : ''}</div>` : '';
+    head.innerHTML = page.minimalHead ? `${topbar}` : `${topbar}<div>
         <div class="date">${esc(today)}</div>
-        <div class="title">${page.back ? '<button class="back" data-back><ha-icon icon="mdi:chevron-left"></ha-icon></button>' : ''}${esc(this._phone && page.greet && h.user?.name ? `Hi ${h.user.name.split(' ')[0]}` : page.title)}${roomSub ? `<span class="sub">${esc(roomSub)}</span>` : ''}${canEdit && !editing ? '<button class="back pen" data-edit-on title="Edit HomeView"><ha-icon icon="mdi:pencil-outline"></ha-icon></button>' : ''}</div>
+        <div class="title">${menuBtn}${updBtn}${page.back ? '<button class="back" data-back><ha-icon icon="mdi:chevron-left"></ha-icon></button>' : ''}${esc(this._phone && page.greet && h.user?.name ? `Hi ${h.user.name.split(' ')[0]}` : page.title)}${roomSub ? `<span class="sub">${esc(roomSub)}</span>` : ''}${canEdit && !editing ? '<button class="back pen" data-edit-on title="Edit HomeView"><ha-icon icon="mdi:pencil-outline"></ha-icon></button>' : ''}</div>
         ${editing ? `<div class="editbar"><span><b>Editing</b> · <ha-icon icon="mdi:star-outline"></ha-icon> on Home · <ha-icon icon="mdi:resize"></ha-icon> size · <ha-icon icon="mdi:rename-outline"></ha-icon> name · <ha-icon icon="mdi:eye-off-outline"></ha-icon> hide · <ha-icon icon="mdi:palette-outline"></ha-icon> room colour</span>
           <span class="eb"><button class="txt" data-settings><ha-icon icon="mdi:cog-outline"></ha-icon> Settings</button><button class="txt primary" data-edit-off>Done</button></span></div>` : ''}
         ${chips.length ? `<div class="chips">${chips.map((c, i) => {
@@ -3232,7 +3341,7 @@ class HomeViewPage extends HTMLElement {
         () => moreInfo(this, c.entity));
     });
     head.querySelector('[data-edit-on]')?.addEventListener('click', () => this._setEditing(true));
-    head.querySelector('[data-fresh]')?.addEventListener('click', () => reloadFresh());
+    head.querySelector('[data-upd]')?.addEventListener('click', (ev) => this._updSheet(ev.currentTarget.dataset.upd, updOn, stale));
     head.querySelectorAll('[data-nav-to]').forEach((el) => el.addEventListener('click', () => navigate(el.dataset.navTo)));
     head.querySelector('[data-kiosk]')?.addEventListener('click', () => {
       setKioskWanted(!kiosk); applyKiosk(!kiosk); this._headKey = null; this._renderHead();
@@ -3245,6 +3354,31 @@ class HomeViewPage extends HTMLElement {
       const p = PILLS[el.dataset.pill](h, m, cfg);
       if (p.popup) this._popup(p.popup); else if (p.more) moreInfo(this, p.more);
     }));
+  }
+
+  /** The update icon's sheet: a new release (what's new / update via HA's update dialog) or a
+   *  stale screen (HACS installed a newer HomeView than this screen runs: reload it). */
+  _updSheet(kind, latest, installed) {
+    const pop = document.createElement('div'); pop.className = 'pop';
+    const sheet = document.createElement('div'); sheet.className = 'sheet narrow';
+    const fresh = kind === 'fresh';
+    sheet.innerHTML = `<div class="sheet-h">${fresh ? 'Reload HomeView' : 'HomeView update'}<button class="back" data-close aria-label="Close"><ha-icon icon="mdi:close"></ha-icon></button></div>
+      <p class="hint">${fresh
+        ? `HomeView <b>${esc(installed)}</b> is installed, but this screen still runs <b>${esc(HV_VERSION)}</b> from the browser's cache. Reload it to use the new version.`
+        : `HomeView <b>${esc(latest)}</b> is available — you have <b>${esc(HV_VERSION)}</b>. See what's new, then update it right there (it's installed through HACS). Each screen reloads to the new version by itself afterwards, or tap the ↻ icon.`}</p>
+      <div class="sheet-b">${fresh
+        ? '<button class="txt primary" data-go><ha-icon icon="mdi:refresh"></ha-icon> Reload now</button>'
+        : '<button class="txt primary" data-go><ha-icon icon="mdi:arrow-up-circle"></ha-icon> See what\'s new & update</button>'}
+        <button class="txt" data-close>Later</button></div>`;
+    pop.appendChild(sheet);
+    const close = () => pop.remove();
+    pop.addEventListener('click', (e) => { if (e.target === pop) close(); });
+    sheet.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', close));
+    sheet.querySelector('[data-go]').addEventListener('click', () => {
+      close();
+      if (fresh) reloadFresh(); else if (this._updEnt) moreInfo(this, this._updEnt);
+    });
+    this._root.appendChild(pop);
   }
 
   _popup({ title, ids, showRoom }) {

@@ -1,7 +1,19 @@
 # Changelog
 
-## Unreleased
+## 0.8.5 — 2026-11-05
 
+- **Menu and update icons in front of the page title** (top right on Widgets, which has no
+  title). The update banner is now a small icon for admins: ⬆ a new release (tap: what's new
+  and Update, through HACS), ↻ HACS installed a newer HomeView than this screen runs (tap:
+  Reload now).
+- **Screensaver:** a big analog clock fills the screen after 2 minutes without a touch, on wall
+  tablets and iPads. Built in, with no plugin. Any touch closes it without pressing what's
+  underneath. Not on phones or desktops (`screensaver: auto`), not on Cameras or while editing.
+  `screensaver: false` / `true` / `{ idle: 120, color: '#4D7DB8', pages: [...] }`.
+- **A switch's status LED is not a room light:** lights named LED / indicator / status / ring
+  on a device that also has a real load (a switch, another light, a speaker …) are shown under
+  Devices instead. They no longer make a room's Lights tile, its on-count or the lights pill read
+  "on" while every lamp is off.
 - **Menu opens the sidebar in one tap** on phones and iPads, where Home Assistant keeps its
   sidebar in a drawer behind its own ☰: Settings, your integrations' panels and the profile are
   one tap away from full screen.
