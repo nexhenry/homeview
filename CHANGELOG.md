@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.6.0 — 2026-11-04
+
+- **Tile sizes like a hand-made HomeView on every device:** Home is one screen — weather 2×2,
+  air quality 2×1, two doors 1×1 (front lock, garage), camera 2×1, *Lights* for the two main
+  rooms, clock 1×1, next event 2×1 — and the same tiles two across on a phone. Automatic
+  favourites put doors first (the alarm and thermostat have pills); `home.max_favorites`,
+  `home.max_light_rooms`. Member pages: next event 3×1. Edit mode sizes: 1×1 → 2×1 → 3×1 → 2×2.
+- **The camera moved to Home;** Widgets always shows the photo slideshow (`widgets.camera`
+  puts a camera there instead).
+- **Sample photos** for the slideshow until you have a photo folder (or with
+  `slideshow: samples`): twelve Unsplash photos via Lorem Picsum.
+- **Control chips** under the Home title, like a hand-made HomeView: alarm, garage / gate,
+  locks and the water shutoff valve (automatic) or your own (`home.chips`, any switch, input
+  boolean or automation with `icon_on` / `icon_off`, `name`, `confirm`, `off_warn`). Icon only
+  until something needs attention (red with a word), pulsing while moving / arming; tap acts,
+  hold = details. The alarm pill is left out when the alarm has a chip.
+- **Always opens full screen:** the Menu chip no longer remembers its choice per device — it
+  shows HA's sidebar and header until the page is reloaded (a device left on "Menu" by 0.3–0.5
+  goes back to full screen). The chip is a small round icon, no text.
+- **Sample avatars** for people without a picture (DiceBear "Lorelei", CC0): on person tiles,
+  under the Home title and in the page bar for each member's room. The seed is a hash of the
+  entity id (no names are sent); `avatars: initials` for letters instead.
+
 ## 0.5.0 — 2026-11-04
 
 - **Living** (was *Family*): the living spaces everyone shares, each room with its main

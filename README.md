@@ -18,7 +18,7 @@ no YAML per tile.
   tall (1.28 : 1, or 1.1 : 1 with 6 across) on screens wider than 3:2 — like the Pixel Tablet — so
   a page fits the screen. Very wide screens get more columns.
 - **Light and dark:** follows your Home Assistant theme, each page and room with its own tint.
-- **Full screen like an app:** HA's header and sidebar are hidden; a Menu chip brings them back.
+- **Full screen like an app:** HA's header and sidebar are always hidden when HomeView opens; a small Menu icon brings them back.
 - **Touch-first:** tap toggles, hold opens the details. Swipe left / right between pages.
 
 > Status: **0.5 (preview)**. The layout and config keys may still change before 1.0.
@@ -36,8 +36,8 @@ no YAML per tile.
 
 | Page | What's on it |
 |---|---|
-| **Widgets** | One tinted panel for a wall tablet: a big date with sunrise / sunset, a big analog clock, the forecast, the week's agenda and a **photo slideshow** from a media folder (or a camera) |
-| **Home** | Date, title, people and status pills (alarm, climate, lights on, locks, doors & windows, leaks / smoke, batteries, now playing); the weather, air quality, the next event, a camera, a clock, your favourites (alarm, locks, garage, thermostat), *Lights* for the main rooms (tap = all on / off) and your scenes |
+| **Widgets** | One tinted panel for a wall tablet: a big date with sunrise / sunset, a big analog clock, the forecast, the week's agenda and a **photo slideshow** from a media folder (sample photos until you add your own) |
+| **Home** | One screen, like a hand-made dashboard: date, title, **control chips** (alarm, garage, locks, water valve — red with a word when something needs attention), people and status pills (alarm, climate, lights on, locks, doors & windows, leaks / smoke, batteries, now playing); weather (2×2), air quality (2×1), two doors (front lock, garage), a camera (2×1), *Lights* for the two main rooms (tap = all on / off), a clock and the next event (2×1); your scenes below |
 | **Living** | The living spaces everyone shares — living room, kitchen, dining, family room, garage … — each in its own colour with its lights, climate, locks, covers, fans and media. Bedrooms, bathrooms and outdoor areas are left out (they have their own pages). Choose the rooms with `living_rooms` |
 | **Rooms** — a page per person | One page for each family member's own room (Ben, Lucy, Hana …): the room's temperature, comfort, humidity, doors and windows, its devices, their next event and where they are. Found automatically from rooms named after people ("Bedroom Lucy"), or set with `members` |
 | **Room pages** | 24-hour charts (temperature, humidity, light level), then everything in the room as compact tiles: lights, climate, doors & security, media, devices, scenes, cameras, sensors |
@@ -108,9 +108,10 @@ HomeView opens **full screen**: Home Assistant's header and sidebar are hidden, 
 own bar at the top switches pages (on a phone it shows just the icons; you can also swipe).
 Leave HomeView for another dashboard and the header and sidebar come back by themselves.
 
-- **Menu** (top right) brings the sidebar and header back on this device; **Full screen**
-  hides them again. Each device remembers its own choice.
-- Add `?kiosk=off` or `?kiosk=on` to the URL to set it, handy for a wall tablet.
+- The round **Menu** icon (top right) brings the sidebar and header back until the page is
+  reloaded or the app reopened — HomeView always opens full screen. Tap it again (now a
+  full-screen icon) to hide them.
+- Add `?kiosk=off` to the URL to open with them shown.
 - `kiosk_chip: false` hides the chip, so nobody leaves full screen by accident.
 - `kiosk: false` turns full screen off for everyone (HA's normal header and tabs).
 
@@ -273,16 +274,24 @@ strategy:
     person.lucy: { area: bedroom_lucy, calendars: [calendar.lucy_school] }
                                   # members: false = no member pages
   widgets:
-    slideshow: media-source://media_source/local/Photos   # photo folder (default: the first media
-                                  # folder named Photos / Pictures / Slideshow / Gallery …; false = none)
+    slideshow: media-source://media_source/local/Photos   # photo folder, or samples (default: the
+                                  # first media folder named Photos / Pictures / Slideshow …, else
+                                  # sample photos; false = none)
     slideshow_interval: 60        # seconds per photo
     slideshow_thumbnail: '{dir}/.@__thumb/s800{name}'     # optional smaller copy to try first (QNAP NAS)
-    camera: camera.front_door     # show this camera instead of photos (false = neither)
+    camera: camera.front_door     # a camera here instead of the photos (the camera is on Home)
   home:
     favorites: [alarm_control_panel.home, lock.front_door, cover.garage, climate.hallway]
                                   # default: automatic; [] = none
-    light_rooms: [living_room, kitchen]   # rooms with a "Lights" tile (default: the main rooms, up to 4)
-    max_light_rooms: 4
+    light_rooms: [living_room, kitchen]   # rooms with a "Lights" tile (default: the 2 main rooms)
+    max_light_rooms: 2
+    max_favorites: 2              # automatic favourites (doors first)
+    chips:                        # round control chips under the title (default: alarm, garage /
+                                  # gate, locks, water shutoff valve; false = none)
+      - alarm_control_panel.house
+      - { entity: cover.garage_door, confirm: true }
+      - { entity: input_boolean.auto_lights, icon_on: mdi:lightbulb-auto, icon_off: mdi:lightbulb-auto-outline }
+      - { entity: automation.night_alert, name: Night alert, off_warn: true, confirm: true }
     camera: camera.front_door     # the camera on Home (default: the first one; false = none)
     air: true                     # the air quality tile, when you have an AQI / PM2.5 / CO2 / VOC sensor
     rooms: false                  # the room tiles on Home (they're on the Rooms page)
@@ -292,6 +301,7 @@ strategy:
   pills: [alarm, climate, lights, locks, openings, safety, batteries, media]   # or false
   battery_low: 20                 # % under which a battery counts as low
   people_chips: true              # the avatars under the Home title
+  avatars: samples                # people without a picture: samples (free illustrated avatars) | initials
 
   energy:                         # live power, when the Energy settings don't say
     solar_power: sensor.solar_power
@@ -318,11 +328,17 @@ strategy:
 - **Family members** get their own page when a room (area) is named after them — "Bedroom
   Lucy", "Ben's room" — or when you list them under `members`. A calendar with their name in
   it ("Lucy School") is used for their next event.
+- **Avatars:** a person's own picture (Settings → People) is always used. Everyone else gets a
+  free illustrated sample avatar from DiceBear — the same one every time. Only a hash of the
+  person's entity id is sent to api.dicebear.com, never a name. `avatars: initials` shows the
+  first letter instead, with no internet request.
 - **Photos** for the slideshow come from Home Assistant's media: put them in **Media → My
   media** (the `media` folder in your config), or add a network share as media. Album
   subfolders are included and shuffled, nothing repeats until every photo has been shown, and
   each photo cross-fades in once it has fully loaded. Portrait photos are shown whole over a
-  blurred fill. Tap the slideshow for the next photo.
+  blurred fill. Tap the slideshow for the next photo. Until you have a photo folder it shows
+  a dozen **sample photos**, loaded from picsum.photos on the internet (`slideshow: false` or a
+  folder of your own stops that).
 - **Rooms** are your Home Assistant **areas**. An entity belongs to a room through its own
   area or its device's area. Floors (if you use them) set the room order.
 - An entity is **left out** when it is hidden, disabled, or a configuration / diagnostic entity
@@ -334,6 +350,11 @@ strategy:
   Live power comes from the power sensors you set there, or from `energy:` above.
 
 ## Taps
+
+**Control chips** (Home): icon only until something needs attention — garage open, door
+unlocked, water shut off, alarm triggered turn red with a word; arming, opening and closing
+pulse; `off_warn` makes a chip amber while it's off. Tap acts (with `confirm`, asks first; the
+alarm opens its panel), hold opens the details.
 
 | Tile | Tap | Hold |
 |---|---|---|
@@ -378,6 +399,10 @@ Ideas and pull requests are welcome too — see [CONTRIBUTING.md](CONTRIBUTING.m
   Thank you, Shane!
 - Written with [Claude Code](https://claude.com/claude-code), Anthropic's AI coding tool, and
   maintained by [@nexhenry](https://github.com/nexhenry).
+- Sample avatars: [DiceBear](https://www.dicebear.com) "Lorelei" by Lisa Wischofsky, CC0 1.0
+  (public domain).
+- Sample photos: [Unsplash](https://unsplash.com) photographers, served by
+  [Lorem Picsum](https://picsum.photos).
 - Icons: [Material Design Icons](https://pictogrammers.com/library/mdi/), as shipped with
   Home Assistant.
 

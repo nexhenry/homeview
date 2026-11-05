@@ -11,7 +11,7 @@
  * Home, Widgets, Family, Rooms (plus one page per room), Energy and Cameras. Everything is
  * optional and can be tuned in the strategy config — see README.md.
  */
-const HV_VERSION = '0.5.0';
+const HV_VERSION = '0.6.0';
 // where this file was loaded from (to re-download it after an update)
 const HV_URL = (() => { try { return import.meta.url; } catch (e) { return null; } })();
 
@@ -57,7 +57,7 @@ const COLOR_CYCLE = ['orange', 'green', 'amber', 'blue', 'purple', 'pink', 'teal
 const KNOWN_OPTIONS = ['type', 'title', 'theme', 'pages', 'pages_config', 'room_order', 'hide_rooms', 'rooms',
   'exclude_entities', 'customize', 'people', 'calendars', 'weather', 'cameras', 'home', 'pills', 'battery_low',
   'people_chips', 'energy', 'tile_size', 'max_columns', 'swipe', 'custom_pages', 'edit_button', 'update_notice',
-  'kiosk', 'kiosk_chip', 'members', 'living_rooms', 'widgets'];
+  'kiosk', 'kiosk_chip', 'members', 'living_rooms', 'widgets', 'avatars'];
 
 // What a room page / room row shows, in this order
 const ROOM_GROUPS = [
@@ -219,9 +219,8 @@ function findUpdateEntity(hass) {
 }
 
 /* ---- Kiosk mode: hide Home Assistant's header and sidebar while HomeView is on screen ----
- * On by default. The chip in HomeView's top bar turns it off / on for this device
- * (remembered in the browser); `?kiosk=off` / `?kiosk=on` in the URL does the same.
- * `kiosk: false` in the config turns it off for everyone. */
+ * Always on when HomeView opens. The Menu chip in HomeView's top bar shows them until the page
+ * is reloaded or the app reopened; `?kiosk=off` in the URL opens with them shown. `kiosk: false` in the config turns full screen off for everyone. */
 const KIOSK_ID = 'homeview-kiosk';
 const KIOSK_CSS = {
   main: 'ha-drawer { --mdc-drawer-width: 0px !important; } ha-sidebar { display: none !important; }',
@@ -274,18 +273,17 @@ function applyKiosk(on, quiet) {
   }
   if (!quiet) window.dispatchEvent(new Event('resize'));
 }
+// 0.3–0.5 remembered "Menu" per device for good; full screen is the default again
+try { localStorage.removeItem('homeview-kiosk'); sessionStorage.removeItem('homeview-kiosk'); } catch (e) { /* private mode */ }
+// "Menu" lasts until the page is reloaded (kept in memory only); ?kiosk=off in the URL = menu shown
+let kioskMenu = null;
 function kioskWanted(cfg) {
   if (cfg?.kiosk === false) return false;
-  try {
-    const q = new URLSearchParams(location.search).get('kiosk');
-    if (q === 'off' || q === '0' || q === 'false') localStorage.setItem('homeview-kiosk', 'off');
-    if (q === 'on' || q === '1' || q === 'true') localStorage.removeItem('homeview-kiosk');
-    return localStorage.getItem('homeview-kiosk') !== 'off';
-  } catch (e) { return window.__homeviewKiosk !== false; }
+  if (kioskMenu !== null) return !kioskMenu;
+  const q = new URLSearchParams(location.search).get('kiosk');
+  return !(q === 'off' || q === '0' || q === 'false');
 }
-function setKioskWanted(on) {
-  try { if (on) localStorage.removeItem('homeview-kiosk'); else localStorage.setItem('homeview-kiosk', 'off'); } catch (e) { window.__homeviewKiosk = on; }
-}
+function setKioskWanted(on) { kioskMenu = !on; }
 // pages on screen right now: kiosk styles come off when you leave HomeView for another dashboard
 let hvPagesOnScreen = 0;
 
@@ -1058,6 +1056,23 @@ R.agenda = {
 };
 
 // ---- person ---------------------------------------------------------------------------------
+// Sample avatars for people without a picture: DiceBear "Lorelei" (CC0 1.0, public domain).
+// The seed is a hash of the person's entity id — no names leave the house. avatars: initials
+// (or false) shows the first letter instead; a picture set on the person in HA always wins.
+let hvAvatarMode = 'samples';
+const AVATAR_BG = ['ffdfbf', 'c0aede', 'd1d4f9', 'b6e3f4', 'ffd5dc'];
+function seedOf(text) {
+  let x = 2166136261;
+  for (let i = 0; i < text.length; i++) x = Math.imul(x ^ text.charCodeAt(i), 16777619);
+  return (x >>> 0).toString(36);
+}
+function avatarUrl(h, personId) {
+  const pic = h.states[personId]?.attributes?.entity_picture;
+  if (pic) return pic;
+  if (hvAvatarMode === false || hvAvatarMode === 'initials') return null;
+  return `https://api.dicebear.com/9.x/lorelei/svg?seed=hv${seedOf(personId)}&backgroundColor=${AVATAR_BG.join(',')}`;
+}
+
 function personBattery(h, personId) {
   const trackers = asList(h.states[personId]?.attributes?.device_trackers);
   for (const t of trackers) {
@@ -1076,7 +1091,7 @@ R.person = {
     const st = h.states[s.entity];
     if (!st) return `<div class="t na"><div class="sb">${esc(s.entity)}</div></div>`;
     const home = st.state === 'home';
-    const pic = st.attributes.entity_picture;
+    const pic = avatarUrl(h, s.entity);
     const name = st.attributes.friendly_name || s.entity;
     const initials = name.split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
     const where = hassState(h, st);
@@ -1368,6 +1383,11 @@ function findPhotoFolder(hass, onUpdate) {
   }, onUpdate);
 }
 
+// Sample photos (Unsplash photographers, served by Lorem Picsum) when no photo folder is set
+// or found — or with widgets.slideshow: samples
+const SAMPLE_PHOTOS = [1015, 1016, 1018, 1019, 1036, 1039, 1043, 1044, 1047, 1050, 1056, 1067]
+  .map((id) => `https://picsum.photos/id/${id}/1600/1000`);
+
 const slideStore = {};
 function slideState(folder) {
   if (!slideStore[folder]) {
@@ -1393,6 +1413,7 @@ R.slideshow = {
     const st = slideState(s.folder);
     const box = tile.shadowRoot.querySelector('.slide');
     if (!box) return;
+    if (s.folder === 'samples' && !st.items) { st.items = SAMPLE_PHOTOS; st.next = Infinity; }
     // (re)scan the folder: album subfolders included (3 levels, 300 folders), hourly
     if (!st.busy && Date.now() >= st.next) {
       st.busy = true;
@@ -1427,6 +1448,13 @@ R.slideshow = {
       if (c && c.exp > Date.now() && st.ok[c.url]) { then?.(c.url); return; }
       if (st.pending[id]) return;
       st.pending[id] = true;
+      if (/^https?:/.test(id)) {   // a plain image URL (the samples)
+        const img = new Image();
+        img.onload = () => { st.urls[id] = { url: id, exp: Infinity }; st.ok[id] = true; st.dim[id] = img.naturalWidth / (img.naturalHeight || 1); delete st.pending[id]; then?.(id); };
+        img.onerror = () => { delete st.pending[id]; };
+        img.src = id;
+        return;
+      }
       const thumb = s.thumbnail && !st.bad[id] ? id.replace(/^(.*)\/([^/]+)$/, (m0, dir, name) => s.thumbnail.replace('{dir}', dir).replace('{name}', name)) : id;
       ws(h, { type: 'media_source/resolve_media', media_content_id: thumb, expires: 86400 })
         .then((r) => new Promise((ok, fail) => {
@@ -1678,6 +1706,82 @@ const PILLS = {
 const DEFAULT_PILLS = ['alarm', 'climate', 'lights', 'locks', 'openings', 'safety', 'batteries', 'media'];
 
 /* ============================================================================================
+ * Control chips under the Home title: icon only until something needs attention
+ *   (garage open, door unlocked, water shut off, alarm triggered -> red with a word;
+ *   arming / opening / closing -> pulse). Tap acts (alarm: its panel), hold = details.
+ * home.chips: [entity | { entity, icon_on, icon_off, name, confirm, off_warn }] or false
+ * ========================================================================================== */
+
+const isWaterValve = (id) => domainOf(id) === 'valve' || (domainOf(id) === 'switch' && /water.*(valve|shut)|(valve|shut).*water|main_water/i.test(id));
+
+function chipsAuto(h, m) {
+  const out = [];
+  const add = (id, extra = {}) => { if (id && h.states[id] && !out.some((c) => c.entity === id)) out.push({ entity: id, ...extra }); };
+  add((m.byDomain.alarm_control_panel || [])[0]);
+  (m.byDomain.cover || []).filter((id) => ['garage', 'gate'].includes(h.states[id]?.attributes?.device_class)).forEach((id) => add(id, { confirm: true }));
+  (m.byDomain.lock || []).forEach((id) => add(id, { confirm: true }));
+  [...(m.byDomain.valve || []), ...(m.byDomain.switch || [])].filter(isWaterValve).slice(0, 1).forEach((id) => add(id, { confirm: true }));
+  return out.filter((c) => !UNAVAILABLE.includes(h.states[c.entity]?.state)).slice(0, 6);
+}
+
+/** How a chip looks right now: { cls: '' | 'on' | 'alert' | 'warn', word, busy, icon? } */
+function chipLook(h, c) {
+  const st = h.states[c.entity];
+  if (!st) return { cls: 'na', word: '' };
+  const d = domainOf(c.entity), s = st.state;
+  if (d === 'alarm_control_panel') {
+    if (s === 'triggered') return { cls: 'alert', word: 'Triggered' };
+    if (['arming', 'pending'].includes(s)) return { cls: 'on', busy: true, word: '' };
+    return { cls: s.startsWith('armed') ? 'on' : '', word: '' };
+  }
+  if (d === 'cover') {
+    if (['opening', 'closing'].includes(s)) return { cls: 'on', busy: true, word: '' };
+    return s === 'closed' ? { cls: '', word: '' } : { cls: 'alert', word: 'Open' };
+  }
+  if (d === 'lock') {
+    if (['locking', 'unlocking', 'opening'].includes(s)) return { cls: 'on', busy: true, word: '' };
+    if (s === 'jammed') return { cls: 'alert', word: 'Jammed' };
+    return s === 'locked' ? { cls: '', word: '' } : { cls: 'alert', word: 'Unlocked' };
+  }
+  if (isWaterValve(c.entity)) {
+    // valve: closed = water off; a shut-off switch: on = water off
+    const off = d === 'valve' ? s === 'closed' : s === 'on';
+    return off ? { cls: 'alert', word: 'Water off', icon: 'mdi:water-off' } : { cls: '', word: '', icon: 'mdi:water' };
+  }
+  const on = isActive(st);
+  if (!on && c.off_warn) return { cls: 'warn', word: '' };
+  return { cls: on ? 'on' : '', word: '' };
+}
+
+async function chipTap(h, c, node) {
+  const st = h.states[c.entity];
+  if (!st) return;
+  const d = domainOf(c.entity);
+  if (d === 'alarm_control_panel' || c.tap === 'more-info') { moreInfo(node, c.entity); return; }
+  if (c.confirm) {
+    const name = c.name || shortName(h, c.entity);
+    const verb = d === 'lock' ? (st.state === 'locked' ? 'Unlock' : 'Lock') : d === 'cover' ? (st.state === 'closed' ? 'Open' : 'Close')
+      : isActive(st) ? 'Turn off' : 'Turn on';
+    if (!window.confirm(`${verb} ${name}?`)) return;
+  }
+  if (d === 'cover' || d === 'valve' || d === 'lock') return runToggle(h, st);
+  return h.callService('homeassistant', 'toggle', {}, { entity_id: c.entity });
+}
+
+/** tap / hold on a plain element (pointer events: iOS-safe, hold doesn't also tap) */
+function bindPress(el, onTap, onHold) {
+  let timer = null, held = false, down = false, x0 = 0, y0 = 0;
+  el.addEventListener('pointerdown', (e) => {
+    down = true; held = false; x0 = e.clientX; y0 = e.clientY;
+    timer = setTimeout(() => { held = true; onHold(); }, 500);
+  });
+  el.addEventListener('pointermove', (e) => { if (down && Math.hypot(e.clientX - x0, e.clientY - y0) > 12) { clearTimeout(timer); down = false; } });
+  el.addEventListener('pointerup', () => { clearTimeout(timer); if (down && !held) onTap(); down = false; });
+  el.addEventListener('pointercancel', () => { clearTimeout(timer); down = false; });
+  el.addEventListener('contextmenu', (e) => e.preventDefault());
+}
+
+/* ============================================================================================
  * Page builders: model -> { title, sections: [{ title?, hue?, tiles: [spec] }] }
  * spec = { kind, size: [w, h], ... }
  * ========================================================================================== */
@@ -1747,12 +1851,14 @@ const PAGES = {
     const board = [{ kind: 'date', area: 'date', bare: true }, { kind: 'clock', area: 'clock', bare: true }];
     if (m.weather) board.push({ kind: 'forecast', entity: m.weather, days: 3, area: 'weather', bare: true });
     if (m.calendars.length) board.push({ kind: 'agenda', calendars: m.calendars, days: 7, max: 5, area: 'next', bare: true, title: 'Up next' });
-    // the photo slideshow takes the camera's place (widgets.camera: <entity> brings the camera back)
-    const folder = wc.slideshow === false ? null : (wc.slideshow || findPhotoFolder(h, () => page.scheduleRebuild()));
-    if (folder && !wc.camera) {
-      board.push({ kind: 'slideshow', folder, interval: wc.slideshow_interval || 60, thumbnail: wc.slideshow_thumbnail, area: 'cam' });
-    } else if (wc.camera !== false && (wc.camera || m.cameras[0])) {
-      board.push({ kind: 'camera', entity: wc.camera || m.cameras[0], area: 'cam' });
+    // the photo slideshow (the camera is on Home; widgets.camera: <entity> puts one here instead)
+    if (wc.camera) {
+      board.push({ kind: 'camera', entity: wc.camera, area: 'cam' });
+    } else if (wc.slideshow !== false) {
+      const found = wc.slideshow ? null : findPhotoFolder(h, () => page.scheduleRebuild());
+      // still looking (undefined): wait; nothing found (null): the sample photos
+      const folder = wc.slideshow || (found === undefined ? null : found || 'samples');
+      if (folder) board.push({ kind: 'slideshow', folder, interval: wc.slideshow_interval || 60, thumbnail: wc.slideshow_thumbnail, area: 'cam' });
     }
     return { title: 'Widgets', minimalHead: true, board, sections: [] };
   },
@@ -1760,35 +1866,45 @@ const PAGES = {
   home(h, m, cfg) {
     const pc = cfg.home || {};
     const tiles = [];
+    const later = [];   // clock and next event go last (bottom row), as on a hand-made HomeView
     if (m.weather) tiles.push({ kind: 'weather', entity: m.weather, size: [2, 2] });
     const air = pc.air !== false ? findAir(h, m) : null;
     if (air) tiles.push({ kind: 'air', ...air, size: [2, 1] });
-    if (m.calendars.length) tiles.push({ kind: 'next_event', calendars: m.calendars, size: [2, 1] });
     const cam = pc.camera !== false ? (pc.camera || m.cameras.find((id) => !UNAVAILABLE.includes(h.states[id]?.state))) : null;
     if (cam) tiles.push({ kind: 'camera', entity: cam, size: [2, 1] });
-    tiles.push({ kind: 'clock', size: [1, 1] });
-    const favs = pc.favorites ? asList(pc.favorites) : favoritesAuto(h, m);
+    later.push({ kind: 'clock', size: [1, 1] });
+    if (m.calendars.length) later.push({ kind: 'next_event', calendars: m.calendars, size: [2, 1] });
+    // favourites: 1×1 like the door and garage tiles (3 automatic ones, or your own list)
+    // automatic: doors first (locks, garage / gate) — the alarm and thermostat already have pills
+    const auto = () => {
+      const ids = favoritesAuto(h, m).filter((id) => !UNAVAILABLE.includes(h.states[id]?.state));
+      const doorish = (id) => ['lock', 'cover'].includes(domainOf(id));
+      return [...ids.filter(doorish), ...ids.filter((id) => !doorish(id))].slice(0, pc.max_favorites ?? 2);
+    };
+    const favs = pc.favorites ? asList(pc.favorites) : auto();
     favs.forEach((id) => {
-      const st = h.states[id];
-      if (!st || (!pc.favorites && UNAVAILABLE.includes(st.state))) return;
+      if (!h.states[id]) return;
       const room = m.areaById[entityArea(h, id)];
-      tiles.push(entTile(id, { showRoom: true, areaName: room?.name, size: domainOf(id) === 'climate' ? [2, 1] : [1, 1] }));
+      tiles.push(entTile(id, { showRoom: true, areaName: room?.name, size: [1, 1] }));
     });
     // "Lights" for the main rooms: tap = all on / off, hold = the room
     const main = /living|lounge|kitchen|dining|family|great|\bden\b/i;
     const lightRooms = (pc.light_rooms ? asList(pc.light_rooms).map((id) => m.areaById[id]).filter(Boolean)
       : m.rooms.filter((r) => nonGroupLights(h, r.groups.lights).length)
         .map((r, i) => ({ r, score: (main.test(r.name) ? 100 : 0) + nonGroupLights(h, r.groups.lights).length - i / 100 }))
-        .sort((a, b) => b.score - a.score).map((x) => x.r)).slice(0, pc.max_light_rooms ?? 4);
+        .sort((a, b) => b.score - a.score).map((x) => x.r)).slice(0, pc.max_light_rooms ?? 2);
     for (const r of lightRooms) {
       const lights = nonGroupLights(h, r.groups.lights);
       if (lights.length) tiles.push({ kind: 'room_lights', lights, roomName: r.name, roomId: r.id, size: [1, 1], hue: undefined });
     }
+    tiles.push(...later);
     const sections = [{ tiles }];
     if (pc.rooms === true && m.rooms.length) sections.push({ title: 'Rooms', link: 'rooms', tiles: m.rooms.map((r) => roomTile(r)) });
     const scenes = (m.byDomain.scene || []).slice(0, pc.max_scenes ?? 8);
     if (pc.scenes !== false && scenes.length) sections.push({ title: 'Scenes', layout: 'rows', tiles: scenes.map((id) => rowTile(id, { sub: 'Scene' })) });
-    return { title: cfg.title || h.config.location_name || 'Home', pills: true, people: true, sections };
+    const chips = pc.chips === false ? [] : pc.chips ? asList(pc.chips).map((c) => (typeof c === 'string' ? { entity: c } : c)).filter((c) => c?.entity)
+      : chipsAuto(h, m);
+    return { title: cfg.title || h.config.location_name || 'Home', pills: true, people: true, chips, sections };
   },
 
   // the rooms everyone uses, each with its main devices (living spaces first)
@@ -1865,7 +1981,7 @@ const PAGES = {
       openings.filter((id) => domainOf(id) === 'binary_sensor').forEach((id) => tiles.push(entTile(id, { areaName: r.name })));
     }
     const cals = mem.calendars.length ? mem.calendars : m.calendars;
-    if (cals.length) tiles.push({ kind: 'next_event', calendars: cals, size: [2, 1] });
+    if (cals.length) tiles.push({ kind: 'next_event', calendars: cals, size: [3, 1] });
     tiles.push({ kind: 'person', entity: mem.person, battery: personBattery(h, mem.person), size: [2, 1] });
     return { title: mem.name, hue: mem.hue, sections: [{ tiles }] };
   },
@@ -1972,6 +2088,17 @@ const PAGE_CSS = `
 .pill.alert { background:#FF3B30; color:#fff; }
 .pill.alert ha-icon { color:#fff; }
 .people { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+.chips { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+.chp { all:unset; box-sizing:border-box; cursor:pointer; height:38px; min-width:38px; padding:0 9px; border-radius:999px; background:var(--hv-pill);
+  display:inline-flex; align-items:center; justify-content:center; gap:6px; color:var(--hv-icon); --mdc-icon-size:20px;
+  -webkit-tap-highlight-color:transparent; user-select:none; -webkit-user-select:none; transition:background .2s, color .2s; }
+.chp b { font:700 13px ${FONT}; }
+.chp.on { background:var(--hv-tile-on); color:var(--hv-accent); }
+.chp.warn { color:#FF9F0A; box-shadow:inset 0 0 0 1.5px #FF9F0A; }
+.chp.alert { background:#FF3B30; color:#fff; }
+.chp.na { opacity:.45; }
+.chp.busy { animation:hv-pulse 1.1s ease-in-out infinite; }
+@keyframes hv-pulse { 50% { opacity:.45; } }
 .avatar { width:34px; height:34px; border-radius:50%; background:var(--hv-pill); display:flex; align-items:center; justify-content:center;
   font-size:12px; font-weight:700; color:var(--hv-accent); overflow:hidden; box-shadow:0 0 0 2px var(--hv-line); cursor:pointer; }
 .avatar.home { box-shadow:0 0 0 2px #34C759; }
@@ -1997,6 +2124,7 @@ const PAGE_CSS = `
 .board.narrow > homeview-tile.a-date { height:270px; }
 .board.narrow > homeview-tile.a-clock { height:min(86vw, 380px); }
 .board.narrow > homeview-tile.a-cam { height:auto; aspect-ratio:16 / 9; }
+img.lt { object-fit:cover; background:var(--hv-pill); }
 .lt { width:20px; height:20px; border-radius:50%; background:var(--hv-accent); color:#fff; font-size:11px; font-weight:750;
   display:inline-flex; align-items:center; justify-content:center; }
 .note { padding:24px; border-radius:22px; background:var(--hv-tile); color:var(--hv-fg2); font-size:15px; }
@@ -2025,8 +2153,8 @@ const PAGE_CSS = `
   font:650 13.5px ${FONT}; color:var(--hv-fg2); --mdc-icon-size:18px; }
 .nv.on { background:var(--hv-pill); color:var(--hv-fg); }
 .nv.on ha-icon { color:var(--hv-accent); }
-.chip { background:var(--hv-pill); color:var(--hv-fg); }
-@media (max-width:700px) { .nv > span:not(.lt), .chip .ct { display:none; } .nv { padding:8px 9px; } .chip { padding:8px 10px; } }
+.chip { background:var(--hv-pill); color:var(--hv-fg); width:36px; height:36px; padding:0; justify-content:center; --mdc-icon-size:20px; }
+@media (max-width:700px) { .nv > span:not(.lt) { display:none; } .nv { padding:8px 9px; } }
 .upd { all:unset; cursor:pointer; flex-basis:100%; display:flex; align-items:center; gap:10px; padding:10px 14px; border-radius:16px;
   background:var(--hv-accent); color:#fff; font:500 14px ${FONT}; --mdc-icon-size:22px; box-sizing:border-box; }
 .upd b { font-weight:700; }
@@ -2108,6 +2236,7 @@ class HomeViewPage extends HTMLElement {
     const h = this._hass;
     if (!h) return;
     const cfg = this._config.options || {};
+    hvAvatarMode = cfg.avatars ?? 'samples';
     this._model = buildModel(h, cfg);
     const builder = PAGES[this._config.page];
     const page = builder ? builder(h, this._model, cfg, this._config, this) : { title: '?', sections: [] };
@@ -2251,7 +2380,7 @@ class HomeViewPage extends HTMLElement {
         case 'fav': o.home.favorites = [...favs().filter((x) => x !== id), id]; break;
         case 'unfav': o.home.favorites = favs().filter((x) => x !== id); break;
         case 'size': {
-          const sizes = [[1, 1], [2, 1], [2, 2]];
+          const sizes = [[1, 1], [2, 1], [3, 1], [2, 2]];
           const curS = spec.size || [1, 1];
           const i = sizes.findIndex((x) => x[0] === curS[0] && x[1] === curS[1]);
           const nx = sizes[(i + 1) % sizes.length];
@@ -2423,8 +2552,10 @@ class HomeViewPage extends HTMLElement {
     if (!h || !page || !head) return;
     const cfg = this._config.options || {};
     const m = this._model;
+    const chipAlarm = asList(page.chips).some((c) => domainOf(c.entity) === 'alarm_control_panel');
     const pills = page.pills && cfg.pills !== false
-      ? asList(cfg.pills && cfg.pills !== true ? cfg.pills : DEFAULT_PILLS).map((id) => [id, PILLS[id]?.(h, m, cfg)]).filter(([, p]) => p)
+      ? asList(cfg.pills && cfg.pills !== true ? cfg.pills : DEFAULT_PILLS).filter((id) => !(id === 'alarm' && chipAlarm))
+        .map((id) => [id, PILLS[id]?.(h, m, cfg)]).filter(([, p]) => p)
       : [];
     const people = page.people && cfg.people_chips !== false ? m.persons : [];
     const today = new Date().toLocaleDateString(h.locale?.language, { weekday: 'long', month: 'long', day: 'numeric' });
@@ -2440,7 +2571,9 @@ class HomeViewPage extends HTMLElement {
     const chip = cfg.kiosk !== false && cfg.kiosk_chip !== false;
     const nav = kiosk && !page.back ? asList(this._config.nav) : [];
     const here = this._config.path || this._config.page;
-    const key = JSON.stringify([today, page.title, editing, canEdit, updOn, stale, kiosk, here, pills.map(([id, p]) => [id, p.text, p.alert, p.active]), people.map((id) => h.states[id]?.state)]);
+    const chips = asList(page.chips);
+    const looks = chips.map((c) => chipLook(h, c));
+    const key = JSON.stringify([today, page.title, editing, canEdit, updOn, stale, kiosk, here, looks, chips.map((c) => h.states[c.entity]?.state), pills.map(([id, p]) => [id, p.text, p.alert, p.active]), people.map((id) => h.states[id]?.state)]);
     if (key === this._headKey) return;
     this._headKey = key;
     const room = page.room;
@@ -2454,21 +2587,33 @@ class HomeViewPage extends HTMLElement {
       : updOn ? `<button class="upd" data-more="${esc(this._updEnt)}"><ha-icon icon="mdi:arrow-up-circle"></ha-icon>
         <span><b>HomeView ${esc(updOn)} is available</b> (you have ${esc(HV_VERSION)}). Tap to see what's new and update.</span></button>` : '';
     const topbar = nav.length > 1 || chip ? `<div class="topbar">
-        <div class="nav">${nav.length > 1 ? nav.map((v) => `<button class="nv${v.path === here ? ' on' : ''}" data-nav-to="${esc(v.path)}" title="${esc(v.title)}">${v.letter ? `<span class="lt">${esc(v.letter)}</span>` : `<ha-icon icon="${esc(v.icon)}"></ha-icon>`}<span>${esc(v.title)}</span></button>`).join('') : ''}</div>
-        ${chip ? `<button class="chip" data-kiosk title="${kiosk ? 'Show the Home Assistant menu and header' : 'Full screen: hide the Home Assistant menu and header'}"><ha-icon icon="${kiosk ? 'mdi:dock-left' : 'mdi:fullscreen'}"></ha-icon><span class="ct">${kiosk ? 'Menu' : 'Full screen'}</span></button>` : ''}</div>` : '';
+        <div class="nav">${nav.length > 1 ? nav.map((v) => `<button class="nv${v.path === here ? ' on' : ''}" data-nav-to="${esc(v.path)}" title="${esc(v.title)}">${v.avatar ? `<img class="lt" src="${esc(v.avatar)}" alt="">` : v.letter ? `<span class="lt">${esc(v.letter)}</span>` : `<ha-icon icon="${esc(v.icon)}"></ha-icon>`}<span>${esc(v.title)}</span></button>`).join('') : ''}</div>
+        ${chip ? `<button class="chip" data-kiosk title="${kiosk ? 'Menu: show Home Assistant\'s sidebar and header' : 'Full screen: hide Home Assistant\'s sidebar and header'}" aria-label="${kiosk ? 'Menu' : 'Full screen'}"><ha-icon icon="${kiosk ? 'mdi:dock-left' : 'mdi:fullscreen'}"></ha-icon></button>` : ''}</div>` : '';
     head.innerHTML = page.minimalHead ? `${updBanner}${topbar}` : `${updBanner}${topbar}<div>
         <div class="date">${esc(today)}</div>
         <div class="title">${page.back ? '<button class="back" data-back><ha-icon icon="mdi:chevron-left"></ha-icon></button>' : ''}${esc(page.title)}${roomSub ? `<span class="sub">${esc(roomSub)}</span>` : ''}${canEdit && !editing ? '<button class="back pen" data-edit-on title="Edit HomeView"><ha-icon icon="mdi:pencil-outline"></ha-icon></button>' : ''}</div>
         ${editing ? `<div class="editbar"><span><b>Editing</b> · <ha-icon icon="mdi:star-outline"></ha-icon> on Home · <ha-icon icon="mdi:resize"></ha-icon> size · <ha-icon icon="mdi:rename-outline"></ha-icon> name · <ha-icon icon="mdi:eye-off-outline"></ha-icon> hide · <ha-icon icon="mdi:palette-outline"></ha-icon> room colour</span>
           <span class="eb"><button class="txt" data-settings><ha-icon icon="mdi:cog-outline"></ha-icon> Settings</button><button class="txt primary" data-edit-off>Done</button></span></div>` : ''}
+        ${chips.length ? `<div class="chips">${chips.map((c, i) => {
+          const L = looks[i], st = h.states[c.entity];
+          const icon = (isActive(st) ? c.icon_on : c.icon_off) || c.icon || L.icon;
+          return `<button class="chp ${L.cls}${L.busy ? ' busy' : ''}" data-chip="${i}" title="${esc(c.name || st?.attributes?.friendly_name || c.entity)}">
+            <i data-e="${esc(c.entity)}"${icon ? ` data-i="${esc(icon)}"` : ''}></i>${L.word ? `<b>${esc(L.word)}</b>` : ''}</button>`;
+        }).join('')}</div>` : ''}
         ${people.length ? `<div class="people">${people.map((id) => {
           const st = h.states[id]; if (!st) return '';
-          const pic = st.attributes.entity_picture, nm = st.attributes.friendly_name || id;
+          const pic = avatarUrl(h, id), nm = st.attributes.friendly_name || id;
           return `<div class="avatar${st.state === 'home' ? ' home' : ''}" data-more="${esc(id)}" title="${esc(nm)} · ${esc(hassState(h, st))}">${pic ? `<img src="${esc(pic)}">` : esc(nm.slice(0, 1).toUpperCase())}</div>`;
         }).join('')}</div>` : ''}
       </div>
       ${pills.length ? `<div class="pills">${pills.map(([id, p]) => `<button class="pill${p.alert ? ' alert' : p.active ? ' active' : ''}" data-pill="${id}"><ha-icon icon="${p.icon}"></ha-icon>${esc(p.text)}${p.popup ? '<ha-icon icon="mdi:chevron-right" style="--mdc-icon-size:15px;opacity:.6"></ha-icon>' : ''}</button>`).join('')}</div>` : ''}`;
     head.querySelector('[data-back]')?.addEventListener('click', () => (history.length > 1 ? history.back() : navigate('living')));
+    fillIcons(head, h);
+    head.querySelectorAll('[data-chip]').forEach((el) => {
+      const c = chips[Number(el.dataset.chip)];
+      bindPress(el, () => { const p = chipTap(this._hass, c, this); if (p?.catch) p.catch((e) => console.warn('HomeView chip', e)); },
+        () => moreInfo(this, c.entity));
+    });
     head.querySelector('[data-edit-on]')?.addEventListener('click', () => this._setEditing(true));
     head.querySelector('[data-fresh]')?.addEventListener('click', () => reloadFresh());
     head.querySelectorAll('[data-nav-to]').forEach((el) => el.addEventListener('click', () => navigate(el.dataset.navTo)));
@@ -2539,10 +2684,11 @@ const EDITOR_LABELS = {
   update_notice: ['Tell me when a HomeView update is out', 'A banner for admins when HACS has a newer version.'],
   kiosk: ['Full screen (kiosk mode)', 'Hide Home Assistant\'s header and sidebar while HomeView is open. Each device can still switch it with the Menu chip.'],
   kiosk_chip: ['Show the Menu / Full screen chip', 'Turn off on a wall tablet so nobody leaves full screen by accident (?kiosk=off in the URL still works).'],
-  slideshow: ['Photo folder', 'A media folder, e.g. media-source://media_source/local/Photos. Empty = the first folder named Photos, Pictures, Slideshow … under Media.'],
+  slideshow: ['Photo folder', 'A media folder, e.g. media-source://media_source/local/Photos, or "samples". Empty = the first folder named Photos, Pictures, Slideshow … under Media, else sample photos.'],
   slideshow_interval: ['Change photo every'],
   slideshow_thumbnail: ['Smaller copy to try first (optional)', 'For NAS thumbnails, e.g. {dir}/.@__thumb/s800{name} on QNAP. Falls back to the full photo.'],
-  camera: ['Camera instead of photos'],
+  camera: ['Camera instead of photos', 'The camera is on the Home page; set one here to show it on Widgets instead of the photos.'],
+  chips: ['Control chips under the title', 'Round buttons that turn red when something needs attention. Empty = automatic (alarm, garage, locks, water valve). Icons / confirm per chip: YAML.'],
   favorites: ['Favourites', 'Tiles near the top of Home. Empty = automatic (alarm, locks, garage, thermostat).'],
   rooms: ['Show rooms on Home'],
   scenes: ['Show scenes on Home'],
@@ -2552,6 +2698,7 @@ const EDITOR_LABELS = {
   weather: ['Weather', 'Empty = the first weather entity.'],
   cameras: ['Cameras', 'Empty = all cameras.'],
   people_chips: ['People avatars under the Home title'],
+  avatars: ['Avatars for people without a picture', 'A picture set on the person in Home Assistant is always used first.'],
   room_order: ['Room order', 'These rooms first, in this order; the rest after.'],
   hide_rooms: ['Hide rooms'],
   living_rooms: ['Living page rooms', 'The rooms on the Living page, in this order. Empty = the indoor rooms that aren\'t a bedroom or bathroom, living spaces first.'],
@@ -2572,7 +2719,7 @@ const PILL_NAMES = { alarm: 'Alarm', climate: 'Climate', lights: 'Lights on', lo
   safety: 'Leaks, smoke & gas', batteries: 'Batteries', media: 'Now playing' };
 
 // What HomeView does when an option is not set: shown in the editor, left out when saving
-const EDITOR_DEFAULTS = { theme: 'auto', pages: DEFAULT_PAGES, swipe: true, edit_button: true, update_notice: true, kiosk: true, kiosk_chip: true, people_chips: true, battery_low: 20,
+const EDITOR_DEFAULTS = { theme: 'auto', pages: DEFAULT_PAGES, swipe: true, edit_button: true, update_notice: true, kiosk: true, kiosk_chip: true, avatars: 'samples', people_chips: true, battery_low: 20,
   home: { rooms: false, scenes: true, max_scenes: 8 } };
 
 function withDefaults(o, d = EDITOR_DEFAULTS) {
@@ -2617,6 +2764,7 @@ function editorSchema(hass) {
     ] },
     { type: 'expandable', name: 'home', title: 'Home page', icon: 'mdi:home-outline', schema: [
       { name: 'favorites', selector: { entity: { multiple: true } } },
+      { name: 'chips', selector: { entity: { multiple: true } } },
       { name: 'rooms', selector: { boolean: {} } },
       { name: 'scenes', selector: { boolean: {} } },
       { name: 'max_scenes', selector: { number: { min: 0, max: 24, mode: 'box' } } },
@@ -2624,6 +2772,8 @@ function editorSchema(hass) {
     { type: 'expandable', name: '', flatten: true, title: 'People, calendars, weather & cameras', icon: 'mdi:account-group-outline', schema: [
       { name: 'people', selector: { entity: { multiple: true, filter: { domain: 'person' } } } },
       { name: 'people_chips', selector: { boolean: {} } },
+      { name: 'avatars', selector: { select: { mode: 'dropdown', options: [
+        { value: 'samples', label: 'Sample avatars (DiceBear, free)' }, { value: 'initials', label: 'Initials' }] } } },
       { name: 'calendars', selector: { entity: { multiple: true, filter: { domain: 'calendar' } } } },
       { name: 'weather', selector: { entity: { filter: { domain: 'weather' } } } },
       { name: 'cameras', selector: { entity: { multiple: true, filter: { domain: 'camera' } } } },
@@ -2735,6 +2885,7 @@ customElements.get('homeview-strategy-editor') || customElements.define('homevie
 class HomeViewStrategy extends HTMLElement {
   static async generate(config, hass) {
     const { type, ...options } = config || {};
+    hvAvatarMode = options.avatars ?? 'samples';
     const m = buildModel(hass, options);
     const customs = asList(options.custom_pages).map((d, i) => ({ ...d, idx: i, path: String(d.path || `page-${i + 1}`) }));
     const wanted = [...new Set(asList(options.pages || DEFAULT_PAGES).map((p) => PAGE_ALIASES[p] || p))]
@@ -2759,7 +2910,7 @@ class HomeViewStrategy extends HTMLElement {
     const views = paths.map((p) => {
       const mem = m.members.find((x) => `member-${x.slug}` === p);
       if (mem) {
-        return { title: mem.name, path: p, icon: mem.room?.icon || 'mdi:account', letter: mem.name.slice(0, 1).toUpperCase(), type: 'panel',
+        return { title: mem.name, path: p, icon: mem.room?.icon || 'mdi:account', letter: mem.name.slice(0, 1).toUpperCase(), avatar: avatarUrl(hass, mem.person), type: 'panel',
           cards: [{ type: 'custom:homeview-page', page: 'member', member: mem.person, path: p, order: paths, options }] };
       }
       const c = customs.find((x) => x.path === p);
@@ -2771,8 +2922,8 @@ class HomeViewStrategy extends HTMLElement {
       return { title: pcp.title || PAGE_DEFS[p].title, path: p, icon: pcp.icon || PAGE_DEFS[p].icon, type: 'panel',
         cards: [{ type: 'custom:homeview-page', page: p, path: p, order: paths, options }] };
     });
-    const nav = views.map((v) => ({ path: v.path, title: v.title, icon: v.icon, letter: v.letter }));
-    views.forEach((v) => { v.cards[0].nav = nav; delete v.letter; });
+    const nav = views.map((v) => ({ path: v.path, title: v.title, icon: v.icon, letter: v.letter, avatar: v.avatar }));
+    views.forEach((v) => { v.cards[0].nav = nav; delete v.letter; delete v.avatar; });
     for (const r of m.rooms) {
       views.push({
         title: r.name, path: `room-${r.id}`, icon: r.icon, subview: true,
