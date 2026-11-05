@@ -67,7 +67,7 @@ What one family's wall tablet looks like after taking the same design further by
 **Slopeview** dashboard that HomeView is modelled on, on a Pixel Tablet (1280 × 800, full
 screen). HomeView builds this kind of page from your home automatically. Use these as ideas
 for your own fine-tuning: favourites, `customize`, your own sections and pages (a pond, a
-media room), energy time windows. Camera pictures, photos, the calendar and the town are blurred for privacy.
+media room), energy time windows. Camera pictures, photos, calendar and school details and the town are blurred, and family names are changed, for privacy.
 
 **Widgets**, the wall tablet's resting page: a big date, a clock, the family photo slideshow,
 what's next and the weather.
@@ -77,6 +77,8 @@ what's next and the weather.
 | Home | Living |
 |---|---|
 | ![Home: control chips, status pills, weather, air quality, camera, doors, lights, clock and the next event](docs/screenshots/slopeview-home.png) | ![Living: every shared room in its own colour, with its devices](docs/screenshots/slopeview-living.png) |
+| **A person's page** (their room, devices and next event) | **Another person's page** (with a school-day tile) |
+| ![A person's page: their room's temperature, comfort and doors, their lights and devices, the next family event](docs/screenshots/slopeview-person-mia.png) | ![A person's page: their room, TV, fan, window and door, the next school event and whether today is a school day](docs/screenshots/slopeview-person-zoe.png) |
 | **A room's page** (hold the room) | **Energy** (full screen) |
 | ![Living Room: 24-hour charts against outdoor, then every device grouped](docs/screenshots/slopeview-room.png) | ![Energy: live flow, Powerwall, backup time, peak / partial-peak off-grid, solar self-sufficiency and the power-outage list](docs/screenshots/slopeview-energy.png) |
 | **Your own page: a pond** | **Your own page: media** |
