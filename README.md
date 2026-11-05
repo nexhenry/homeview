@@ -27,7 +27,7 @@ no YAML per tile.
 
 ## Contents
 
-- [Pages](#pages) · [A real home, fine-tuned](#a-real-home-fine-tuned) · [Install](#install) · [Create the dashboard](#create-the-dashboard) · [Full screen](#full-screen-kiosk-mode)
+- [Pages](#pages) · [A real home, fine-tuned](#a-real-home-fine-tuned) · [What you need](#what-you-need) · [Install](#install) · [Create the dashboard](#create-the-dashboard) · [Full screen](#full-screen-kiosk-mode)
 - [Make it yours](#make-it-yours): [on the dashboard](#1-on-the-dashboard-the-pencil) ·
   [settings editor](#2-the-settings-editor) · [YAML](#3-yaml)
 - [Your own tiles, cards and pages](#your-own-tiles-cards-and-pages) · [All options](#all-options)
@@ -88,6 +88,46 @@ an HA helper. In HomeView you'd make a page like this with `custom_pages` and yo
 Family names are changed here and the hub's address is hidden.
 
 ![Admin: modes, climate thresholds and periods, light and fan timing, vacation, photobeam and security messages](docs/screenshots/slopeview-admin.png)
+
+## What you need
+
+**Required:** Home Assistant and [HACS](https://hacs.xyz) (or a manual install, below). That's
+all: HomeView draws every tile itself, so there are **no other cards** to install.
+
+**Optional, from HACS:**
+
+| HACS | Type | What it adds |
+|---|---|---|
+| [Power Flow Card Plus](https://github.com/flixlix/power-flow-card-plus) | Dashboard | The animated energy flow on the Energy page. Without it HomeView draws its own (`energy.flow_card: homeview` keeps HomeView's even when it's installed) |
+
+**Don't combine with** (HomeView already does these):
+
+| HACS | Why |
+|---|---|
+| [kiosk-mode](https://github.com/NemesisRE/kiosk-mode) | HomeView hides the header and sidebar itself. If you keep kiosk-mode, set `kiosk: false` so the two don't fight |
+| [swipe-navigation](https://github.com/zanna-37/hass-swipe-navigation) | HomeView swipes between its own pages and turns the plugin off on its dashboard (one swipe = one page). `swipe: false` hands swiping back to the plugin |
+
+**Home Assistant features each page uses.** All of these are built into HA and work with any
+brand. A page with nothing to show is simply left out.
+
+| Page / tile | Uses | Set it up in |
+|---|---|---|
+| Rooms, Living, room pages | **Areas** (and floors, for the order) | Settings → Areas, labels & zones |
+| People, person pages, who sees what | **People** with a phone tracker (the [Companion app](https://companion.home-assistant.io)) and, for `access`, the person's login | Settings → People |
+| Next event, agenda | Any **calendar** (Google, CalDAV / iCloud, Local calendar …) | Settings → Devices & services |
+| Weather, forecast | Any **weather** entity (Met.no, NWS …) | Settings → Devices & services |
+| Cameras, the Home camera | Any **camera** (Frigate, Reolink, Generic camera …) | Settings → Devices & services |
+| Energy | The **Energy** settings (grid, solar, battery, individual devices) and the **recorder** (on by default). Power sensors make the numbers live | Settings → Dashboards → Energy |
+| Power-outage list | A **switch** for each device in *Individual devices*, and a grid-status sensor. Plus the optional [blueprint](#power-outages) | Settings → Dashboards → Energy |
+| Alarm chip and pill | Any **alarm panel** (e.g. [Alarmo](https://github.com/nielsfaber/alarmo) from HACS, or your alarm's integration) | Settings → Devices & services |
+| Air quality tile | An AQI / PM2.5 / CO₂ / VOC **sensor** | — |
+| Photo slideshow | A folder of photos in **Media** (My media, or a network share) | Media → My media |
+| Update banner | HACS's update entity for HomeView (automatic once installed through HACS) | — |
+
+**Internet:** until you add your own, the slideshow shows sample photos from
+[picsum.photos](https://picsum.photos), and people without a picture get avatars from
+[DiceBear](https://www.dicebear.com). `widgets: { slideshow: false }` and `avatars: initials`
+turn those requests off. Nothing else leaves your network.
 
 ## Install
 
