@@ -1,0 +1,37 @@
+# Every option, with example values. All of them are optional.
+strategy:
+  type: custom:homeview
+  title: Our Home
+  theme: auto
+  pages: [home, widgets, family, rooms, energy, cameras]
+  pages_config:
+    home: { color: orange }
+    widgets: { title: Clock, icon: mdi:clock-outline }
+  room_order: [living_room, kitchen, bedroom, kids_room, bathroom]
+  hide_rooms: [attic]
+  rooms:
+    living_room:
+      name: Lounge
+      color: blue
+      entities: [light.lounge_ceiling, light.lounge_lamp, media_player.tv, climate.lounge]
+    garage: { icon: mdi:garage-variant }
+  exclude_entities: [light.router_led, switch.child_lock]
+  people: [person.anna, person.ben, person.kids]
+  calendars: [calendar.family, calendar.school]
+  weather: weather.home
+  cameras: [camera.front_door, camera.garden]
+  home:
+    favorites: [alarm_control_panel.house, lock.front_door, cover.garage_door, climate.hallway]
+    scenes: true
+    max_scenes: 6
+  pills: [alarm, climate, lights, locks, openings, safety, batteries, media]
+  battery_low: 25
+  energy:
+    solar_power: sensor.solar_power
+    grid_power: sensor.grid_power
+    battery_power: sensor.battery_power
+    battery_level: sensor.battery_level
+    devices: 10
+  tile_size: 170
+  max_columns: 6
+  swipe: true

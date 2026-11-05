@@ -1,0 +1,3 @@
+# Settings → Dashboards → Add dashboard → New dashboard from scratch → Raw configuration editor
+strategy:
+  type: custom:homeview
