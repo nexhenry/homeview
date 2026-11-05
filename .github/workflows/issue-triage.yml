@@ -1,16 +1,20 @@
 name: Issue triage
 
-# Every new issue: thank the reporter, label it for triage and assign the maintainer.
-# The assignment is what notifies the maintainer straight away (email / GitHub mobile push).
+# Every new issue: thank the reporter, label it for triage and assign the maintainer (the
+# assignment is what notifies the maintainer straight away: email / GitHub mobile push).
+# When the reporter answers an issue labelled needs-info, it goes back to triage.
 on:
   issues:
     types: [opened, reopened]
+  issue_comment:
+    types: [created]
 
 permissions:
   issues: write
 
 jobs:
   triage:
+    if: ${{ !github.event.issue.pull_request }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/github-script@v7
@@ -19,6 +23,18 @@ jobs:
             const issue = context.payload.issue;
             const owner = context.repo.owner, repo = context.repo.repo, issue_number = issue.number;
             const maintainer = 'nexhenry';
+            const labels = issue.labels.map((l) => l.name);
+
+            if (context.eventName === 'issue_comment') {
+              // the reporter answered: back to triage (and the maintainer is notified as assignee)
+              const by = context.payload.comment.user.login;
+              if (by === issue.user.login && labels.includes('needs-info')) {
+                await github.rest.issues.removeLabel({ owner, repo, issue_number, name: 'needs-info' }).catch(() => {});
+                await github.rest.issues.addLabels({ owner, repo, issue_number, labels: ['triage'] }).catch(() => {});
+              }
+              return;
+            }
+
             await github.rest.issues.addLabels({ owner, repo, issue_number, labels: ['triage'] }).catch(() => {});
             if (!issue.assignees?.some((a) => a.login === maintainer)) {
               await github.rest.issues.addAssignees({ owner, repo, issue_number, assignees: [maintainer] }).catch(() => {});

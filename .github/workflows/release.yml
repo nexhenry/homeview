@@ -9,12 +9,15 @@ on:
 
 permissions:
   contents: write
+  issues: write
 
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Check the version
         run: |
           v="${GITHUB_REF_NAME#v}"
@@ -33,3 +36,15 @@ jobs:
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
             && gh release upload "$GITHUB_REF_NAME" dist/homeview.js --clobber \
             || gh release create "$GITHUB_REF_NAME" dist/homeview.js --title "HomeView ${GITHUB_REF_NAME}" --notes-file notes.md
+      - name: Tell reporters which version fixed their issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # issues named in "Fixes / Closes / Resolves #N" since the previous tag
+          prev="$(git describe --tags --abbrev=0 "$GITHUB_REF_NAME^" 2>/dev/null || true)"
+          range="${prev:+$prev..}$GITHUB_REF_NAME"
+          nums="$(git log --format=%B "$range" | grep -ioE '(fix(es|ed)?|close[sd]?|resolve[sd]?) #[0-9]+' | grep -oE '[0-9]+' | sort -un || true)"
+          for n in $nums; do
+            gh issue comment "$n" --body "🎉 This is fixed in **HomeView ${GITHUB_REF_NAME}**. Update it in HACS (HACS → HomeView → Update), then reload the dashboard. If it still happens, just reply here and the issue will be looked at again." || true
+            gh issue edit "$n" --remove-label fixed --remove-label confirmed --remove-label triage >/dev/null 2>&1 || true
+          done
