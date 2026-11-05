@@ -42,7 +42,7 @@ no YAML per tile.
 | **Rooms** — a page per person | One page for each family member's own room (Ben, Lucy, Hana …): the room's temperature, comfort, humidity, doors and windows, its devices, their next event and where they are. Found automatically from rooms named after people ("Bedroom Lucy"), or set with `members` |
 | **Room pages** | 24-hour charts (temperature, humidity, light level), then everything in the room as compact tiles: lights, climate, doors & security, media, devices, scenes, cameras, sensors |
 | **Cameras** | Every camera in a 16:9 grid, refreshed every 10 s while on screen. Tap for the live stream |
-| **Energy** | A live flow diagram (solar, grid, battery, home), today's numbers and self-sufficiency, and the devices that used the most today — from your Energy dashboard settings |
+| **Energy** | A live flow diagram; *right now* (solar, home with amps · volts, grid importing / exporting, battery charging / discharging); **backup time** on battery; **off-grid share in your peak hours** (optional time windows); **solar self-sufficiency**; today's totals; and a **power-outage list** of every device with W · A · kWh today and an on / off button — tick what to turn off when the grid goes down |
 | **All rooms** *(optional)* | A directory of every room (by floor). Add `all_rooms` to `pages`. It's also what `rooms` shows in a home without member rooms |
 | **People** *(optional)* | Everyone with home / away, since when and phone battery, plus the family calendar. Add `people` to `pages` to use it |
 | **Your pages** | As many as you like, with your own tiles and any Home Assistant card |
@@ -314,6 +314,18 @@ strategy:
   # avatars: { person.ben: man, person.lucy: woman, person.kai: /local/kai.jpg }   per person
 
   energy:                         # live power, when the Energy settings don't say
+    windows:                      # off-grid share in time windows (peak hours …), from hourly statistics
+      - { name: Peak, start: '16:00', end: '21:00', days: weekdays }
+      - name: Partial-peak
+        hours:                    # several spans, each with its own days
+          - { start: '15:00', end: '16:00', days: weekdays }
+          - { start: '21:00', end: '24:00', days: weekdays }
+          - { start: '15:00', end: '24:00', days: weekends }
+    battery_energy: sensor.battery_remaining   # kWh left (default: an energy-storage sensor)
+    battery_capacity: 13.5        # kWh, when there's no energy-left sensor (× the battery level)
+    grid_status: binary_sensor.grid_status     # power-outage list (default: a sensor named like grid status)
+    home_current: sensor.mains_current         # the "A at V" line (default: on the home power sensor's device)
+    voltage: sensor.mains_voltage
     solar_power: sensor.solar_power
     grid_power: sensor.grid_power         # + import / − export
     battery_power: sensor.battery_power   # + discharge / − charge
@@ -359,6 +371,22 @@ strategy:
   first temperature / humidity sensor in it.
 - **Energy** uses Settings → Dashboards → Energy: grid, solar, battery and individual devices.
   Live power comes from the power sensors you set there, or from `energy:` above.
+
+## Power outages
+
+The Energy page lists every device from Home Assistant's Energy settings (Settings →
+Dashboards → Energy → *Individual devices*) with its switch, power, current and energy today,
+most used first. Admins tick <kbd>⏻̸</kbd> the ones to turn off when the grid goes down — the
+tick adds the HA label **"Outage: turn off"** to the device's switch. **Turn off ticked** /
+**Turn back on** act on them right away.
+
+To do it **automatically**, import the blueprint and pick your grid-status entity and that label:
+
+[![Import blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fnexhenry%2Fhomeview%2Fblob%2Fmain%2Fblueprints%2Fhomeview_outage.yaml)
+
+It turns the labelled devices off 30 s after the grid goes down and on again 2 min after it is
+back (both adjustable). Solar self-sufficiency and the window percentages are worked out hour
+by hour from Home Assistant's statistics, so they are close estimates, not to-the-minute tallies.
 
 ## Taps
 

@@ -1,0 +1,87 @@
+blueprint:
+  name: HomeView — turn devices off in a power outage
+  description: >-
+    When the grid goes down, turn off every device you ticked on HomeView's Energy page
+    (they carry the label "Outage: turn off"); when the grid is back, turn them on again
+    after a short delay. Works with any grid-status entity — e.g. a Powerwall's grid status
+    sensor, a UPS "on battery" binary sensor, or an inverter's grid-connected sensor.
+  domain: automation
+  source_url: https://github.com/nexhenry/homeview/blob/main/blueprints/homeview_outage.yaml
+  input:
+    grid:
+      name: Grid status
+      description: The entity that shows whether the grid is up.
+      selector:
+        entity:
+          domain: [binary_sensor, sensor]
+    down_states:
+      name: States that mean "grid down"
+      description: For a binary sensor that is on while the grid is up, leave "off".
+      default: ["off", "off_grid", "islanded", "disconnected", "down", "on_battery"]
+      selector:
+        text:
+          multiple: true
+    label:
+      name: Devices to turn off
+      description: 'The label HomeView''s ticks add ("Outage: turn off").'
+      selector:
+        label: {}
+    down_for:
+      name: Wait before turning off
+      default: { seconds: 30 }
+      selector:
+        duration: {}
+    back_for:
+      name: Wait before turning back on
+      default: { minutes: 2 }
+      selector:
+        duration: {}
+    turn_back_on:
+      name: Turn them back on when the grid returns
+      default: true
+      selector:
+        boolean: {}
+
+mode: restart
+variables:
+  down_states: !input down_states
+  turn_back_on: !input turn_back_on
+triggers:
+  - trigger: state
+    entity_id: !input grid
+    for: !input down_for
+    id: changed
+  - trigger: state
+    entity_id: !input grid
+    for: !input back_for
+    id: changed_back
+conditions:
+  - condition: template
+    value_template: "{{ trigger.to_state is not none and trigger.to_state.state not in ['unknown', 'unavailable'] }}"
+actions:
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.id == 'changed' and trigger.to_state.state | lower in down_states }}"
+        sequence:
+          - action: homeassistant.turn_off
+            target:
+              label_id: !input label
+          - action: logbook.log
+            data:
+              name: HomeView outage
+              message: "Grid down: turned off the devices labelled for an outage."
+      - conditions:
+          - condition: template
+            value_template: >-
+              {{ trigger.id == 'changed_back' and turn_back_on
+                 and trigger.to_state.state | lower not in down_states
+                 and trigger.from_state is not none and trigger.from_state.state | lower in down_states }}
+        sequence:
+          - action: homeassistant.turn_on
+            target:
+              label_id: !input label
+          - action: logbook.log
+            data:
+              name: HomeView outage
+              message: "Grid back: turned the outage devices on again."

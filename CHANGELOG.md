@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.8.0 — 2026-11-04
+
+The Energy page gets the features of a hand-made energy dashboard, from generic entities:
+
+- **Right now** beside the flow: solar (producing / not), home (with **A at V** when the
+  home power sensor's device has current / voltage sensors), grid (importing / exporting),
+  battery (charging / discharging).
+- **Backup time** on battery: energy left (an energy-storage sensor, or the capacity × level)
+  at the 24 h average load and at the load now.
+- **Time windows** (`energy.windows`): the share of house use *not* from the grid in your
+  peak hours, partial-peak … — several spans, each with its own days.
+- **Solar self-sufficiency:** house use that came straight from solar, hour by hour.
+- **Power outage list:** every Energy-settings device with W · A · kWh today and an On / Off
+  button, top 10 with *Show all*; admins tick devices to turn off in an outage (HA label
+  "Outage: turn off"); *Turn off ticked* / *Turn back on*; grid status shown. New
+  **blueprint** `blueprints/homeview_outage.yaml` does it automatically when the grid goes down
+  and comes back.
+
 ## 0.7.0 — 2026-11-04
 
 **Phones get the layout of a hand-made iPhone HomeView** (tablets and browsers unchanged):

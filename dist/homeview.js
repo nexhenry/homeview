@@ -11,7 +11,7 @@
  * Home, Widgets, Family, Rooms (plus one page per room), Energy and Cameras. Everything is
  * optional and can be tuned in the strategy config — see README.md.
  */
-const HV_VERSION = '0.7.0';
+const HV_VERSION = '0.8.0';
 // where this file was loaded from (to re-download it after an update)
 const HV_URL = (() => { try { return import.meta.url; } catch (e) { return null; } })();
 
@@ -40,7 +40,8 @@ const OUTDOOR_ROOM = /garden|yard|patio|deck|porch|outdoor|outside|front|back|po
 const MAIN_ROOM = /living|lounge|kitchen|dining|family|great|\bden\b/i;
 // phones (64 px rows): [columns, rows] per tile type; compact tiles are 1 × 1
 const PHONE_SPAN = { weather: [2, 5], forecast: [2, 5], air: [2, 2], next_event: [2, 2], camera: [2, 3], agenda: [2, 6],
-  person: [2, 2], chart: [2, 3], energy_flow: [2, 6], energy_today: [2, 5], slideshow: [2, 4], date: [2, 3], room: [2, 1] };
+  person: [2, 2], chart: [2, 3], energy_flow: [2, 6], energy_today: [2, 5], slideshow: [2, 4], date: [2, 3], room: [2, 1],
+  energy_now: [2, 5], energy_backup: [2, 2], energy_window: [2, 2], energy_stat: [2, 2] };
 // tablet / browser columns per page (phones always get 2)
 const PAGE_COLUMNS = { home: 5, member: 5, custom: 5, people: 5, living: 6, all_rooms: 6, room: 6, energy: 6, cameras: 6 };
 
@@ -60,7 +61,7 @@ const COLOR_CYCLE = ['orange', 'green', 'amber', 'blue', 'purple', 'pink', 'teal
 const KNOWN_OPTIONS = ['type', 'title', 'theme', 'pages', 'pages_config', 'room_order', 'hide_rooms', 'rooms',
   'exclude_entities', 'customize', 'people', 'calendars', 'weather', 'cameras', 'home', 'pills', 'battery_low',
   'people_chips', 'energy', 'tile_size', 'max_columns', 'swipe', 'custom_pages', 'edit_button', 'update_notice',
-  'kiosk', 'kiosk_chip', 'members', 'living_rooms', 'widgets', 'avatars', 'phone_favorites'];
+  'kiosk', 'kiosk_chip', 'members', 'living_rooms', 'widgets', 'avatars', 'phone_favorites'];   // energy.* : see the energy page
 
 // What a room page / room row shows, in this order
 const ROOM_GROUPS = [
@@ -643,6 +644,25 @@ function getStatToday(hass, statId, onUpdate) {
   }, onUpdate);
 }
 
+/** Today's hourly `change` for several statistics: { id: [{ start, change }] } */
+function getHourlyToday(hass, ids, onUpdate) {
+  const now = new Date();
+  return cached(`hr:${ids.join(',')}:${now.toDateString()}:${now.getHours()}`, 10 * 60e3, async () => {
+    const start = new Date(); start.setHours(0, 0, 0, 0);
+    return (await ws(hass, { type: 'recorder/statistics_during_period', start_time: start.toISOString(), period: 'hour',
+      statistic_ids: ids, types: ['change'] })) || {};
+  }, onUpdate);
+}
+
+/** The mean of a statistic over the last 24 h (e.g. the house's average power). */
+function getMean24(hass, id, onUpdate) {
+  return cached(`mean24:${id}`, 30 * 60e3, async () => {
+    const r = await ws(hass, { type: 'recorder/statistic_during_period', statistic_id: id,
+      rolling_window: { duration: { hours: 24 } }, types: ['mean'] });
+    return r?.mean ?? null;
+  }, onUpdate);
+}
+
 function getEnergyPrefs(hass, onUpdate) {
   return cached('energy:prefs', 10 * 60e3, () => ws(hass, { type: 'energy/get_prefs' }), onUpdate);
 }
@@ -782,6 +802,21 @@ const TILE_CSS = `
 .t.flex.sect .nm { font-size:19px; font-weight:700; }
 .t.flex.sect .sb { font-size:13px; margin-top:1px; }
 .t.flex.sect .rt { font-size:15px; font-weight:600; color:var(--hv-fg2); white-space:nowrap; }
+.t.load { gap:10px; }
+.t.load .kwh { font-size:13px; font-weight:700; white-space:nowrap; }
+.lt-b, .onoff { all:unset; cursor:pointer; flex:none; display:inline-flex; align-items:center; justify-content:center; font:700 12.5px ${FONT}; }
+.lt-b { width:30px; height:30px; border-radius:50%; color:var(--hv-fg2); opacity:.55; --mdc-icon-size:19px; }
+.lt-b.tk { color:#FF3B30; opacity:1; background:rgba(255,59,48,.12); }
+.onoff { min-width:44px; height:28px; padding:0 10px; border-radius:999px; background:var(--hv-pill); color:var(--hv-fg2); }
+.onoff.on { background:#34C759; color:#fff; }
+.t.outage { gap:10px; flex-wrap:wrap; padding:10px 14px; flex-direction:row !important; justify-content:flex-start !important;
+  align-items:center !important; align-content:center; text-align:left !important; }
+.t.outage .tx { align-items:flex-start !important; }
+.grid.loads { grid-auto-rows:minmax(66px, auto); }
+@media (max-width:700px) { .grid.loads > homeview-tile[style*="1 / -1"] { grid-row:span 4; } }
+@container (max-width: 520px) { .t.outage { align-content:center; } .t.outage .tx { flex:1 1 calc(100% - 40px) !important; } }
+.t.outage .txt { all:unset; cursor:pointer; padding:7px 12px; border-radius:999px; background:var(--hv-pill); font:650 13px ${FONT}; color:var(--hv-fg); }
+.t.outage .txt[disabled] { opacity:.45; cursor:default; }
 .t.flex.row-t { padding:0 14px; gap:12px; border-radius:16px; }
 .t.flex.row-t .ic { --mdc-icon-size:24px; }
 .t.flex.row-t .nm { font-size:15px; font-weight:650; }
@@ -1179,8 +1214,10 @@ R.energy_now = {
       <span class="up" style="display:flex;align-items:center;gap:6px"><span class="ic" style="--mdc-icon-size:1.4em;color:${color}"><i data-i="${icon}"></i></span>${label}</span>
       <span style="font-weight:700;font-size:clamp(15px,6cqi,26px)">${value}</span><span class="sb" style="margin:0">${sub}</span></div>`;
     const cells = [];
-    if (p.solar) cells.push(cell('mdi:solar-power-variant', 'Solar', kw(solar), solar > 20 ? 'Producing' : 'Idle', '#FFB800', p.solar));
-    cells.push(cell('mdi:home-lightning-bolt-outline', 'Home', kw(home), 'Using now', 'var(--hv-accent)', p.home || ''));
+    const amps = v(p.current), volts = v(p.voltage);
+    const homeSub = amps !== null ? `${fmt(amps, 1)} A${volts !== null ? ` at ${fmt(volts, 0)} V` : ''}` : 'Using now';
+    if (p.solar) cells.push(cell('mdi:solar-power-variant', 'Solar', kw(solar), solar > 20 ? 'Producing' : 'Not producing', '#FFB800', p.solar));
+    cells.push(cell('mdi:home-lightning-bolt-outline', 'Home', kw(home), homeSub, '#30B0C7', p.home || p.current || ''));
     if (p.grid) cells.push(cell('mdi:transmission-tower', 'Grid', kw(grid), grid > 20 ? 'Importing' : grid < -20 ? 'Exporting' : 'Idle', '#8E8E93', p.grid));
     if (p.battery || p.battery_level) cells.push(cell(soc !== null ? `mdi:battery-${clamp(Math.round(soc / 10) * 10, 10, 100) === 100 ? '' : clamp(Math.round(soc / 10) * 10, 10, 90)}`.replace(/-$/, '') : 'mdi:home-battery-outline', 'Battery',
       soc !== null ? `${fmt(soc, 0)}%` : kw(battery), battery === null ? '' : battery > 20 ? `Discharging ${kw(battery)}` : battery < -20 ? `Charging ${kw(battery)}` : 'Idle', '#34C759', p.battery_level || p.battery));
@@ -1188,19 +1225,170 @@ R.energy_now = {
       <div class="up" style="margin-bottom:4%">Right now</div>
       <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;flex:1">${cells.join('')}</div></div>`;
   },
-  action(h, s, tile, kind, ev) { const id = ev?.target?.closest?.('[data-more]')?.dataset.more; if (id) moreInfo(tile, id); },
+  action(h, s, tile, kind, ev) { const id = ev?.target?.closest?.('[data-more]')?.dataset?.more; if (id) moreInfo(tile, id); },
 };
+
+// ---- battery backup time ------------------------------------------------------------------------
+const hmFmt = (hours) => (hours === null || !Number.isFinite(hours) ? '—' : hours >= 48 ? `${fmt(hours / 24, 1)} days`
+  : `${Math.floor(hours)} h ${String(Math.round((hours % 1) * 60)).padStart(2, '0')} min`);
+R.energy_backup = {
+  key: (h, s) => [s.power.battery_level, s.power.home, s.battery_energy].map((id) => h.states[id]?.state).join('|') + tileCacheTag(`mean24:${s.power.home}`),
+  html(h, s, tile) {
+    const P = powerValues(h, s.power);
+    const st = h.states[s.battery_energy];
+    let kwh = st ? num(st.state) : null;
+    if (kwh !== null && /^Wh$/i.test(st.attributes.unit_of_measurement || '')) kwh /= 1000;
+    if (kwh === null && s.capacity && P.soc !== null) kwh = (s.capacity * P.soc) / 100;
+    const scale = /^kW$/i.test(h.states[s.power.home]?.attributes?.unit_of_measurement || '') ? 1000 : 1;
+    const mean = s.power.home ? getMean24(h, s.power.home, () => tile.refresh()) : null;
+    const avgW = mean != null ? mean * scale : null;
+    const nowW = P.home;
+    const byAvg = kwh !== null && avgW > 50 ? kwh / (avgW / 1000) : null;
+    const byNow = kwh !== null && nowW > 50 ? kwh / (nowW / 1000) : null;
+    const main = byAvg ?? byNow;
+    const parts = [];
+    if (byAvg !== null) parts.push(`At the 24 h average load (${kwFmt(avgW)})`);
+    if (byNow !== null) parts.push(`${byAvg !== null ? 'now' : 'At the load now'} (${kwFmt(nowW)})${byAvg !== null ? `: ${hmFmt(byNow)}` : ''}`);
+    if (kwh !== null) parts.push(`${fmt(kwh, 0)}${s.capacity ? ` of ${fmt(s.capacity, 0)}` : ''} kWh`);
+    return `<div class="t card"><div class="up hd"><span class="ic" style="--mdc-icon-size:18px;color:#5856D6"><i data-i="mdi:timer-sand"></i></span>Backup time</div>
+      <div class="big">${kwh === null ? '—' : hmFmt(main)}</div><div class="sb" style="white-space:normal">${esc(kwh === null ? 'Set energy.battery_energy or battery_capacity' : parts.join(' · '))}</div></div>`;
+  },
+  action: (h, s, tile) => moreInfo(tile, s.battery_energy || s.power.battery_level),
+};
+
+// ---- off-grid share in a time window (peak hours …), from today's hourly statistics ------------
+const DAY_SETS = { weekdays: [1, 2, 3, 4, 5], weekends: [0, 6], all: [0, 1, 2, 3, 4, 5, 6], daily: [0, 1, 2, 3, 4, 5, 6] };
+const DAY_NAMES = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
+function windowDays(days) {
+  if (!days) return DAY_SETS.all;
+  if (typeof days === 'string') return DAY_SETS[days] || [DAY_NAMES[days.slice(0, 3).toLowerCase()]];
+  return asList(days).map((d) => (typeof d === 'number' ? d : DAY_NAMES[String(d).slice(0, 3).toLowerCase()])).filter((d) => d !== undefined);
+}
+const hourOf = (t) => { const [a, b] = String(t || '0').split(':'); return Number(a) + (Number(b) || 0) / 60; };
+R.energy_window = {
+  key: (h, s) => tileCacheTag(`hr:${s.ids.join(',')}:${new Date().toDateString()}:${new Date().getHours()}`),
+  html(h, s, tile) {
+    const w = s.window, now = new Date();
+    const data = getHourlyToday(h, s.ids, () => tile.refresh());
+    // spans: [{ start, end, days? }] — each span may have its own days (weekday vs weekend hours)
+    const allSpans = asList(w.hours || [{ start: w.start, end: w.end }])
+      .map((x) => ({ a: hourOf(x.start), b: hourOf(x.end) || 24, days: windowDays(x.days ?? w.days) }));
+    const spans = allSpans.filter((x) => x.days.includes(now.getDay())).map((x) => [x.a, x.b]);
+    const today = spans.length > 0;
+    const label = (today ? spans : allSpans.map((x) => [x.a, x.b])).map(([a, b]) => `${fmtHour(a)}–${fmtHour(b)}`).join(', ');
+    const inNow = today && spans.some(([a, b]) => now.getHours() + now.getMinutes() / 60 >= a && now.getHours() + now.getMinutes() / 60 < b);
+    let home = 0, grid = 0, direct = 0;
+    if (data && today) {
+      const hours = {};
+      for (const [role, ids] of Object.entries(s.roles)) {
+        for (const id of ids) for (const row of data[id] || []) {
+          const hr = new Date(row.start).getHours();
+          (hours[hr] = hours[hr] || { gin: 0, sol: 0, gout: 0, bout: 0, bin: 0 })[role] += row.change || 0;
+        }
+      }
+      for (const [hr, x] of Object.entries(hours)) {
+        if (!spans.some(([a, b]) => Number(hr) >= Math.floor(a) && Number(hr) < Math.ceil(b))) continue;
+        const use = Math.max(0, x.gin + x.sol - x.gout + x.bout - x.bin);
+        home += use; grid += Math.min(x.gin, use); direct += Math.min(x.sol, use);
+      }
+    }
+    s._direct = direct;
+    if (s.mode === 'solar') {
+      const pctS = home > 0.05 ? clamp(100 * s._direct / home, 0, 100) : null;
+      return `<div class="t card"><div class="up hd"><span class="ic" style="--mdc-icon-size:18px;color:#FFB800"><i data-i="mdi:solar-power-variant"></i></span>Solar self-sufficiency · Today</div>
+        <div class="big">${data === undefined ? '…' : pctS === null ? '—' : `${fmt(pctS, 0)}%`}</div>
+        <div class="sb" style="white-space:normal">${esc(`${fmt(s._direct, 1)} of ${fmt(home, 1)} kWh of house use came straight from solar`)}</div></div>`;
+    }
+    s._direct = direct;
+    const pct = home > 0.05 ? clamp(100 * (1 - grid / home), 0, 100) : null;
+    const big = data === undefined ? '…' : !today ? '—' : pct === null ? '—' : `${fmt(pct, 0)}%`;
+    const sub = !today ? `${label} — not today` : `${fmt(grid, 1)} of ${fmt(home, 1)} kWh from grid, ${label}${inNow ? ' (now)' : ''}`;
+    return `<div class="t card"><div class="up hd"><span class="ic" style="--mdc-icon-size:18px;color:#34C759"><i data-i="mdi:home-battery-outline"></i></span>${esc(w.name || 'Window')} off-grid · Today</div>
+      <div class="big">${big}</div><div class="sb" style="white-space:normal">${esc(sub)}</div></div>`;
+  },
+};
+const fmtHour = (x) => { const hh = Math.floor(x) % 24, mm = Math.round((x % 1) * 60); const d = new Date(); d.setHours(hh, mm, 0, 0);
+  return d.toLocaleTimeString(undefined, mm ? { hour: 'numeric', minute: '2-digit' } : { hour: 'numeric' }).replace(/\s?([AP])M/i, (m0, ap) => ap.toLowerCase() + 'm'); };
+
+// ---- power outage: the loads list (Energy page) ------------------------------------------------
+// Ticking a device gives its switch the HA label "Outage: turn off"; the buttons and the
+// blueprint (blueprints/homeview_outage.yaml) act on every entity with that label.
+const OUTAGE_LABEL = 'Outage: turn off';
+async function outageLabelId(hass, create) {
+  const labels = await ws(hass, { type: 'config/label_registry/list' });
+  const found = labels.find((l) => l.name === OUTAGE_LABEL);
+  if (found || !create) return found?.label_id || null;
+  const made = await ws(hass, { type: 'config/label_registry/create', name: OUTAGE_LABEL, icon: 'mdi:power-plug-off-outline', color: 'red' });
+  return made.label_id;
+}
+let outageLabel = null;   // label_id once known
+function isTicked(h, id) { return !!(outageLabel && id && asList(h.entities?.[id]?.labels).includes(outageLabel)); }
+R.energy_load = {
+  key: (h, s) => [s.power, s.current, s.sw].map((id) => h.states[id]?.state).join('|') + tileCacheTag(`st:${s.stat}:${new Date().toDateString()}`) + isTicked(h, s.sw),
+  html(h, s, tile) {
+    const kwh = getStatToday(h, s.stat, () => tile.refresh());
+    const w = s.power ? num(h.states[s.power]?.state) : null, a = s.current ? num(h.states[s.current]?.state) : null;
+    const sw = s.sw ? h.states[s.sw] : null, on = sw ? sw.state === 'on' : w !== null && w > 1;
+    const ticked = isTicked(h, s.sw);
+    const sub = [w !== null ? `${fmt(w, 0)} W` : null, a !== null ? `${fmt(a, 2)} A` : null].filter(Boolean).join(' · ');
+    return `<div class="t flex row-t load${on ? ' on' : ''}" style="--hv-ic-on:#FFB800">
+      ${s.sw && s.admin ? `<button class="lt-b${ticked ? ' tk' : ''}" data-act="tick" title="${ticked ? 'Turned off in an outage — tap to keep on' : 'Tap: turn off in an outage'}"><ha-icon icon="mdi:power-plug-off-outline"></ha-icon></button>` : ''}
+      <div class="ic"><i data-i="${esc(s.icon || 'mdi:power-plug-outline')}"></i></div>
+      <div class="tx" style="flex:1"><div class="nm">${esc(s.name)}</div><div class="sb">${esc(sub || (sw ? hassState(h, sw) : ''))}</div></div>
+      <b class="kwh">${kwh === undefined ? '…' : `${fmt(kwh || 0, 2)} kWh`}</b>
+      ${sw ? `<button class="onoff${on ? ' on' : ''}" data-act="toggle">${on ? 'On' : 'Off'}</button>` : ''}</div>`;
+  },
+  async action(h, s, tile, kind, ev) {
+    const act = ev?.target?.closest?.('[data-act]')?.dataset?.act;
+    if (kind === 'hold' || !act) return moreInfo(tile, s.power || s.stat);
+    if (act === 'toggle' && s.sw) return h.callService('homeassistant', 'toggle', {}, { entity_id: s.sw });
+    if (act === 'tick' && s.sw && h.user?.is_admin) {
+      const id = await outageLabelId(h, true);
+      outageLabel = id;
+      const cur = asList(h.entities?.[s.sw]?.labels);
+      await ws(h, { type: 'config/entity_registry/update', entity_id: s.sw, labels: cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id] });
+    }
+  },
+};
+R.energy_outage = {
+  key: (h, s) => `${h.states[s.grid]?.state}|${s.loads.map((l) => isTicked(h, l.sw) + (h.states[l.sw]?.state || '')).join('')}|${s.all}`,
+  html(h, s) {
+    const g = h.states[s.grid];
+    const up = g ? !['off', 'off_grid', 'islanded', 'disconnected', 'down'].includes(String(g.state).toLowerCase()) : null;
+    const ticked = s.loads.filter((l) => isTicked(h, l.sw));
+    const onNow = ticked.filter((l) => h.states[l.sw]?.state === 'on').length;
+    return `<div class="t flex row-t outage" style="cursor:default">
+      <div class="ic" style="color:${up === false ? '#FF3B30' : '#34C759'}"><i data-i="${up === false ? 'mdi:transmission-tower-off' : 'mdi:transmission-tower'}"></i></div>
+      <div class="tx" style="flex:1"><div class="nm">Power outage <span style="font-weight:500;color:${up === false ? '#FF3B30' : '#34C759'}">· ${up === null ? 'grid status unknown' : up ? 'grid on' : 'GRID DOWN'}</span></div>
+        <div class="sb" style="white-space:normal">Tick <ha-icon icon="mdi:power-plug-off-outline" style="--mdc-icon-size:14px;vertical-align:-2px"></ha-icon> what to turn off when the grid goes down — sorted by today's energy. Automatic: the HomeView outage blueprint.</div></div>
+      <button class="txt" data-act="off" ${ticked.length ? '' : 'disabled'}>Turn off ticked (${ticked.length})</button>
+      <button class="txt" data-act="on" ${ticked.length ? '' : 'disabled'}>Turn back on</button>
+      ${s.more ? `<button class="txt" data-act="all">${s.all ? 'Show fewer' : `Show all ${s.total}`}</button>` : ''}</div>`;
+  },
+  async action(h, s, tile, kind, ev) {
+    const act = ev?.target?.closest?.('[data-act]')?.dataset?.act;
+    const ids = s.loads.filter((l) => isTicked(h, l.sw)).map((l) => l.sw);
+    if (act === 'all') return s.page.toggleAllLoads();
+    if (act === 'off' && ids.length && window.confirm(`Turn off ${ids.length} device${ids.length > 1 ? 's' : ''}?`)) return h.callService('homeassistant', 'turn_off', {}, { entity_id: ids });
+    if (act === 'on' && ids.length) return h.callService('homeassistant', 'turn_on', {}, { entity_id: ids });
+    if (kind === 'hold' && s.grid) moreInfo(tile, s.grid);
+  },
+};
+
 R.energy_stat = {
   key: (h, s) => s.stats.map((x) => tileCacheTag(`st:${x.id}:${new Date().toDateString()}`)).join('|'),
   html(h, s, tile) {
     const vals = s.stats.map((x) => ({ ...x, v: getStatToday(h, x.id, () => tile.refresh()) }));
     const loading = vals.some((x) => x.v === undefined);
     let value;
-    if (s.compute) value = s.compute(Object.fromEntries(vals.map((x) => [x.role, x.v])));
-    else value = vals.reduce((a, x) => a + (x.v || 0) * (x.sign || 1), 0);
+    let sub = s.sub || 'Today';
+    if (s.compute) {
+      value = s.compute(Object.fromEntries(vals.map((x) => [x.role, x.v])));
+      if (value && typeof value === 'object') { sub = loading ? sub : value.sub; value = value.value; }
+    } else value = vals.reduce((a, x) => a + (x.v || 0) * (x.sign || 1), 0);
     const txt = loading ? '…' : value === null || Number.isNaN(value) ? '—' : s.unit === '%' ? `${fmt(value, 0)}%` : `${fmt(value, value >= 100 ? 0 : 1)} kWh`;
     return `<div class="t card"><div class="up hd"><span class="ic" style="--mdc-icon-size:18px;color:${s.color || 'var(--hv-accent)'}"><i data-i="${s.icon}"></i></span>${esc(s.title)}</div>
-      <div class="big">${txt}</div><div class="sb">${esc(s.sub || 'Today')}</div></div>`;
+      <div class="big">${txt}</div><div class="sb" style="white-space:normal">${esc(sub)}</div></div>`;
   },
 };
 // today's energy numbers as one card of small cells (next to the flow diagram)
@@ -2060,12 +2248,44 @@ const PAGES = {
     };
     Object.keys(power).forEach((k) => { if (!power[k]) delete power[k]; });
 
+    // Home current / voltage (the "15 A at 240 V" line): sensors on the home power sensor's device
+    const devOf = (id) => h.entities?.[id]?.device_id;
+    const onDevice = (dev, dc) => dev ? Object.values(h.entities).find((e) => e.device_id === dev && h.states[e.entity_id]?.attributes?.device_class === dc)?.entity_id : null;
+    power.current = ec.home_current || onDevice(devOf(power.home || power.grid), 'current') || undefined;
+    power.voltage = ec.voltage || onDevice(devOf(power.home || power.grid), 'voltage') || undefined;
+    Object.keys(power).forEach((k) => { if (!power[k]) delete power[k]; });
+
     const top = [];
-    if (Object.keys(power).length) top.push({ kind: 'energy_flow', power, size: ['half', 2] });
+    if (Object.keys(power).length) {
+      top.push({ kind: 'energy_flow', power, size: ['half', 2] });
+      top.push({ kind: 'energy_now', power, size: ['half', 2] });
+    }
     const S = (ids, role, sign = 1) => ids.map((id) => ({ id, role: `${role}:${id}`, sign }));
     const sumRole = (v, role) => Object.entries(v).filter(([k]) => k.startsWith(role + ':')).reduce((acc, [, x]) => acc + (x || 0), 0);
     const all = [...S(gridIn, 'gin'), ...S(gridOut, 'gout'), ...S(solarIds, 'sol'), ...S(batOut, 'bout'), ...S(batIn, 'bin')];
     const homeUse = (v) => sumRole(v, 'gin') + sumRole(v, 'sol') - sumRole(v, 'gout') + sumRole(v, 'bout') - sumRole(v, 'bin');
+
+    // battery backup time
+    if (bat.length || power.battery_level) {
+      // energy_storage sensors: "capacity / total / full" = the battery's size, others = what's left in it
+      const stores = (m.byDomain.sensor || []).filter((id) => h.states[id]?.attributes?.device_class === 'energy_storage');
+      const sizeRe = /capacity|total|full|nominal|max/i;
+      const battery_energy = ec.battery_energy || stores.find((id) => !sizeRe.test(id)) || null;
+      const capId = stores.find((id) => sizeRe.test(id));
+      const capacity = ec.battery_capacity || (capId ? num(h.states[capId].state) : null);
+      top.push({ kind: 'energy_backup', power, battery_energy, capacity, size: ['half', 1] });
+    }
+    // time windows (peak hours …): energy.windows: [{ name, start, end, days }] (or hours: [{start, end}])
+    const roles = { gin: gridIn, sol: solarIds, gout: gridOut, bout: batOut, bin: batIn };
+    const ids = [...gridIn, ...solarIds, ...gridOut, ...batOut, ...batIn];
+    for (const w of asList(ec.windows)) {
+      if (ids.length && w && (w.start || w.hours)) top.push({ kind: 'energy_window', window: w, roles, ids, size: ['half', 1] });
+    }
+    // solar self-sufficiency: house use that came straight from solar
+    // solar self-sufficiency: hour by hour, the lower of solar and house use
+    if (solarIds.length) {
+      top.push({ kind: 'energy_window', mode: 'solar', window: { name: 'Solar', start: '0:00', end: '24:00' }, roles, ids, size: ['half', 1] });
+    }
     const items = [];
     const stat = (title, icon, color, stats, extra = {}) => items.push({ title, icon, color, stats, ...extra });
     if (gridIn.length || solarIds.length) stat('Home used', 'mdi:home-lightning-bolt-outline', '#30B0C7', all, { compute: homeUse });
@@ -2080,20 +2300,29 @@ const PAGES = {
     if (items.length) top.push({ kind: 'energy_today', items, size: ['half', 2] });
     const sections = [{ tiles: top }];
 
+    // power outage: every device from the Energy settings with its switch, W · A, kWh today
     const devices = asList(prefs?.device_consumption);
     if (devices.length) {
-      const devTiles = devices.map((d) => {
+      if (outageLabel === null) cached('outage:label', 10 * 60e3, () => outageLabelId(h, false).then((id) => { outageLabel = id || ''; return id; }), () => page.scheduleRebuild());
+      const loads = devices.map((d) => {
         const statId = d.stat_consumption;
-        const reg = h.entities?.[statId];
-        const dev = reg?.device_id && h.devices?.[reg.device_id];
-        const powerId = dev ? Object.values(h.entities).find((e) => e.device_id === dev.id && h.states[e.entity_id]?.attributes?.device_class === 'power')?.entity_id : null;
+        const dev = devOf(statId) && h.devices?.[devOf(statId)];
+        const ents = dev ? Object.values(h.entities).filter((e) => e.device_id === dev.id) : [];
+        const byDc = (dc) => ents.find((e) => h.states[e.entity_id]?.attributes?.device_class === dc)?.entity_id || null;
+        const sw = ents.find((e) => ['switch', 'light', 'fan'].includes(domainOf(e.entity_id)) && !e.entity_category)?.entity_id || null;
         const name = d.name || dev?.name_by_user || dev?.name || h.states[statId]?.attributes?.friendly_name || statId;
-        return { kind: 'energy_device', stat: statId, power: powerId, name, row: true };
+        return { kind: 'energy_load', stat: statId, power: byDc('power'), current: byDc('current'), sw, name, admin: !!h.user?.is_admin, row: true };
       });
       // most used today first: once every number is in, the page is rebuilt in that order
-      devTiles.forEach((t) => getStatToday(h, t.stat, () => page.scheduleRebuild()));
-      devTiles.sort((a, b) => (getStatToday(h, b.stat) || 0) - (getStatToday(h, a.stat) || 0));
-      sections.push({ title: 'Devices today', layout: 'rows', tiles: devTiles.slice(0, ec.devices || 12) });
+      loads.forEach((t) => getStatToday(h, t.stat, () => page.scheduleRebuild()));
+      loads.sort((a, b) => (getStatToday(h, b.stat) || 0) - (getStatToday(h, a.stat) || 0));
+      const limit = ec.devices || 10;
+      const shown = page._allLoads ? loads : loads.slice(0, limit);
+      const grid = ec.grid_status || [...(m.byDomain.binary_sensor || []), ...(m.byDomain.sensor || [])]
+        .find((id) => /grid.?(status|connect|up|online|power_status)|off.?grid/i.test(id)) || null;
+      sections.push({ title: null, layout: 'rows', loads: true, tiles: [
+        { kind: 'energy_outage', grid, loads: loads.filter((l) => l.sw), more: loads.length > limit, all: !!page._allLoads, total: loads.length, page, full: true, row: true },
+        ...shown] });
     }
     if (!src.length && !Object.keys(power).length && !devices.length) {
       return { title: 'Energy', sections: [], note: 'Set up the Energy dashboard in Home Assistant (Settings → Dashboards → Energy) and HomeView fills this page in.' };
@@ -2160,6 +2389,7 @@ const PAGE_CSS = `
 .grid { display:grid; grid-template-columns:repeat(var(--hv-cols), minmax(0, 1fr)); grid-auto-rows:var(--hv-row);
   gap:var(--hv-gap); grid-auto-flow:row dense; }
 .grid.favs { grid-template-columns:repeat(3, minmax(0, 1fr)); grid-auto-rows:96px; gap:10px; }
+.grid.rows.loads, .grid.rows:has(> homeview-tile[style*="1 / -1"]) { grid-template-columns:repeat(auto-fill, minmax(min(100%, 380px), 1fr)); }
 .grid.rows { grid-template-columns:repeat(auto-fill, minmax(min(100%, 230px), 1fr)); grid-auto-rows:66px; gap:10px; }
 .grid.cams { grid-template-columns:repeat(auto-fill, minmax(min(100%, 300px), 1fr)); grid-auto-rows:auto; }
 .grid.cams > homeview-tile { aspect-ratio:16 / 9; height:auto; }
@@ -2357,11 +2587,12 @@ class HomeViewPage extends HTMLElement {
       if (sec.title) {
         s.insertAdjacentHTML('beforeend', `<div class="sec-h">${esc(sec.title)}${sec.sub ? `<span class="sub">${esc(sec.sub)}</span>` : ''}${sec.link ? `<span class="more" data-nav="${esc(sec.link)}">See all ›</span>` : ''}</div>`);
       }
-      const g = document.createElement('div'); g.className = 'grid' + (sec.layout ? ` ${sec.layout}` : '');
+      const g = document.createElement('div'); g.className = 'grid' + (sec.layout ? ` ${sec.layout}` : '') + (sec.loads ? ' loads' : '');
       if (sec.hue !== undefined) g.setAttribute('style', styleVars(palette(sec.hue, dark)));
       for (const spec of sec.tiles) {
         const t = this._tile(sec.layout === 'rows' ? { ...spec, row: true } : spec, dark);
         if (sec.layout) t._hvFree = true;
+        if (spec.full) { t.style.gridColumn = '1 / -1'; if (this._phone && spec.kind === 'energy_outage') t.style.gridRow = 'span 3'; }
         g.appendChild(t);
       }
       s.appendChild(g);
@@ -2556,6 +2787,8 @@ class HomeViewPage extends HTMLElement {
       if (r.ok) close();
     });
   }
+
+  toggleAllLoads() { this._allLoads = !this._allLoads; this.rebuild(); }
 
   scheduleRebuild() {
     clearTimeout(this._rb);
