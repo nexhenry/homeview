@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.7.0 — 2026-11-04
+
+**Phones get the layout of a hand-made iPhone HomeView** (tablets and browsers unchanged):
+
+- Big title; *Hi <name>* on Living and each person's page, with a **favourites strip** (six,
+  three per row: `phone_favorites`, a list or one per person; default the main rooms'
+  lights, then the locks).
+- **Compact one-line tiles** (64 px, icon left, name and state), two across.
+- Each room starts with a **slim section bar** — icon, name, comfort (Cold / Comfy / Warm,
+  Dry / Humid, lights on), temperature · humidity; a person's page shows their room's bar
+  instead of the big hero.
+- Wide tiles across the full width: weather, air quality, camera, next event, person, charts,
+  energy flow and today, photos. No clock; status pills on Home only, left-aligned.
+- Turning a phone / resizing across 600 px switches layouts on the fly.
+
 ## 0.6.1 — 2026-11-04
 
 - **Anime avatars** for people without a picture (DiceBear "Adventurer", CC BY 4.0), with

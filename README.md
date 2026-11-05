@@ -21,7 +21,7 @@ no YAML per tile.
 - **Full screen like an app:** HA's header and sidebar are always hidden when HomeView opens; a small Menu icon brings them back.
 - **Touch-first:** tap toggles, hold opens the details. Swipe left / right between pages.
 
-> Status: **0.5 (preview)**. The layout and config keys may still change before 1.0.
+> Status: **0.7 (preview)**. The layout and config keys may still change before 1.0.
 > Use at your own risk — see [Disclaimer](#disclaimer).
 
 ## Contents
@@ -48,6 +48,13 @@ no YAML per tile.
 | **Your pages** | As many as you like, with your own tiles and any Home Assistant card |
 
 The pages come in this order, and swiping past the last one wraps back to Widgets.
+**On a phone** every page follows a hand-made iPhone HomeView: a big title (*Hi <your name>* on
+Living and each person's page, with a strip of six favourites), compact one-line tiles two
+across, each room starting with a slim bar (name, comfort, temperature · humidity), wide tiles
+(weather, air, camera, next event) across the full width, no clock, status pills on Home only.
+Favourites: `phone_favorites: [light.kitchen, …]` or per person
+`{ henry: [...], lucy: [...] }` (default: the main rooms' lights, then the locks).
+
 Pages that have nothing to show (no cameras, no energy set up …) are left out.
 
 The pills open a sheet with the matching devices, for example every light that's on or every
@@ -302,6 +309,7 @@ strategy:
   pills: [alarm, climate, lights, locks, openings, safety, batteries, media]   # or false
   battery_low: 20                 # % under which a battery counts as low
   people_chips: true              # the avatars under the Home title
+  phone_favorites: [light.kitchen, light.living_room, lock.front_door]   # or { henry: [...], lucy: [...] }
   avatars: samples                # people without a picture: samples (anime avatars) | initials
   # avatars: { person.ben: man, person.lucy: woman, person.kai: /local/kai.jpg }   per person
 

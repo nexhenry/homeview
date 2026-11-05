@@ -11,7 +11,7 @@
  * Home, Widgets, Family, Rooms (plus one page per room), Energy and Cameras. Everything is
  * optional and can be tuned in the strategy config — see README.md.
  */
-const HV_VERSION = '0.6.1';
+const HV_VERSION = '0.7.0';
 // where this file was loaded from (to re-download it after an update)
 const HV_URL = (() => { try { return import.meta.url; } catch (e) { return null; } })();
 
@@ -38,6 +38,9 @@ const PAGE_ALIASES = { family: 'living', shared: 'living', members: 'rooms' };
 const PRIVATE_ROOM = /bed|bath|shower|toilet|\bwc\b|powder|closet|nursery|en.?suite/i;
 const OUTDOOR_ROOM = /garden|yard|patio|deck|porch|outdoor|outside|front|back|pool|pond|koi|driveway|balcony|terrace|shed|farm/i;
 const MAIN_ROOM = /living|lounge|kitchen|dining|family|great|\bden\b/i;
+// phones (64 px rows): [columns, rows] per tile type; compact tiles are 1 × 1
+const PHONE_SPAN = { weather: [2, 5], forecast: [2, 5], air: [2, 2], next_event: [2, 2], camera: [2, 3], agenda: [2, 6],
+  person: [2, 2], chart: [2, 3], energy_flow: [2, 6], energy_today: [2, 5], slideshow: [2, 4], date: [2, 3], room: [2, 1] };
 // tablet / browser columns per page (phones always get 2)
 const PAGE_COLUMNS = { home: 5, member: 5, custom: 5, people: 5, living: 6, all_rooms: 6, room: 6, energy: 6, cameras: 6 };
 
@@ -57,7 +60,7 @@ const COLOR_CYCLE = ['orange', 'green', 'amber', 'blue', 'purple', 'pink', 'teal
 const KNOWN_OPTIONS = ['type', 'title', 'theme', 'pages', 'pages_config', 'room_order', 'hide_rooms', 'rooms',
   'exclude_entities', 'customize', 'people', 'calendars', 'weather', 'cameras', 'home', 'pills', 'battery_low',
   'people_chips', 'energy', 'tile_size', 'max_columns', 'swipe', 'custom_pages', 'edit_button', 'update_notice',
-  'kiosk', 'kiosk_chip', 'members', 'living_rooms', 'widgets', 'avatars'];
+  'kiosk', 'kiosk_chip', 'members', 'living_rooms', 'widgets', 'avatars', 'phone_favorites'];
 
 // What a room page / room row shows, in this order
 const ROOM_GROUPS = [
@@ -773,6 +776,12 @@ const TILE_CSS = `
 .node small { font-size:.8em; color:var(--hv-fg2); }
 .node .nl { position:absolute; top:calc(100% + 4px); font-size:11.5px; color:var(--hv-fg2); white-space:nowrap; }
 /* compact one-line tiles (room pages, lists) */
+.t.flex.sect { padding:0 14px; gap:12px; border-radius:16px; }
+.t.flex.sect .circ { width:36px; height:36px; --mdc-icon-size:20px; }
+.t.flex.sect .badge { border-width:1.5px; }
+.t.flex.sect .nm { font-size:19px; font-weight:700; }
+.t.flex.sect .sb { font-size:13px; margin-top:1px; }
+.t.flex.sect .rt { font-size:15px; font-weight:600; color:var(--hv-fg2); white-space:nowrap; }
 .t.flex.row-t { padding:0 14px; gap:12px; border-radius:16px; }
 .t.flex.row-t .ic { --mdc-icon-size:24px; }
 .t.flex.row-t .nm { font-size:15px; font-weight:650; }
@@ -888,6 +897,17 @@ R.room = {
     const lightTxt = sum.lights ? `${sum.lights} light${sum.lights > 1 ? 's' : ''} on` : '';
     const alertSt = sum.alerts.length ? h.states[sum.alerts[0]] : null;
     const badge = alertSt ? `<div class="badge"><i data-e="${esc(alertSt.entity_id)}"></i></div>` : '';
+    if (s.section) {   // phones: a 56 px bar that starts the room's tiles (name, comfort, temp · hum)
+      const tSt = h.states[r.temp];
+      const f = /F/.test(tSt?.attributes?.unit_of_measurement || h.config.unit_system?.temperature || '');
+      const feel = sum.t === null ? '' : sum.t < (f ? 66 : 19) ? 'Cold' : sum.t > (f ? 77 : 25) ? 'Warm' : 'Comfy';
+      const hfeel = sum.hu === null ? '' : sum.hu < 30 ? 'Dry' : sum.hu > 55 ? 'Humid' : '';
+      const comfort = [feel, hfeel, lightTxt].filter(Boolean).join(' · ');
+      return `<div class="t flex sect${sum.lights ? ' on' : ''}" style="--hv-ic-on:#FF9F0A">
+        <div class="circ"><div class="ic" style="--mdc-icon-size:inherit;color:${sum.lights ? '#FF9F0A' : 'var(--hv-accent)'}"><i data-i="${esc(r.icon)}"></i></div>${badge}</div>
+        <div class="tx" style="flex:1"><div class="nm">${esc(s.name || r.name)}</div>${comfort ? `<div class="sb">${esc(comfort)}</div>` : ''}</div>
+        ${climate ? `<div class="rt">${esc(climate)}</div>` : ''}</div>`;
+    }
     return `<div class="t${sum.lights ? ' on' : ''}" style="--hv-ic-on:#FF9F0A">
       <div class="circ"><div class="ic" style="--mdc-icon-size:inherit;color:${sum.lights ? '#FF9F0A' : 'var(--hv-accent)'}"><i data-i="${esc(r.icon)}"></i></div>${badge}</div>
       <div class="tx"><div class="nm">${esc(r.name)}</div>
@@ -1802,6 +1822,20 @@ function bindPress(el, onTap, onHold) {
 const roomTile = (room, size = [1, 1]) => ({ kind: 'room', room, size, hue: room.hue });
 const entTile = (id, extra = {}) => ({ kind: 'entity', entity: id, size: [1, 1], ...extra });
 
+/** The favourites strip on a phone (Living, a member's page): six, three per row. */
+function phoneFavorites(h, m, cfg) {
+  const pf = cfg.phone_favorites;
+  const user = (h.user?.name || '').toLowerCase();
+  let list = Array.isArray(pf) ? pf : pf && typeof pf === 'object'
+    ? (Object.entries(pf).find(([k]) => k.toLowerCase() === user || k.toLowerCase() === user.split(' ')[0])?.[1] || pf.default) : null;
+  if (!list) {
+    // automatic: the main rooms' lights, then the locks
+    const lights = m.rooms.filter((r) => MAIN_ROOM.test(r.name)).flatMap((r) => (r.groups.lights || []).filter((id) => !Array.isArray(h.states[id]?.attributes?.entity_id)).slice(0, 2));
+    list = [...lights, ...(m.byDomain.lock || [])];
+  }
+  return asList(list).filter((id) => h.states[id] && !UNAVAILABLE.includes(h.states[id].state)).slice(0, 6);
+}
+
 function favoritesAuto(h, m) {
   const out = [];
   const add = (ids) => ids.forEach((id) => { if (!out.includes(id)) out.push(id); });
@@ -1931,7 +1965,7 @@ const PAGES = {
         && !UNAVAILABLE.includes(h.states[id]?.state) && !(d === 'light' && Array.isArray(h.states[id]?.attributes?.entity_id))))).slice(0, 11);
       return { title: r.name, hue: r.hue, tiles: [roomTile(r), ...ids.map((id) => entTile(id, { areaName: r.name, hue: r.hue }))] };
     });
-    return { title: 'Living', pills: true, sections, compactSections: true,
+    return { title: 'Living', pills: true, greet: true, sections, compactSections: true,
       note: list.length ? null : 'No living spaces found. List them with living_rooms: [living_room, kitchen, …].' };
   },
 
@@ -1996,7 +2030,7 @@ const PAGES = {
     const cals = mem.calendars.length ? mem.calendars : m.calendars;
     if (cals.length) tiles.push({ kind: 'next_event', calendars: cals, size: [3, 1] });
     tiles.push({ kind: 'person', entity: mem.person, battery: personBattery(h, mem.person), size: [2, 1] });
-    return { title: mem.name, hue: mem.hue, sections: [{ tiles }] };
+    return { title: mem.name, hue: mem.hue, greet: true, member: mem, openings, sections: [{ tiles }] };
   },
 
   energy(h, m, cfg, opts, page) {
@@ -2089,11 +2123,12 @@ const PAGE_CSS = `
   padding:var(--hv-pad) var(--hv-pad) calc(var(--hv-pad) * 2); -webkit-font-smoothing:antialiased; }
 .head { display:flex; flex-wrap:wrap; align-items:flex-start; justify-content:space-between; gap:12px 20px; margin-bottom:calc(var(--hv-gap) * 1.2); }
 .date { font-size:13px; font-weight:650; letter-spacing:.06em; text-transform:uppercase; color:var(--hv-fg2); }
-.title { font-size:clamp(26px, 4vw, 34px); font-weight:750; letter-spacing:-.02em; line-height:1.15; display:flex; align-items:center; gap:10px; }
+.title { font-size:clamp(30px, 4vw, 34px); font-weight:750; letter-spacing:-.02em; line-height:1.15; display:flex; align-items:center; gap:10px; }
 .title .sub { font-size:15px; font-weight:500; color:var(--hv-fg2); letter-spacing:0; }
 .back { all:unset; cursor:pointer; width:36px; height:36px; border-radius:50%; background:var(--hv-pill); display:inline-flex;
   align-items:center; justify-content:center; --mdc-icon-size:22px; }
 .pills { display:flex; flex-wrap:wrap; gap:8px; justify-content:flex-end; max-width:100%; }
+@media (max-width:600px) { .pills { justify-content:flex-start; } }
 .pill { all:unset; cursor:pointer; display:inline-flex; align-items:center; gap:6px; padding:7px 12px; border-radius:999px;
   background:var(--hv-pill); font-size:13.5px; font-weight:650; color:var(--hv-fg); --mdc-icon-size:17px; white-space:nowrap; }
 .pill ha-icon { color:var(--hv-icon); }
@@ -2124,6 +2159,7 @@ const PAGE_CSS = `
 .compact .sec-h { display:none; }
 .grid { display:grid; grid-template-columns:repeat(var(--hv-cols), minmax(0, 1fr)); grid-auto-rows:var(--hv-row);
   gap:var(--hv-gap); grid-auto-flow:row dense; }
+.grid.favs { grid-template-columns:repeat(3, minmax(0, 1fr)); grid-auto-rows:96px; gap:10px; }
 .grid.rows { grid-template-columns:repeat(auto-fill, minmax(min(100%, 230px), 1fr)); grid-auto-rows:66px; gap:10px; }
 .grid.cams { grid-template-columns:repeat(auto-fill, minmax(min(100%, 300px), 1fr)); grid-auto-rows:auto; }
 .grid.cams > homeview-tile { aspect-ratio:16 / 9; height:auto; }
@@ -2276,6 +2312,9 @@ class HomeViewPage extends HTMLElement {
     }
     const editing = this._editing;
     if (editing) page.sections.push(...this._hiddenSections());
+    // phones: the layout of a hand-made iPhone HomeView (see PHONE_SPAN)
+    this._phone = this._isPhone();
+    if (this._phone) this._phonePage(h, cfg, page);
 
     this._tiles = [];
     const frag = document.createDocumentFragment();
@@ -2314,7 +2353,7 @@ class HomeViewPage extends HTMLElement {
     for (const sec of page.sections) {
       if (!sec.tiles.length) continue;
       const s = document.createElement('div');
-      s.className = 'sec' + (page.compactSections && !editing ? ' compact' : '') + (sec.hidden ? ' hidden-sec' : '');
+      s.className = 'sec' + (page.compactSections && !editing && sec.layout !== 'favs' ? ' compact' : '') + (sec.hidden ? ' hidden-sec' : '');
       if (sec.title) {
         s.insertAdjacentHTML('beforeend', `<div class="sec-h">${esc(sec.title)}${sec.sub ? `<span class="sub">${esc(sec.sub)}</span>` : ''}${sec.link ? `<span class="more" data-nav="${esc(sec.link)}">See all ›</span>` : ''}</div>`);
       }
@@ -2332,6 +2371,36 @@ class HomeViewPage extends HTMLElement {
     this._root.querySelectorAll('[data-nav]').forEach((el) => el.addEventListener('click', () => navigate(el.dataset.nav)));
     this._renderHead();
     this._layout();
+  }
+
+  _isPhone() { return (this.clientWidth || window.innerWidth) < 600; }
+
+  // compact 64 px tiles, rooms as section bars, a member's room as its bar, no clock,
+  // the favourites strip under "Hi <name>" on Living and a member's page
+  _phonePage(h, cfg, page) {
+    for (const sec of page.sections) {
+      const out = [];
+      for (const t of sec.tiles) {
+        if (t.kind === 'clock') continue;
+        if (t.kind === 'member_hero') {
+          if (t.room) {
+            out.push({ kind: 'room', room: t.room, section: true, name: `${page.member?.name || ''}${page.member ? "'s room" : ''}`.trim() || t.room.name,
+              navigate: `room-${t.room.id}`, hue: t.room.hue });
+          }
+          continue;
+        }
+        if (t.kind === 'room') { out.push({ ...t, section: true }); continue; }
+        if (['entity', 'room_lights', 'energy_device'].includes(t.kind) && !sec.layout) { out.push({ ...t, row: true }); continue; }
+        out.push(t);
+      }
+      sec.tiles = out;
+    }
+    if (page.greet) {
+      const favs = phoneFavorites(h, this._model, cfg);
+      if (favs.length) {
+        page.sections.unshift({ title: 'Favorites', layout: 'favs', tiles: favs.map((id) => entTile(id, { areaName: this._model.areaById[entityArea(h, id)]?.name, showRoom: true })) });
+      }
+    }
   }
 
   /* ---------------- edit mode ---------------- */
@@ -2525,6 +2594,7 @@ class HomeViewPage extends HTMLElement {
     const phone = w < 600;
     const pageCols = PAGE_COLUMNS[this._config.page] || 5;
     let cols, pad, gap, aspect;
+    if (phone !== !!this._phone && this._page) { this._phone = phone; this.rebuild(); return; }
     if (phone) {
       cols = 2; pad = 14; gap = 10; aspect = 1;
     } else {
@@ -2540,7 +2610,7 @@ class HomeViewPage extends HTMLElement {
     if (cfg.max_columns) cols = Math.min(cols, cfg.max_columns);
     cols = Math.max(2, cols);
     const colW = (w - 2 * pad - gap * (cols - 1)) / cols;
-    const row = Math.round(colW / aspect);
+    const row = phone ? 64 : Math.round(colW / aspect);
     this._root.style.setProperty('--hv-cols', cols);
     this._root.style.setProperty('--hv-row', `${row}px`);
     this._root.style.setProperty('--hv-gap', `${gap}px`);
@@ -2557,6 +2627,14 @@ class HomeViewPage extends HTMLElement {
     for (const t of this._tiles) {
       if (t._hvFree) continue;
       let [sw, sh] = t._hvSize;
+      if (phone) {   // rows are 64 px: big tiles span several, compact tiles one
+        const k = t.spec?.kind;
+        const span = PHONE_SPAN[k];
+        if (span) [sw, sh] = span;
+        else if (t.spec?.row) { sh = 1; sw = sw >= 2 ? 2 : 1; }
+        else if (k === 'card') { sw = 2; sh = Math.max(2, (sh || 2) * 3); }
+        else { sw = Math.min(2, sw === 'half' || sw === 'full' ? 2 : sw); sh = Math.max(1, sh * 2); }
+      }
       if (sw === 'half') sw = cols >= 4 ? Math.ceil(cols / 2) : cols;
       if (sw === 'full') sw = cols;
       t.style.gridColumn = `span ${Math.min(sw, cols)}`;
@@ -2571,7 +2649,8 @@ class HomeViewPage extends HTMLElement {
     const cfg = this._config.options || {};
     const m = this._model;
     const chipAlarm = asList(page.chips).some((c) => domainOf(c.entity) === 'alarm_control_panel');
-    const pills = page.pills && cfg.pills !== false
+    // phones: the status pills on Home only (as on a hand-made iPhone HomeView)
+    const pills = page.pills && cfg.pills !== false && (!this._phone || this._config.page === 'home')
       ? asList(cfg.pills && cfg.pills !== true ? cfg.pills : DEFAULT_PILLS).filter((id) => !(id === 'alarm' && chipAlarm))
         .map((id) => [id, PILLS[id]?.(h, m, cfg)]).filter(([, p]) => p)
       : [];
@@ -2612,7 +2691,7 @@ class HomeViewPage extends HTMLElement {
         ${chip ? `<button class="chip" data-kiosk title="${kiosk ? 'Menu: show Home Assistant\'s sidebar and header' : 'Full screen: hide Home Assistant\'s sidebar and header'}" aria-label="${kiosk ? 'Menu' : 'Full screen'}"><ha-icon icon="${kiosk ? 'mdi:dock-left' : 'mdi:fullscreen'}"></ha-icon></button>` : ''}</div>` : '';
     head.innerHTML = page.minimalHead ? `${updBanner}${topbar}` : `${updBanner}${topbar}<div>
         <div class="date">${esc(today)}</div>
-        <div class="title">${page.back ? '<button class="back" data-back><ha-icon icon="mdi:chevron-left"></ha-icon></button>' : ''}${esc(page.title)}${roomSub ? `<span class="sub">${esc(roomSub)}</span>` : ''}${canEdit && !editing ? '<button class="back pen" data-edit-on title="Edit HomeView"><ha-icon icon="mdi:pencil-outline"></ha-icon></button>' : ''}</div>
+        <div class="title">${page.back ? '<button class="back" data-back><ha-icon icon="mdi:chevron-left"></ha-icon></button>' : ''}${esc(this._phone && page.greet && h.user?.name ? `Hi ${h.user.name.split(' ')[0]}` : page.title)}${roomSub ? `<span class="sub">${esc(roomSub)}</span>` : ''}${canEdit && !editing ? '<button class="back pen" data-edit-on title="Edit HomeView"><ha-icon icon="mdi:pencil-outline"></ha-icon></button>' : ''}</div>
         ${editing ? `<div class="editbar"><span><b>Editing</b> · <ha-icon icon="mdi:star-outline"></ha-icon> on Home · <ha-icon icon="mdi:resize"></ha-icon> size · <ha-icon icon="mdi:rename-outline"></ha-icon> name · <ha-icon icon="mdi:eye-off-outline"></ha-icon> hide · <ha-icon icon="mdi:palette-outline"></ha-icon> room colour</span>
           <span class="eb"><button class="txt" data-settings><ha-icon icon="mdi:cog-outline"></ha-icon> Settings</button><button class="txt primary" data-edit-off>Done</button></span></div>` : ''}
         ${chips.length ? `<div class="chips">${chips.map((c, i) => {
