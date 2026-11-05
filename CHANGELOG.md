@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0 — 2026-11-04
+
+- **Full screen by default (kiosk mode):** Home Assistant's header and sidebar are hidden while
+  HomeView is open and come back when you leave it. HomeView's own top bar switches pages.
+- **Menu / Full screen chip** in the top bar brings the sidebar and header back (or hides
+  them) on this device; `?kiosk=off|on` in the URL does the same. Options: `kiosk: false`,
+  `kiosk_chip: false`, both also in the settings editor.
+
 ## 0.2.1 — 2026-11-04
 
 - **Update notice:** when HACS has a newer HomeView, admins see a banner at the top of the

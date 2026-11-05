@@ -11,7 +11,7 @@
  * Home, Widgets, Family, Rooms (plus one page per room), Energy and Cameras. Everything is
  * optional and can be tuned in the strategy config — see README.md.
  */
-const HV_VERSION = '0.2.1';
+const HV_VERSION = '0.3.0';
 
 /* ============================================================================================
  * Constants
@@ -42,7 +42,8 @@ const COLOR_CYCLE = ['orange', 'green', 'amber', 'blue', 'purple', 'pink', 'teal
 // every strategy option (anything else is reported as a likely typo)
 const KNOWN_OPTIONS = ['type', 'title', 'theme', 'pages', 'pages_config', 'room_order', 'hide_rooms', 'rooms',
   'exclude_entities', 'customize', 'people', 'calendars', 'weather', 'cameras', 'home', 'pills', 'battery_low',
-  'people_chips', 'energy', 'tile_size', 'max_columns', 'swipe', 'custom_pages', 'edit_button', 'update_notice'];
+  'people_chips', 'energy', 'tile_size', 'max_columns', 'swipe', 'custom_pages', 'edit_button', 'update_notice',
+  'kiosk', 'kiosk_chip'];
 
 // What a room page / room row shows, in this order
 const ROOM_GROUPS = [
@@ -202,6 +203,53 @@ function findUpdateEntity(hass) {
   if (byReg) return byReg.entity_id;
   return Object.keys(hass.states).find((id) => id.startsWith('update.') && /homeview/i.test(id + (hass.states[id].attributes.friendly_name || ''))) || null;
 }
+
+/* ---- Kiosk mode: hide Home Assistant's header and sidebar while HomeView is on screen ----
+ * On by default. The chip in HomeView's top bar turns it off / on for this device
+ * (remembered in the browser); `?kiosk=off` / `?kiosk=on` in the URL does the same.
+ * `kiosk: false` in the config turns it off for everyone. */
+const KIOSK_ID = 'homeview-kiosk';
+const KIOSK_CSS = {
+  main: 'ha-drawer { --mdc-drawer-width: 0px !important; } ha-sidebar { display: none !important; }',
+  // newer HA: .sidebar-shell + .app-content (padding); older HA: mwc-drawer's .mdc-drawer*
+  drawer: '.sidebar-shell, .mdc-drawer { display: none !important; } '
+    + '.app-content { padding-left: 0 !important; padding-inline-start: 0 !important; } '
+    + '.mdc-drawer-app-content { margin-left: 0 !important; margin-inline-start: 0 !important; width: 100% !important; }',
+  root: '.header { display: none !important; } hui-view-container, #view { padding-top: 0 !important; min-height: 100vh !important; } :host { --header-height: 0px; }',
+};
+function haShadowRoots() {
+  const main = document.querySelector('home-assistant')?.shadowRoot?.querySelector('home-assistant-main');
+  const drawer = main?.shadowRoot?.querySelector('ha-drawer');
+  const panel = main?.shadowRoot?.querySelector('partial-panel-resolver')?.querySelector('ha-panel-lovelace');
+  return { main: main?.shadowRoot, drawer: drawer?.shadowRoot, root: panel?.shadowRoot?.querySelector('hui-root')?.shadowRoot };
+}
+function applyKiosk(on) {
+  const roots = haShadowRoots();
+  for (const [k, css] of Object.entries(KIOSK_CSS)) {
+    const sr = roots[k];
+    if (!sr) continue;
+    let st = sr.querySelector(`#${KIOSK_ID}`);
+    if (on) {
+      if (!st) { st = document.createElement('style'); st.id = KIOSK_ID; sr.appendChild(st); }
+      if (st.textContent !== css) st.textContent = css;
+    } else st?.remove();
+  }
+  window.dispatchEvent(new Event('resize'));
+}
+function kioskWanted(cfg) {
+  if (cfg?.kiosk === false) return false;
+  try {
+    const q = new URLSearchParams(location.search).get('kiosk');
+    if (q === 'off' || q === '0' || q === 'false') localStorage.setItem('homeview-kiosk', 'off');
+    if (q === 'on' || q === '1' || q === 'true') localStorage.removeItem('homeview-kiosk');
+    return localStorage.getItem('homeview-kiosk') !== 'off';
+  } catch (e) { return window.__homeviewKiosk !== false; }
+}
+function setKioskWanted(on) {
+  try { if (on) localStorage.removeItem('homeview-kiosk'); else localStorage.setItem('homeview-kiosk', 'off'); } catch (e) { window.__homeviewKiosk = on; }
+}
+// pages on screen right now: kiosk styles come off when you leave HomeView for another dashboard
+let hvPagesOnScreen = 0;
 
 /** Navigate inside the dashboard (path relative to the dashboard URL). */
 function navigate(path) {
@@ -1432,6 +1480,15 @@ const PAGE_CSS = `
 .editbar b { color:var(--hv-fg); }
 .eb { display:flex; gap:8px; }
 .hidden-sec .sec-h { color:var(--hv-fg2); }
+.topbar { flex-basis:100%; display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:-4px; }
+.nav { display:flex; gap:6px; overflow-x:auto; scrollbar-width:none; min-width:0; }
+.nav::-webkit-scrollbar { display:none; }
+.nv, .chip { all:unset; cursor:pointer; display:inline-flex; align-items:center; gap:6px; padding:7px 12px; border-radius:999px; flex:none;
+  font:650 13.5px ${FONT}; color:var(--hv-fg2); --mdc-icon-size:18px; }
+.nv.on { background:var(--hv-pill); color:var(--hv-fg); }
+.nv.on ha-icon { color:var(--hv-accent); }
+.chip { background:var(--hv-pill); color:var(--hv-fg); }
+@media (max-width:700px) { .nv span { display:none; } .nv { padding:8px 10px; } }
 .upd { all:unset; cursor:pointer; flex-basis:100%; display:flex; align-items:center; gap:10px; padding:10px 14px; border-radius:16px;
   background:var(--hv-accent); color:#fff; font:500 14px ${FONT}; --mdc-icon-size:22px; box-sizing:border-box; }
 .upd b { font-weight:700; }
@@ -1477,8 +1534,23 @@ class HomeViewPage extends HTMLElement {
       this._ro = new ResizeObserver(() => this._layout());
       this._ro.observe(this);
     }
+    hvPagesOnScreen++;
+    this._kiosk();
   }
-  disconnectedCallback() { this._ro?.disconnect(); this._ro = null; }
+  disconnectedCallback() {
+    this._ro?.disconnect(); this._ro = null;
+    hvPagesOnScreen = Math.max(0, hvPagesOnScreen - 1);
+    // switching between HomeView pages reconnects at once; leaving HomeView doesn't
+    setTimeout(() => { if (!hvPagesOnScreen) applyKiosk(false); }, 600);
+  }
+
+  _kiosk() {
+    if (!this._config) return;
+    const on = kioskWanted(this._config.options);
+    applyKiosk(on);
+    // HA renders its header after the first card on a fresh load: apply once more then
+    if (on && !this._kioskRetry) { this._kioskRetry = setTimeout(() => { this._kioskRetry = null; if (this.isConnected) applyKiosk(kioskWanted(this._config.options)); }, 1200); }
+  }
 
   // rebuild the page when entities / areas / devices change (not on every state change)
   _signature(h) {
@@ -1766,7 +1838,11 @@ class HomeViewPage extends HTMLElement {
     if (this._updEnt === undefined) this._updEnt = findUpdateEntity(h);
     const upd = h.user?.is_admin && cfg.update_notice !== false && this._updEnt ? h.states[this._updEnt] : null;
     const updOn = upd?.state === 'on' && !upd.attributes.skipped_version ? upd.attributes.latest_version : null;
-    const key = JSON.stringify([today, page.title, editing, canEdit, updOn, pills.map(([id, p]) => [id, p.text, p.alert, p.active]), people.map((id) => h.states[id]?.state)]);
+    const kiosk = kioskWanted(cfg);
+    const chip = cfg.kiosk !== false && cfg.kiosk_chip !== false;
+    const nav = kiosk && !page.back ? asList(this._config.nav) : [];
+    const here = this._config.path || this._config.page;
+    const key = JSON.stringify([today, page.title, editing, canEdit, updOn, kiosk, here, pills.map(([id, p]) => [id, p.text, p.alert, p.active]), people.map((id) => h.states[id]?.state)]);
     if (key === this._headKey) return;
     this._headKey = key;
     const room = page.room;
@@ -1777,7 +1853,10 @@ class HomeViewPage extends HTMLElement {
     }
     const updBanner = updOn ? `<button class="upd" data-more="${esc(this._updEnt)}"><ha-icon icon="mdi:arrow-up-circle"></ha-icon>
         <span><b>HomeView ${esc(updOn)} is available</b> (you have ${esc(HV_VERSION)}). Tap to see what's new and update.</span></button>` : '';
-    head.innerHTML = `${updBanner}<div>
+    const topbar = nav.length > 1 || chip ? `<div class="topbar">
+        <div class="nav">${nav.length > 1 ? nav.map((v) => `<button class="nv${v.path === here ? ' on' : ''}" data-nav-to="${esc(v.path)}" title="${esc(v.title)}"><ha-icon icon="${esc(v.icon)}"></ha-icon><span>${esc(v.title)}</span></button>`).join('') : ''}</div>
+        ${chip ? `<button class="chip" data-kiosk title="${kiosk ? 'Show the Home Assistant menu and header' : 'Full screen: hide the Home Assistant menu and header'}"><ha-icon icon="${kiosk ? 'mdi:dock-left' : 'mdi:fullscreen'}"></ha-icon>${kiosk ? 'Menu' : 'Full screen'}</button>` : ''}</div>` : '';
+    head.innerHTML = `${updBanner}${topbar}<div>
         <div class="date">${esc(today)}</div>
         <div class="title">${page.back ? '<button class="back" data-back><ha-icon icon="mdi:chevron-left"></ha-icon></button>' : ''}${esc(page.title)}${roomSub ? `<span class="sub">${esc(roomSub)}</span>` : ''}${canEdit && !editing ? '<button class="back pen" data-edit-on title="Edit HomeView"><ha-icon icon="mdi:pencil-outline"></ha-icon></button>' : ''}</div>
         ${editing ? `<div class="editbar"><span><b>Editing</b> · <ha-icon icon="mdi:star-outline"></ha-icon> on Home · <ha-icon icon="mdi:resize"></ha-icon> size · <ha-icon icon="mdi:rename-outline"></ha-icon> name · <ha-icon icon="mdi:eye-off-outline"></ha-icon> hide · <ha-icon icon="mdi:palette-outline"></ha-icon> room colour</span>
@@ -1791,6 +1870,8 @@ class HomeViewPage extends HTMLElement {
       ${pills.length ? `<div class="pills">${pills.map(([id, p]) => `<button class="pill${p.alert ? ' alert' : p.active ? ' active' : ''}" data-pill="${id}"><ha-icon icon="${p.icon}"></ha-icon>${esc(p.text)}${p.popup ? '<ha-icon icon="mdi:chevron-right" style="--mdc-icon-size:15px;opacity:.6"></ha-icon>' : ''}</button>`).join('')}</div>` : ''}`;
     head.querySelector('[data-back]')?.addEventListener('click', () => (history.length > 1 ? history.back() : navigate(cfg.rooms_path || 'rooms')));
     head.querySelector('[data-edit-on]')?.addEventListener('click', () => this._setEditing(true));
+    head.querySelectorAll('[data-nav-to]').forEach((el) => el.addEventListener('click', () => navigate(el.dataset.navTo)));
+    head.querySelector('[data-kiosk]')?.addEventListener('click', () => { setKioskWanted(!kiosk); applyKiosk(!kiosk); this._headKey = null; this._renderHead(); });
     head.querySelector('[data-edit-off]')?.addEventListener('click', () => this._setEditing(false));
     head.querySelector('[data-settings]')?.addEventListener('click', () => this._settings());
     head.querySelectorAll('[data-more]').forEach((el) => el.addEventListener('click', () => moreInfo(this, el.dataset.more)));
@@ -1853,6 +1934,8 @@ const EDITOR_LABELS = {
   swipe: ['Swipe between pages'],
   edit_button: ['Show the edit (pencil) button', 'Admins only.'],
   update_notice: ['Tell me when a HomeView update is out', 'A banner for admins when HACS has a newer version.'],
+  kiosk: ['Full screen (kiosk mode)', 'Hide Home Assistant\'s header and sidebar while HomeView is open. Each device can still switch it with the Menu chip.'],
+  kiosk_chip: ['Show the Menu / Full screen chip', 'Turn off on a wall tablet so nobody leaves full screen by accident (?kiosk=off in the URL still works).'],
   favorites: ['Favourites', 'Tiles near the top of Home. Empty = automatic (alarm, locks, garage, thermostat).'],
   rooms: ['Show rooms on Home'],
   scenes: ['Show scenes on Home'],
@@ -1881,7 +1964,7 @@ const PILL_NAMES = { alarm: 'Alarm', climate: 'Climate', lights: 'Lights on', lo
   safety: 'Leaks, smoke & gas', batteries: 'Batteries', media: 'Now playing' };
 
 // What HomeView does when an option is not set: shown in the editor, left out when saving
-const EDITOR_DEFAULTS = { theme: 'auto', pages: DEFAULT_PAGES, swipe: true, edit_button: true, update_notice: true, people_chips: true, battery_low: 20,
+const EDITOR_DEFAULTS = { theme: 'auto', pages: DEFAULT_PAGES, swipe: true, edit_button: true, update_notice: true, kiosk: true, kiosk_chip: true, people_chips: true, battery_low: 20,
   home: { rooms: true, scenes: true, max_scenes: 8 } };
 
 function withDefaults(o, d = EDITOR_DEFAULTS) {
@@ -1915,6 +1998,8 @@ function editorSchema(hass) {
       { name: 'swipe', selector: { boolean: {} } },
       { name: 'edit_button', selector: { boolean: {} } },
       { name: 'update_notice', selector: { boolean: {} } },
+      { name: 'kiosk', selector: { boolean: {} } },
+      { name: 'kiosk_chip', selector: { boolean: {} } },
     ] },
     { type: 'expandable', name: 'home', title: 'Home page', icon: 'mdi:home-outline', schema: [
       { name: 'favorites', selector: { entity: { multiple: true } } },
@@ -2062,6 +2147,8 @@ class HomeViewStrategy extends HTMLElement {
       return { title: pc[p]?.title || PAGE_DEFS[p].title, path: p, icon: pc[p]?.icon || PAGE_DEFS[p].icon, type: 'panel',
         cards: [{ type: 'custom:homeview-page', page: p, path: p, order: pages, options }] };
     });
+    const nav = views.map((v) => ({ path: v.path, title: v.title, icon: v.icon }));
+    views.forEach((v) => { v.cards[0].nav = nav; });
     for (const r of m.rooms) {
       views.push({
         title: r.name, path: `room-${r.id}`, icon: r.icon, subview: true, back_path: pages.includes('rooms') ? 'rooms' : undefined,

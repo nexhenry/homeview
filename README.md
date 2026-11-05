@@ -16,14 +16,15 @@ no YAML per tile.
 - **One dashboard for every screen:** 2 columns on a phone, 4 on an iPad in portrait, 6 on a
   tablet in landscape, up to 8 on a desktop.
 - **Light and dark:** follows your Home Assistant theme, each page and room with its own tint.
+- **Full screen like an app:** HA's header and sidebar are hidden; a Menu chip brings them back.
 - **Touch-first:** tap toggles, hold opens the details. Swipe left / right between pages.
 
-> Status: **0.2 (preview)**. The layout and config keys may still change before 1.0.
+> Status: **0.3 (preview)**. The layout and config keys may still change before 1.0.
 > Use at your own risk — see [Disclaimer](#disclaimer).
 
 ## Contents
 
-- [Pages](#pages) · [Install](#install) · [Create the dashboard](#create-the-dashboard)
+- [Pages](#pages) · [Install](#install) · [Create the dashboard](#create-the-dashboard) · [Full screen](#full-screen-kiosk-mode)
 - [Make it yours](#make-it-yours): [on the dashboard](#1-on-the-dashboard-the-pencil) ·
   [settings editor](#2-the-settings-editor) · [YAML](#3-yaml)
 - [Your own tiles, cards and pages](#your-own-tiles-cards-and-pages) · [All options](#all-options)
@@ -84,11 +85,20 @@ admins — a banner at the top of HomeView itself. Tap the banner for what's new
 HomeView generates the pages each time the dashboard opens, so it follows your home as it
 changes: a new light in the kitchen appears on the Kitchen page by itself.
 
-### Make it look like an app
+### Full screen (kiosk mode)
 
-HomeView works with HA's normal header. On a wall tablet or a phone's home-screen app you may
-want the header and sidebar gone: [kiosk-mode](https://github.com/NemesisRE/kiosk-mode) does
-that, and HomeView's own swipe moves between pages.
+HomeView opens **full screen**: Home Assistant's header and sidebar are hidden, and HomeView's
+own bar at the top switches pages (on a phone it shows just the icons; you can also swipe).
+Leave HomeView for another dashboard and the header and sidebar come back by themselves.
+
+- **Menu** (top right) brings the sidebar and header back on this device; **Full screen**
+  hides them again. Each device remembers its own choice.
+- Add `?kiosk=off` or `?kiosk=on` to the URL to set it, handy for a wall tablet.
+- `kiosk_chip: false` hides the chip, so nobody leaves full screen by accident.
+- `kiosk: false` turns full screen off for everyone (HA's normal header and tabs).
+
+No other kiosk card is needed. (If you use [kiosk-mode](https://github.com/NemesisRE/kiosk-mode)
+already, set `kiosk: false` so the two don't fight.)
 
 ## Make it yours
 
@@ -264,6 +274,8 @@ strategy:
   max_columns: 8
   swipe: true                     # swipe between pages
   edit_button: true               # the pencil (admins only)
+  kiosk: true                     # full screen: hide HA's header and sidebar
+  kiosk_chip: true                # the Menu / Full screen chip
   update_notice: true             # a banner for admins when HACS has a newer HomeView
 ```
 
