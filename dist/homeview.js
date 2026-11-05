@@ -11,7 +11,7 @@
  * Home, Widgets, Family, Rooms (plus one page per room), Energy and Cameras. Everything is
  * optional and can be tuned in the strategy config — see README.md.
  */
-const HV_VERSION = '0.8.2';
+const HV_VERSION = '0.8.3';
 // where this file was loaded from (to re-download it after an update)
 const HV_URL = (() => { try { return import.meta.url; } catch (e) { return null; } })();
 
@@ -30,7 +30,7 @@ const PAGE_DEFS = {
   rooms:   { title: 'Rooms',   icon: 'mdi:bed-outline',             hue: 335 },
 };
 // swipe order (wraps from the last back to the first). `rooms` = one page per family member's
-// room (Ben, Lucy, Hana …); with no member rooms it is the all-rooms directory instead.
+// room (Alex, Zoe, Mia …); with no member rooms it is the all-rooms directory instead.
 const DEFAULT_PAGES = ['widgets', 'home', 'living', 'rooms', 'energy', 'cameras'];
 // old page names still work in `pages:`
 const PAGE_ALIASES = { family: 'living', shared: 'living', members: 'rooms' };
@@ -41,7 +41,7 @@ const MAIN_ROOM = /living|lounge|kitchen|dining|family|great|\bden\b/i;
 // phones (64 px rows): [columns, rows] per tile type; compact tiles are 1 × 1
 const PHONE_SPAN = { weather: [2, 5], forecast: [2, 5], air: [2, 2], next_event: [2, 2], camera: [2, 3], agenda: [2, 6],
   person: [2, 2], chart: [2, 3], energy_flow: [2, 6], energy_today: [2, 5], slideshow: [2, 4], date: [2, 3], room: [2, 1],
-  energy_now: [2, 5], energy_backup: [2, 2], energy_window: [2, 2], energy_stat: [2, 2] };
+  energy_now: [2, 4], energy_backup: [2, 2], energy_window: [2, 2], energy_stat: [2, 2] };
 // tablet / browser columns per page (phones always get 2)
 const PAGE_COLUMNS = { home: 5, member: 5, custom: 5, people: 5, living: 6, all_rooms: 6, room: 6, energy: 6, cameras: 6 };
 
@@ -450,11 +450,11 @@ function buildModel(hass, cfg) {
   model.cameras = cfg.cameras ? asList(cfg.cameras).filter((id) => hass.states[id]) : model.cameras;
   for (const k of ['byDomain']) for (const d in model[k]) model[k][d].sort();
 
-  // family members with a room of their own: "Lucy" + an area named like "Bedroom Lucy"
-  // (members: { person.lucy: { area, calendars, name } } sets them by hand; false = none)
+  // family members with a room of their own: "Zoe" + an area named like "Bedroom Zoe"
+  // (members: { person.zoe: { area, calendars, name } } sets them by hand; false = none)
   model.members = [];
   if (cfg.members !== false) {
-    // members: [person.hana, person.ben] (that order) | { person.hana: { area, calendars, name } } | auto
+    // members: [person.mia, person.alex] (that order) | { person.mia: { area, calendars, name } } | auto
     const list = Array.isArray(cfg.members) ? cfg.members.map((x) => (typeof x === 'string' ? [x, {}] : [x?.person, x || {}])).filter(([pid]) => pid)
       : cfg.members && typeof cfg.members === 'object' ? Object.entries(cfg.members).map(([pid, c]) => [pid, c || {}])
         : model.persons.map((pid) => [pid, {}]);
@@ -812,6 +812,11 @@ const TILE_CSS = `
 .t.card { align-items:flex-start; justify-content:center; text-align:left; padding:0 7%; gap:0; }
 .t.card .hd { display:flex; align-items:center; gap:6px; }
 .t.card .big { font-weight:700; font-size:clamp(18px, 19cqh, 30px); margin:3px 0 1px; }
+.t.card.cw { padding:10px 12px; }
+.t.card.cw .hd { align-items:flex-start; line-height:1.2; font-size:11.5px; letter-spacing:.03em; }
+.t.card.cw .hd .ic { --mdc-icon-size:16px !important; }
+.t.card.cw .big { font-size:26px; line-height:1.1; margin:4px 0 2px; }
+.t.card.cw .sb { font-size:12.5px; line-height:1.3; margin:0; }
 .sq { flex:none; width:min(44cqh, 64px); height:min(44cqh, 64px); border-radius:22%; display:flex; align-items:center; justify-content:center;
   color:#fff; --mdc-icon-size:60%; }
 .ecg { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:10px; flex:1; }
@@ -1171,7 +1176,7 @@ R.agenda = {
 // Wischofsky, CC BY 4.0 (credited in the README). The same face every time for a person, from a
 // hash of the entity id (no names are sent). Gender by hair: man = short, woman = long.
 //   avatars: samples (default) | initials (letters, no internet request)
-//   avatars: { person.ben: man, person.lucy: woman, person.kai: /local/kai.jpg }
+//   avatars: { person.alex: man, person.zoe: woman, person.kai: /local/kai.jpg }
 // A picture set on the person in HA always wins.
 let hvAvatarMode = 'samples';
 const AVATAR_HAIR = {
@@ -1268,22 +1273,18 @@ R.energy_now = {
   key: (h, s) => Object.values(s.power).map((id) => h.states[id]?.state + h.states[id]?.last_updated).join('|') + Math.floor(Date.now() / 30e3),
   html(h, s) {
     const p = s.power, v = (id) => (id ? num(h.states[id]?.state) : null);
-    const unitW = (id) => { const u = h.states[id]?.attributes?.unit_of_measurement; return u === 'kW' ? 1000 : u === 'MW' ? 1e6 : 1; };
-    const w = (id) => { const x = v(id); return x === null ? null : x * unitW(id); };
-    const solar = w(p.solar), grid = w(p.grid), battery = w(p.battery), soc = v(p.battery_level);
-    let home = w(p.home);
-    if (home === null && (solar !== null || grid !== null)) home = (solar || 0) + (grid || 0) + (battery || 0);
+    const { solar, grid, battery, soc, home } = powerValues(h, p);
     const kw = (x) => (x === null ? '—' : Math.abs(x) >= 1000 ? `${fmt(Math.abs(x) / 1000, 1)} kW` : `${fmt(Math.abs(x), 0)} W`);
-    const cell = (icon, label, value, sub, color, ent) => `<div data-more="${esc(ent || '')}" style="background:var(--hv-pill);border-radius:16px;padding:10px 12px;display:flex;flex-direction:column;gap:2px;min-width:0">
+    const cell = (icon, label, value, sub, color, ent) => `<div data-more="${esc(ent || '')}" style="background:var(--hv-pill);border-radius:16px;padding:8px 12px;display:flex;flex-direction:column;justify-content:center;gap:1px;min-width:0">
       <span class="up" style="display:flex;align-items:center;gap:6px"><span class="ic" style="--mdc-icon-size:1.4em;color:${color}"><i data-i="${icon}"></i></span>${label}</span>
-      <span style="font-weight:700;font-size:clamp(15px,6cqi,26px)">${value}</span><span class="sb" style="margin:0">${sub}</span></div>`;
+      <span style="font-weight:700;font-size:clamp(15px,6cqi,26px)">${value}</span><span class="sb" style="margin:0;white-space:normal">${sub}</span></div>`;
     const cells = [];
     const amps = v(p.current), volts = v(p.voltage);
     const homeSub = amps !== null ? `${fmt(amps, 1)} A${volts !== null ? ` at ${fmt(volts, 0)} V` : ''}` : 'Using now';
     if (p.solar) cells.push(cell('mdi:solar-power-variant', 'Solar', kw(solar), solar > 20 ? 'Producing' : 'Not producing', '#FFB800', p.solar));
     cells.push(cell('mdi:home-lightning-bolt-outline', 'Home', kw(home), homeSub, '#30B0C7', p.home || p.current || ''));
-    if (p.grid) cells.push(cell('mdi:transmission-tower', 'Grid', kw(grid), grid > 20 ? 'Importing' : grid < -20 ? 'Exporting' : 'Idle', '#8E8E93', p.grid));
-    if (p.battery || p.battery_level) cells.push(cell(soc !== null ? `mdi:battery-${clamp(Math.round(soc / 10) * 10, 10, 100) === 100 ? '' : clamp(Math.round(soc / 10) * 10, 10, 90)}`.replace(/-$/, '') : 'mdi:home-battery-outline', 'Battery',
+    if (p.grid || p.grid_in) cells.push(cell('mdi:transmission-tower', 'Grid', kw(grid), grid > 20 ? 'Importing' : grid < -20 ? 'Exporting' : 'Idle', '#8E8E93', p.grid || p.grid_in));
+    if (p.battery || p.battery_out || p.battery_level) cells.push(cell(soc !== null ? `mdi:battery-${clamp(Math.round(soc / 10) * 10, 10, 100) === 100 ? '' : clamp(Math.round(soc / 10) * 10, 10, 90)}`.replace(/-$/, '') : 'mdi:home-battery-outline', 'Battery',
       soc !== null ? `${fmt(soc, 0)}%` : kw(battery), battery === null ? '' : battery > 20 ? `Discharging ${kw(battery)}` : battery < -20 ? `Charging ${kw(battery)}` : 'Idle', '#34C759', p.battery_level || p.battery));
     return `<div class="t" style="cursor:default;align-items:stretch;justify-content:flex-start;padding:5%">
       <div class="up" style="margin-bottom:4%;display:flex;align-items:center;gap:8px">Right now ${(() => {
@@ -1295,7 +1296,7 @@ R.energy_now = {
           ? `<span class="live stale" title="Last reading ${esc(at)}">no new reading for ${fmt(L.mins, 0)} min</span>`
           : `<span class="live" title="Last reading ${esc(at)}"><i></i>Live · ${esc(at)}</span>`;
       })()}</div>
-      <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;flex:1">${cells.join('')}</div></div>`;
+      <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;flex:1">${cells.join('')}</div></div>`;
   },
   action(h, s, tile, kind, ev) { const id = ev?.target?.closest?.('[data-more]')?.dataset?.more; if (id) moreInfo(tile, id); },
 };
@@ -1375,9 +1376,11 @@ R.energy_window = {
     s._direct = direct;
     const pct = home > 0.05 ? clamp(100 * (1 - grid / home), 0, 100) : null;
     const big = data === undefined ? '…' : !today ? '—' : pct === null ? '—' : `${fmt(pct, 0)}%`;
-    const sub = !today ? `${label} — not today` : `${fmt(grid, 1)} of ${fmt(home, 1)} kWh from grid, ${label}${inNow ? ' (now)' : ''}`;
-    return `<div class="t card"><div class="up hd"><span class="ic" style="--mdc-icon-size:18px;color:#34C759"><i data-i="mdi:home-battery-outline"></i></span>${esc(w.name || 'Window')} off-grid · Today</div>
-      <div class="big">${big}</div><div class="sb" style="white-space:normal">${esc(sub)}</div></div>`;
+    const sub = !today ? `${label} — not today` : s.compact
+      ? `Grid ${fmt(grid, 1)} of ${fmt(home, 1)} kWh<br>${esc(label)}${inNow ? ' · now' : ''}`
+      : `${fmt(grid, 1)} of ${fmt(home, 1)} kWh from grid, ${label}${inNow ? ' (now)' : ''}`;
+    return `<div class="t card${s.compact ? ' cw' : ''}"><div class="up hd"><span class="ic" style="--mdc-icon-size:18px;color:#34C759"><i data-i="mdi:home-battery-outline"></i></span>${esc(w.name || 'Window')} off‑grid${s.compact ? '' : ' · Today'}</div>
+      <div class="big">${big}</div><div class="sb" style="white-space:normal">${s.compact && today ? sub : esc(sub)}</div></div>`;
   },
 };
 const fmtHour = (x) => { const hh = Math.floor(x) % 24, mm = Math.round((x % 1) * 60); const d = new Date(); d.setHours(hh, mm, 0, 0);
@@ -1618,7 +1621,8 @@ function powerValues(h, p) {
   const v = (id) => (id ? num(h.states[id]?.state) : null);
   const scale = (id) => { const u = h.states[id]?.attributes?.unit_of_measurement; return u === 'kW' ? 1000 : u === 'MW' ? 1e6 : 1; };
   const w = (id) => { const x = v(id); return x === null ? null : x * scale(id); };
-  const solar = w(p.solar), grid = w(p.grid), battery = w(p.battery), soc = v(p.battery_level);
+  const net = (one, plus, minus) => (one ? w(one) : plus || minus ? (w(plus) || 0) - (w(minus) || 0) : null);
+  const solar = w(p.solar), grid = net(p.grid, p.grid_in, p.grid_out), battery = net(p.battery, p.battery_out, p.battery_in), soc = v(p.battery_level);
   let home = w(p.home);
   if (home === null && (solar !== null || grid !== null)) home = (solar || 0) + (grid || 0) + (battery || 0);
   return { solar, grid, battery, soc, home };
@@ -1628,7 +1632,7 @@ R.energy_flow = {
   key: (h, s) => Object.values(s.power).map((id) => h.states[id]?.state).join('|'),
   html(h, s) {
     const p = s.power, P = powerValues(h, p);
-    const has = { solar: !!p.solar, battery: !!(p.battery || p.battery_level) };
+    const has = { solar: !!p.solar, battery: !!(p.battery || p.battery_out || p.battery_in || p.battery_level) };
     const act = (x) => x !== null && x > 20;
     const lines = [];
     const L = (d, color, on, rev) => lines.push(`<path class="fl${on ? ' on' : ''}${rev ? ' rev' : ''}" d="${d}" pathLength="100" style="stroke:${color}" vector-effect="non-scaling-stroke"/>`);
@@ -1650,7 +1654,7 @@ R.energy_flow = {
       ${has.battery ? node(50, 84, '#34C759', batIcon, P.soc !== null ? `${fmt(P.soc, 0)}%` : kwFmt(P.battery), 'Battery', P.soc !== null && P.battery !== null ? `<small>${kwFmt(P.battery)}</small>` : '') : ''}
     </div></div>`;
   },
-  action(h, s, tile) { moreInfo(tile, s.power.home || s.power.grid || s.power.solar); },
+  action(h, s, tile) { moreInfo(tile, s.power.home || s.power.grid || s.power.grid_in || s.power.solar); },
 };
 
 // ---- photo slideshow from a Home Assistant media folder ----------------------------------------
@@ -2317,22 +2321,55 @@ const PAGES = {
 
     // live power: config, else the energy settings' power sensors, else a guess by name
     const powerSensors = (m.byDomain.sensor || []).filter((id) => h.states[id]?.attributes?.device_class === 'power');
-    const guess = (re) => powerSensors.find((id) => re.test(id)) || null;
+    // name guessing: never an average / statistic, prefer a sensor on the energy meter's own device,
+    // and a net sensor (grid + import / − export, battery + discharge / − charge) over a split pair
+    // (sorted ids would otherwise pick grid_export_power before grid_power)
+    const devOf = (id) => h.entities?.[id]?.device_id;
+    const notStat = (id) => !/mean|average|avg|_24h|daily|today|_max|_min|peak|forecast|statistic|cost|price/.test(id);
+    const cands = powerSensors.filter(notStat);
+    const pick = (re, near = [], not = null) => {
+      const devs = near.map(devOf).filter(Boolean);
+      const list = cands.filter((id) => re.test(id) && !(not && not.test(id)));
+      return list.find((id) => devs.includes(devOf(id))) || list[0] || null;
+    };
+    const SPLIT_GRID = /import|export|from_grid|to_grid|_in$|_out$|consum|return|feed|production/;
+    const SPLIT_BAT = /charg|_in$|_out$/;
     const statRate = (x) => x?.stat_rate || x?.power_config?.stat_rate || null;
     const power = {
-      solar: ec.solar_power || statRate(solar[0]) || (solarIds.length ? guess(/solar|pv/) : null),
-      grid: ec.grid_power || statRate(grid) || guess(/grid/),
-      battery: ec.battery_power || statRate(bat[0]) || (bat.length ? guess(/battery/) : null),
-      battery_level: ec.battery_level || (bat.length ? (m.byDomain.sensor || []).find((id) => h.states[id]?.attributes?.device_class === 'battery' && /powerwall|battery_level|home_battery|storage/.test(id)) : null) || null,
-      home: ec.home_power || guess(/home|house|load|consumption/),
+      solar: ec.solar_power || statRate(solar[0]) || (solarIds.length ? pick(/solar|pv/, solarIds) : null),
+      grid: ec.grid_power || statRate(grid) || pick(/grid/, [...gridIn, ...gridOut], SPLIT_GRID),
+      battery: ec.battery_power || statRate(bat[0]) || (bat.length ? pick(/battery|powerwall/, [...batOut, ...batIn], SPLIT_BAT) : null),
+      home: ec.home_power || pick(/home|house|load|consumption/, [...gridIn, ...solarIds], /grid|solar|battery|pv/),
     };
+    // the home battery's charge %: on the battery meter's device, else named like it
+    // (sensor.tesla_energy_live next to sensor.tesla_energy_battery_…), else by name, never a
+    // gadget's own battery (sensor.door_battery_level)
+    if (ec.battery_level) power.battery_level = ec.battery_level;
+    else if (bat.length) {
+      const pcts = (m.byDomain.sensor || []).filter((id) => h.states[id]?.attributes?.device_class === 'battery');
+      const near = [power.battery, ...batOut, ...batIn].filter(Boolean);
+      const devs = near.map(devOf).filter(Boolean);
+      const stem = (id) => id.split('_').slice(0, 2).join('_');   // sensor.tesla_energy
+      power.battery_level = pcts.find((id) => devs.includes(devOf(id)))
+        || pcts.find((id) => near.some((n) => stem(n) === stem(id) && stem(id).includes('_')))
+        || pcts.find((id) => /powerwall|home_battery|storage|state_of_charge|_soc\b/.test(id)) || null;
+    }
+    // no net sensor: a split pair, both positive (grid_in = import, battery_out = discharge)
+    if (!power.grid && gridIn.length) {
+      power.grid_in = ec.grid_import_power || pick(/grid/, gridIn, /export|to_grid|return|feed|production/);
+      power.grid_out = ec.grid_export_power || pick(/grid/, gridOut, /import|from_grid|consum/);
+      if (power.grid_in && power.grid_out === power.grid_in) delete power.grid_out;
+    }
+    if (!power.battery && bat.length) {
+      power.battery_out = ec.battery_discharge_power || pick(/discharg/, batOut);
+      power.battery_in = ec.battery_charge_power || pick(/charg/, batIn, /discharg/);
+    }
     Object.keys(power).forEach((k) => { if (!power[k]) delete power[k]; });
 
     // Home current / voltage (the "15 A at 240 V" line): sensors on the home power sensor's device
-    const devOf = (id) => h.entities?.[id]?.device_id;
     const onDevice = (dev, dc) => dev ? Object.values(h.entities).find((e) => e.device_id === dev && h.states[e.entity_id]?.attributes?.device_class === dc)?.entity_id : null;
-    power.current = ec.home_current || onDevice(devOf(power.home || power.grid), 'current') || undefined;
-    power.voltage = ec.voltage || onDevice(devOf(power.home || power.grid), 'voltage') || undefined;
+    power.current = ec.home_current || onDevice(devOf(power.home || power.grid || power.grid_in), 'current') || undefined;
+    power.voltage = ec.voltage || onDevice(devOf(power.home || power.grid || power.grid_in), 'voltage') || undefined;
     Object.keys(power).forEach((k) => { if (!power[k]) delete power[k]; });
 
     const top = [];
@@ -2348,9 +2385,13 @@ const PAGES = {
           return pw ? { entity: pw, name: d.name || h.devices?.[dev]?.name_by_user || h.devices?.[dev]?.name, w: num(h.states[pw]?.state) || 0 } : null;
         }).filter(Boolean).sort((a, b) => b.w - a.w).slice(0, ec.flow_devices ?? 0).map(({ w, ...x }) => ({ ...x, display_zero: true }));
         const entities = {};
-        if (power.grid) entities.grid = { entity: power.grid };                          // + import, − export
+        // net sensors: grid + import / − export, battery + discharge / − charge; split pairs:
+        // consumption = from the grid / into the battery, production = to the grid / out of it
+        if (power.grid) entities.grid = { entity: power.grid };
+        else if (power.grid_in) entities.grid = { entity: power.grid_out ? { consumption: power.grid_in, production: power.grid_out } : { consumption: power.grid_in } };
         if (power.solar) entities.solar = { entity: power.solar, display_zero_state: true };
-        if (power.battery || power.battery_level) entities.battery = { entity: power.battery, state_of_charge: power.battery_level };   // + discharge
+        const batEnt = power.battery || (power.battery_in || power.battery_out ? { consumption: power.battery_in, production: power.battery_out } : undefined);
+        if (batEnt || power.battery_level) entities.battery = { entity: batEnt, state_of_charge: power.battery_level };
         // home: the sensor's own value (the card otherwise adds up the sources itself)
         entities.home = power.home ? { entity: power.home, override_state: true } : {};
         if (individual.length) entities.individual = individual;
@@ -2364,8 +2405,10 @@ const PAGES = {
     }
     // each meter's power sensor (for the live estimate between meter readings): grid + import /
     // − export, battery + discharge / − charge (only when there's one meter for that side)
-    const LIVE = { gin: [power.grid, 1, gridIn], gout: [power.grid, -1, gridOut], sol: [power.solar, 1, solarIds],
-      bout: [power.battery, 1, batOut], bin: [power.battery, -1, batIn] };
+    const LIVE = { gin: power.grid ? [power.grid, 1, gridIn] : [power.grid_in, 1, gridIn],
+      gout: power.grid ? [power.grid, -1, gridOut] : [power.grid_out, 1, gridOut], sol: [power.solar, 1, solarIds],
+      bout: power.battery ? [power.battery, 1, batOut] : [power.battery_out, 1, batOut],
+      bin: power.battery ? [power.battery, -1, batIn] : [power.battery_in, 1, batIn] };
     const liveFor = (role) => { const [pw, sign, list] = LIVE[role] || []; return pw && list.length === 1 ? { power: pw, sign } : null; };
     const S = (ids, role, sign = 1) => ids.map((id) => ({ id, role: `${role}:${id}`, sign, live: liveFor(role) }));
     const sumRole = (v, role) => Object.entries(v).filter(([k]) => k.startsWith(role + ':')).reduce((acc, [, x]) => acc + (x || 0), 0);
@@ -2385,9 +2428,12 @@ const PAGES = {
     // time windows (peak hours …): energy.windows: [{ name, start, end, days }] (or hours: [{start, end}])
     const roles = { gin: gridIn, sol: solarIds, gout: gridOut, bout: batOut, bin: batIn };
     const ids = [...gridIn, ...solarIds, ...gridOut, ...batOut, ...batIn];
-    for (const w of asList(ec.windows)) {
-      if (ids.length && w && (w.start || w.hours)) top.push({ kind: 'energy_window', window: w, roles, ids, size: ['half', 1] });
-    }
+    // phones: two windows to a row (an odd last one full width), with a shorter heading
+    const wins = ids.length ? asList(ec.windows).filter((w) => w && (w.start || w.hours)) : [];
+    wins.forEach((w, i) => {
+      const paired = wins.length > 1 && !(i === wins.length - 1 && wins.length % 2);
+      top.push({ kind: 'energy_window', window: w, roles, ids, size: ['half', 1], ...(paired ? { phoneSpan: [1, 2], compact: true } : {}) });
+    });
     // solar self-sufficiency: house use that came straight from solar
     // solar self-sufficiency: hour by hour, the lower of solar and house use
     if (solarIds.length) {
@@ -3159,7 +3205,7 @@ const EDITOR_LABELS = {
   weather: ['Weather', 'Empty = the first weather entity.'],
   cameras: ['Cameras', 'Empty = all cameras.'],
   people_chips: ['People avatars under the Home title'],
-  avatars: ['Avatars for people without a picture', 'A picture set on the person in Home Assistant is always used first. Man / woman per person: YAML (avatars: { person.ben: man }).'],
+  avatars: ['Avatars for people without a picture', 'A picture set on the person in Home Assistant is always used first. Man / woman per person: YAML (avatars: { person.alex: man }).'],
   room_order: ['Room order', 'These rooms first, in this order; the rest after.'],
   hide_rooms: ['Hide rooms'],
   living_rooms: ['Living page rooms', 'The rooms on the Living page, in this order. Empty = the indoor rooms that aren\'t a bedroom or bathroom, living spaces first.'],

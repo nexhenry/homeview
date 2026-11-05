@@ -16,7 +16,7 @@ strategy:
       entities: [light.lounge_ceiling, light.lounge_lamp, media_player.tv, climate.lounge]
     garage: { icon: mdi:garage-variant }
   exclude_entities: [light.router_led, switch.child_lock]
-  people: [person.anna, person.ben, person.kids]
+  people: [person.sam, person.alex, person.kids]
   calendars: [calendar.family, calendar.school]
   weather: weather.home
   cameras: [camera.front_door, camera.garden]

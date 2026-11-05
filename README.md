@@ -39,7 +39,7 @@ no YAML per tile.
 | **Widgets** | One tinted panel that fills the screen: a big date with sunrise / sunset, a big analog clock, the forecast, the week's agenda and a **photo slideshow** from a media folder (sample photos until you add your own). On a phone: date and clock side by side, the photo, then up next |
 | **Home** | One screen, like a hand-made dashboard: date, title, **control chips** (alarm, garage, locks, water valve — red with a word when something needs attention), people and status pills (alarm, climate, lights on, locks, doors & windows, leaks / smoke, batteries, now playing); weather (2×2), air quality (2×1), two doors (front lock, garage), a camera (2×1), *Lights* for the two main rooms (tap = all on / off), a clock and the next event (2×1); your scenes below |
 | **Living** | The living spaces everyone shares — living room, kitchen, dining, family room, garage … — each in its own colour with its lights, climate, locks, covers, fans and media. Bedrooms, bathrooms and outdoor areas are left out (they have their own pages). Choose the rooms with `living_rooms` |
-| **Rooms** — a page per person | One page for each family member's own room (Ben, Lucy, Hana …): the room's temperature, comfort, humidity, doors and windows, its devices, their next event and where they are. Found automatically from rooms named after people ("Bedroom Lucy"), or set with `members` |
+| **Rooms** — a page per person | One page for each family member's own room (Alex, Zoe, Mia …): the room's temperature, comfort, humidity, doors and windows, its devices, their next event and where they are. Found automatically from rooms named after people ("Bedroom Zoe"), or set with `members` |
 | **Room pages** | 24-hour charts (temperature, humidity, light level), then everything in the room as compact tiles: lights, climate, doors & security, media, devices, scenes, cameras, sensors |
 | **Cameras** | Every camera in a 16:9 grid, refreshed every 10 s while on screen. Tap for the live stream |
 | **Energy** | A live flow diagram; *right now* (solar, home with amps · volts, grid importing / exporting, battery charging / discharging); **backup time** on battery; **off-grid share in your peak hours** (optional time windows); **solar self-sufficiency**; today's totals; and a **power-outage list** of every device with W · A · kWh today and an on / off button — tick what to turn off when the grid goes down |
@@ -53,7 +53,7 @@ Living and each person's page, with a strip of six favourites), compact one-line
 across, each room starting with a slim bar (name, comfort, temperature · humidity), wide tiles
 (weather, air, camera, next event) across the full width, no clock, status pills on Home only.
 Favourites: `phone_favorites: [light.kitchen, …]` or per person
-`{ henry: [...], lucy: [...] }` (default: the main rooms' lights, then the locks).
+`{ alex: [...], zoe: [...] }` (default: the main rooms' lights, then the locks).
 
 Pages that have nothing to show (no cameras, no energy set up …) are left out.
 
@@ -273,19 +273,19 @@ strategy:
   customize:                      # per entity: name, icon, size, tap, hidden
     light.lamp_3: { name: Reading lamp, size: 2x1 }
     switch.old_plug: { hidden: true }
-  people: [person.anna, person.ben]              # default: everyone with a phone / tracker
+  people: [person.sam, person.alex]              # default: everyone with a phone / tracker
   calendars: [calendar.family]                   # default: all calendars
   weather: weather.home                          # default: the first weather entity
   cameras: [camera.front_door, camera.garden]    # default: all cameras
 
   access:                         # who sees which pages (default: admins all pages; everyone else the
                                   # shared pages + only their own person page)
-    person.ben: [widgets, home, living, rooms, energy, cameras]   # rooms = their own person page
+    person.alex: [widgets, home, living, rooms, energy, cameras]   # rooms = their own person page
     person.wall_tablet: all       # all pages, every person page included (also: all_members)
     guest: [widgets, home]        # a login name works too
-  members: [person.hana, person.ben, person.lucy]   # their pages, in this order (default: everyone
+  members: [person.mia, person.alex, person.zoe]   # their pages, in this order (default: everyone
                                   # whose name is in a room's name, alphabetically); false = none
-  # members: { person.lucy: { area: bedroom_lucy, calendars: [calendar.lucy_school] } }   by hand
+  # members: { person.zoe: { area: bedroom_zoe, calendars: [calendar.zoe_school] } }   by hand
   widgets:
     slideshow: media-source://media_source/local/Photos   # photo folder, or samples (default: the
                                   # first media folder named Photos / Pictures / Slideshow …, else
@@ -314,9 +314,9 @@ strategy:
   pills: [alarm, climate, lights, locks, openings, safety, batteries, media]   # or false
   battery_low: 20                 # % under which a battery counts as low
   people_chips: true              # the avatars under the Home title
-  phone_favorites: [light.kitchen, light.living_room, lock.front_door]   # or { henry: [...], lucy: [...] }
+  phone_favorites: [light.kitchen, light.living_room, lock.front_door]   # or { alex: [...], zoe: [...] }
   avatars: samples                # people without a picture: samples (anime avatars) | initials
-  # avatars: { person.ben: man, person.lucy: woman, person.kai: /local/kai.jpg }   per person
+  # avatars: { person.alex: man, person.zoe: woman, person.kai: /local/kai.jpg }   per person
 
   energy:                         # live power, when the Energy settings don't say
     windows:                      # off-grid share in time windows (peak hours …), from hourly statistics
@@ -335,8 +335,10 @@ strategy:
     flow_card_options: {}         # anything else for Power Flow Card Plus
     voltage: sensor.mains_voltage
     solar_power: sensor.solar_power
-    grid_power: sensor.grid_power         # + import / − export
-    battery_power: sensor.battery_power   # + discharge / − charge
+    grid_power: sensor.grid_power         # + import / − export (a net sensor)
+    # grid_import_power / grid_export_power: a split pair (both positive) when there's no net one
+    battery_power: sensor.battery_power   # + discharge / − charge (a net sensor)
+    # battery_discharge_power / battery_charge_power: a split pair (both positive)
     battery_level: sensor.battery_level
     home_power: sensor.home_power         # default: solar + grid + battery
     devices: 12                           # how many devices under "Devices today"
@@ -362,12 +364,12 @@ strategy:
   wall tablet's login with `all`, or a child who is an admin limited to their own page. Pages
   someone may not see aren't built for them at all (not in their page bar or swipe order).
 - **Family members** get their own page when a room (area) is named after them — "Bedroom
-  Lucy", "Ben's room" — or when you list them under `members`. A calendar with their name in
-  it ("Lucy School") is used for their next event.
+  Zoe", "Alex's room" — or when you list them under `members`. A calendar with their name in
+  it ("Zoe School") is used for their next event.
 - **Avatars:** a person's own picture (Settings → People) is always used. Everyone else gets an
   anime-style sample avatar (DiceBear "Adventurer") — the same one every time, from a hash of
   the person's entity id (no names are sent). Say who's a man or a woman for short / long
-  hair: `avatars: { person.ben: man, person.lucy: woman }` (also `boy`, `girl`), or give a
+  hair: `avatars: { person.alex: man, person.zoe: woman }` (also `boy`, `girl`), or give a
   picture URL. `avatars: initials` shows the first letter instead, with no internet request.
 - **Photos** for the slideshow come from Home Assistant's media: put them in **Media → My
   media** (the `media` folder in your config), or add a network share as media. Album

@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.8.3 — 2026-11-05
+
+- **Accurate power flow:** the live power sensors were guessed by name and the first match
+  won, so with both net and split sensors (`grid_power` + `grid_import_power` /
+  `grid_export_power`) the flow and *Right now* could show the export side (0 W) as the grid
+  and battery *charging* as *discharging*. HomeView now prefers a net sensor on the energy
+  meter's own device, never takes an average or statistic (`…_24h_mean`), and uses a split
+  pair only when there's no net sensor (as `consumption` / `production` in Power Flow Card
+  Plus). The live kWh estimate between meter readings uses the same sensors.
+- **Home battery %:** taken from the battery meter's device or a sensor named like it
+  (`sensor.tesla_energy_…`), no longer any gadget's `…_battery_level`.
+- New energy options for split sensors: `grid_import_power`, `grid_export_power`,
+  `battery_discharge_power`, `battery_charge_power`.
+- Docs and examples use made-up family names.
+- **Tighter energy tiles on phones:** *Right now* is a row shorter, its cells fit their content
+  and "Charging 5.3 kW" wraps instead of being cut off; the time windows (*Peak* /
+  *Partial-peak off-grid*) sit two to a row in compact tiles (an odd last one full width).
+
 ## 0.8.2 — 2026-11-05
 
 - **Swiping no longer skips pages** when the HACS *swipe-navigation* plugin is installed: it
@@ -10,7 +28,7 @@
   own person page (the person linked to their login). `access: { <person or login>: all |
   [pages] }` sets it per person — `rooms` = their own person page, `all_members` = every one.
   The dashboard is built per viewer, so hidden pages aren't in their page bar or swipe order.
-- **Member pages in your order:** `members: [person.hana, person.ben, person.lucy]` (a plain
+- **Member pages in your order:** `members: [person.mia, person.alex, person.zoe]` (a plain
   list; rooms are still found from the area names).
 - **Power Flow Card Plus** draws the Energy page's flow when it's installed (HACS): grid,
   solar, battery with its level and home (the home sensor's own value) — the flow stops at the
@@ -70,7 +88,7 @@ The Energy page gets the features of a hand-made energy dashboard, from generic 
 ## 0.6.1 — 2026-11-04
 
 - **Anime avatars** for people without a picture (DiceBear "Adventurer", CC BY 4.0), with
-  gender: `avatars: { person.ben: man, person.lucy: woman }` gives short / long hair (also
+  gender: `avatars: { person.alex: man, person.zoe: woman }` gives short / long hair (also
   boy / girl), or a picture URL per person. Same face every time; no names are sent.
 - **Widgets on a phone** is one screen, like a hand-made iPhone HomeView: date | clock, the
   photo across, up next across (rows 1 : 1.3 : 0.85; the weather is on Home).
@@ -107,7 +125,7 @@ The Energy page gets the features of a hand-made energy dashboard, from generic 
   members' rooms are left out; living room, kitchen and dining come first. `living_rooms`
   picks them by hand (also in the settings editor). `family` / `pages_config.family` in an
   existing config still work and mean Living.
-- **Rooms** now means one page per family member's room (Ben, Lucy, Hana …), as on a
+- **Rooms** now means one page per family member's room (Alex, Zoe, Mia …), as on a
   hand-made dashboard. Default order: Widgets · Home · Living · Rooms · Energy · Cameras.
   `members` in `pages` still works and means `rooms`.
 - **All rooms**: the directory of every room (by floor), optional (`all_rooms`); `rooms`
