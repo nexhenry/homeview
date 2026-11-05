@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.8.1 — 2026-11-05
+
+**Live energy numbers.** Energy meters only report every few minutes (polled integrations,
+Zigbee reporting), so totals built from them jumped in steps:
+
+- Today's totals, device kWh, Home used and self-sufficiency now move every minute: the
+  recorder's change since midnight (re-read every minute) + what the meter has counted since,
+  + an estimate between meter readings from its power sensor (grid import / export, solar,
+  battery discharge / charge, each device's own power sensor), capped at 15 minutes and
+  replaced by the real number at the next reading. Wh / MWh meters are converted.
+- Peak-hour windows and solar self-sufficiency include the hour that's still running (from
+  the 5-minute statistics), updated every minute.
+- **Live** indicator in *Right now* with the time of the latest reading; *no new reading for
+  N min* (amber) when the power sensors stop updating.
+- The outage list re-sorts only when the order changes (no page rebuild every minute).
+
 ## 0.8.0 — 2026-11-04
 
 The Energy page gets the features of a hand-made energy dashboard, from generic entities:

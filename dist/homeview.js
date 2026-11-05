@@ -11,7 +11,7 @@
  * Home, Widgets, Family, Rooms (plus one page per room), Energy and Cameras. Everything is
  * optional and can be tuned in the strategy config — see README.md.
  */
-const HV_VERSION = '0.8.0';
+const HV_VERSION = '0.8.1';
 // where this file was loaded from (to re-download it after an update)
 const HV_URL = (() => { try { return import.meta.url; } catch (e) { return null; } })();
 
@@ -635,22 +635,73 @@ function getEvents(hass, calendars, days, onUpdate) {
   }, onUpdate);
 }
 
-function getStatToday(hass, statId, onUpdate) {
+// the newest hass (fetchers run later than the call that started them)
+let hvHass = null;
+/** kWh per unit of an energy sensor's state (Wh, kWh, MWh …) */
+const kwhFactor = (st) => ({ wh: 0.001, kwh: 1, mwh: 1000, gwh: 1e6 })[String(st?.attributes?.unit_of_measurement || 'kWh').toLowerCase()] ?? 1;
+
+/**
+ * Today's energy (kWh) of an energy statistic, kept live: the recorder's change since midnight
+ * (re-read every minute; it includes the 5-minute statistics) plus how far the meter has
+ * counted since that read — so the number moves with every sensor update.
+ */
+function getStatToday(hass, statId, onUpdate, live) {
   const day = new Date().toDateString();
-  return cached(`st:${statId}:${day}`, 5 * 60e3, async () => {
+  const v = cached(`st:${statId}:${day}`, 60e3, async () => {
     const r = await ws(hass, { type: 'recorder/statistic_during_period', statistic_id: statId,
       calendar: { period: 'day' }, types: ['change'] });
-    return r?.change ?? null;
+    const st = (hvHass || hass).states[statId];
+    return { change: r?.change ?? null, at: num(st?.state), f: kwhFactor(st) };
   }, onUpdate);
+  if (v === undefined) return undefined;
+  if (v === null || v.change === null || v.change === undefined) return v === null ? null : null;
+  const H = hvHass || hass;
+  const meter = H.states[statId];
+  const cur = num(meter?.state);
+  // a meter only counts up; a reset or a jump back means a new day / new meter: no correction
+  const delta = cur !== null && v.at !== null && cur >= v.at ? cur - v.at : 0;
+  return (v.change + delta) * v.f + sinceReading(H, meter, live);
 }
+
+/**
+ * Energy (kWh) since a meter's last reading, from its power sensor: meters report every few
+ * minutes (polling, Zigbee reporting), power sensors far more often. live = { power, sign }:
+ * sign -1 = the negative side (grid export, battery charging). Capped at 15 minutes, so a meter
+ * that stopped reporting can't run away; replaced by the real number at the next reading.
+ */
+function sinceReading(H, meter, live) {
+  if (!live?.power || !meter?.last_updated) return 0;
+  const p = H.states[live.power];
+  let w = num(p?.state);
+  if (w === null) return 0;
+  if (/^kW$/i.test(p.attributes?.unit_of_measurement || '')) w *= 1000;
+  w *= live.sign || 1;
+  if (w <= 0) return 0;
+  const minutes = Math.min(15, Math.max(0, (Date.now() - new Date(meter.last_updated).getTime()) / 60e3));
+  return (w * minutes) / 60 / 1000;
+}
+const statTag = (h, id) => `${tileCacheTag(`st:${id}:${new Date().toDateString()}`)}:${h.states[id]?.state}:${Math.floor(Date.now() / 60e3)}`;
 
 /** Today's hourly `change` for several statistics: { id: [{ start, change }] } */
 function getHourlyToday(hass, ids, onUpdate) {
   const now = new Date();
-  return cached(`hr:${ids.join(',')}:${now.toDateString()}:${now.getHours()}`, 10 * 60e3, async () => {
+  return cached(`hr:${ids.join(',')}:${now.toDateString()}`, 2 * 60e3, async () => {
     const start = new Date(); start.setHours(0, 0, 0, 0);
-    return (await ws(hass, { type: 'recorder/statistics_during_period', start_time: start.toISOString(), period: 'hour',
-      statistic_ids: ids, types: ['change'] })) || {};
+    const hourStart = new Date(); hourStart.setMinutes(0, 0, 0);
+    const [hours, fives] = await Promise.all([
+      ws(hass, { type: 'recorder/statistics_during_period', start_time: start.toISOString(), period: 'hour', statistic_ids: ids, types: ['change'] }),
+      ws(hass, { type: 'recorder/statistics_during_period', start_time: hourStart.toISOString(), period: '5minute', statistic_ids: ids, types: ['change'] }),
+    ]);
+    // the hour that's still running isn't in the hourly statistics yet: add it from the 5-minute ones
+    const out = {};
+    for (const id of ids) {
+      const f = kwhFactor((hvHass || hass).states[id]);
+      const rows = (hours?.[id] || []).filter((r) => new Date(r.start) < hourStart).map((r) => ({ start: r.start, change: (r.change || 0) * f }));
+      const cur = (fives?.[id] || []).reduce((a, r) => a + (r.change || 0), 0) * f;
+      rows.push({ start: hourStart.getTime(), change: cur });
+      out[id] = rows;
+    }
+    return out;
   }, onUpdate);
 }
 
@@ -802,6 +853,9 @@ const TILE_CSS = `
 .t.flex.sect .nm { font-size:19px; font-weight:700; }
 .t.flex.sect .sb { font-size:13px; margin-top:1px; }
 .t.flex.sect .rt { font-size:15px; font-weight:600; color:var(--hv-fg2); white-space:nowrap; }
+.live { margin-left:auto; display:inline-flex; align-items:center; gap:6px; text-transform:none; letter-spacing:0; font-weight:600; color:#34C759; }
+.live i { width:7px; height:7px; border-radius:50%; background:#34C759; animation:hv-pulse 1.6s ease-in-out infinite; }
+.live.stale { color:#FF9F0A; }
 .t.load { gap:10px; }
 .t.load .kwh { font-size:13px; font-weight:700; white-space:nowrap; }
 .lt-b, .onoff { all:unset; cursor:pointer; flex:none; display:inline-flex; align-items:center; justify-content:center; font:700 12.5px ${FONT}; }
@@ -1200,8 +1254,16 @@ R.camera = {
 };
 
 // ---- energy ---------------------------------------------------------------------------------
+// newest reading among the power sensors, and how old it is
+function liveness(h, power) {
+  const ts = Object.values(power).map((id) => h.states[id]?.last_updated).filter(Boolean).map((t) => new Date(t).getTime());
+  if (!ts.length) return null;
+  const last = Math.max(...ts);
+  return { last, mins: (Date.now() - last) / 60e3 };
+}
 R.energy_now = {
-  key: (h, s) => Object.values(s.power).map((id) => h.states[id]?.state).join('|'),
+  tick: 15e3,
+  key: (h, s) => Object.values(s.power).map((id) => h.states[id]?.state + h.states[id]?.last_updated).join('|') + Math.floor(Date.now() / 30e3),
   html(h, s) {
     const p = s.power, v = (id) => (id ? num(h.states[id]?.state) : null);
     const unitW = (id) => { const u = h.states[id]?.attributes?.unit_of_measurement; return u === 'kW' ? 1000 : u === 'MW' ? 1e6 : 1; };
@@ -1222,7 +1284,15 @@ R.energy_now = {
     if (p.battery || p.battery_level) cells.push(cell(soc !== null ? `mdi:battery-${clamp(Math.round(soc / 10) * 10, 10, 100) === 100 ? '' : clamp(Math.round(soc / 10) * 10, 10, 90)}`.replace(/-$/, '') : 'mdi:home-battery-outline', 'Battery',
       soc !== null ? `${fmt(soc, 0)}%` : kw(battery), battery === null ? '' : battery > 20 ? `Discharging ${kw(battery)}` : battery < -20 ? `Charging ${kw(battery)}` : 'Idle', '#34C759', p.battery_level || p.battery));
     return `<div class="t" style="cursor:default;align-items:stretch;justify-content:flex-start;padding:5%">
-      <div class="up" style="margin-bottom:4%">Right now</div>
+      <div class="up" style="margin-bottom:4%;display:flex;align-items:center;gap:8px">Right now ${(() => {
+        const L = liveness(h, s.power);
+        if (!L) return '';
+        const stale = L.mins >= (s.stale_minutes || 10);
+        const at = new Date(L.last).toLocaleTimeString(h.locale?.language, { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+        return stale
+          ? `<span class="live stale" title="Last reading ${esc(at)}">no new reading for ${fmt(L.mins, 0)} min</span>`
+          : `<span class="live" title="Last reading ${esc(at)}"><i></i>Live · ${esc(at)}</span>`;
+      })()}</div>
       <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;flex:1">${cells.join('')}</div></div>`;
   },
   action(h, s, tile, kind, ev) { const id = ev?.target?.closest?.('[data-more]')?.dataset?.more; if (id) moreInfo(tile, id); },
@@ -1266,7 +1336,8 @@ function windowDays(days) {
 }
 const hourOf = (t) => { const [a, b] = String(t || '0').split(':'); return Number(a) + (Number(b) || 0) / 60; };
 R.energy_window = {
-  key: (h, s) => tileCacheTag(`hr:${s.ids.join(',')}:${new Date().toDateString()}:${new Date().getHours()}`),
+  tick: 60e3,
+  key: (h, s) => tileCacheTag(`hr:${s.ids.join(',')}:${new Date().toDateString()}`) + `:${Math.floor(Date.now() / 60e3)}`,
   html(h, s, tile) {
     const w = s.window, now = new Date();
     const data = getHourlyToday(h, s.ids, () => tile.refresh());
@@ -1324,9 +1395,10 @@ async function outageLabelId(hass, create) {
 let outageLabel = null;   // label_id once known
 function isTicked(h, id) { return !!(outageLabel && id && asList(h.entities?.[id]?.labels).includes(outageLabel)); }
 R.energy_load = {
-  key: (h, s) => [s.power, s.current, s.sw].map((id) => h.states[id]?.state).join('|') + tileCacheTag(`st:${s.stat}:${new Date().toDateString()}`) + isTicked(h, s.sw),
+  tick: 60e3,
+  key: (h, s) => [s.power, s.current, s.sw].map((id) => h.states[id]?.state).join('|') + statTag(h, s.stat) + isTicked(h, s.sw),
   html(h, s, tile) {
-    const kwh = getStatToday(h, s.stat, () => tile.refresh());
+    const kwh = getStatToday(h, s.stat, () => tile.refresh(), s.power ? { power: s.power } : null);
     const w = s.power ? num(h.states[s.power]?.state) : null, a = s.current ? num(h.states[s.current]?.state) : null;
     const sw = s.sw ? h.states[s.sw] : null, on = sw ? sw.state === 'on' : w !== null && w > 1;
     const ticked = isTicked(h, s.sw);
@@ -1376,9 +1448,10 @@ R.energy_outage = {
 };
 
 R.energy_stat = {
-  key: (h, s) => s.stats.map((x) => tileCacheTag(`st:${x.id}:${new Date().toDateString()}`)).join('|'),
+  tick: 60e3,
+  key: (h, s) => s.stats.map((x) => statTag(h, x.id)).join('|'),
   html(h, s, tile) {
-    const vals = s.stats.map((x) => ({ ...x, v: getStatToday(h, x.id, () => tile.refresh()) }));
+    const vals = s.stats.map((x) => ({ ...x, v: getStatToday(h, x.id, () => tile.refresh(), x.live) }));
     const loading = vals.some((x) => x.v === undefined);
     let value;
     let sub = s.sub || 'Today';
@@ -1393,10 +1466,11 @@ R.energy_stat = {
 };
 // today's energy numbers as one card of small cells (next to the flow diagram)
 R.energy_today = {
-  key: (h, s) => s.items.flatMap((it) => it.stats.map((x) => tileCacheTag(`st:${x.id}:${new Date().toDateString()}`))).join('|'),
+  tick: 60e3,
+  key: (h, s) => s.items.flatMap((it) => it.stats.map((x) => statTag(h, x.id))).join('|'),
   html(h, s, tile) {
     const cells = s.items.map((it) => {
-      const vals = it.stats.map((x) => ({ ...x, v: getStatToday(h, x.id, () => tile.refresh()) }));
+      const vals = it.stats.map((x) => ({ ...x, v: getStatToday(h, x.id, () => tile.refresh(), x.live) }));
       const loading = vals.some((x) => x.v === undefined);
       const value = it.compute ? it.compute(Object.fromEntries(vals.map((x) => [x.role, x.v]))) : vals.reduce((a, x) => a + (x.v || 0) * (x.sign || 1), 0);
       const txt = loading ? '…' : value === null || Number.isNaN(value) ? '—' : it.unit === '%' ? `${fmt(value, 0)}%` : `${fmt(value, value >= 100 ? 0 : 1)} kWh`;
@@ -1408,9 +1482,10 @@ R.energy_today = {
 };
 
 R.energy_device = {
-  key: (h, s) => `${tileCacheTag(`st:${s.stat}:${new Date().toDateString()}`)}|${h.states[s.power]?.state}`,
+  tick: 60e3,
+  key: (h, s) => `${statTag(h, s.stat)}|${h.states[s.power]?.state}`,
   html(h, s, tile) {
-    const kwh = getStatToday(h, s.stat, () => tile.refresh());
+    const kwh = getStatToday(h, s.stat, () => tile.refresh(), s.power ? { power: s.power } : null);
     const w = s.power ? num(h.states[s.power]?.state) : null;
     const u = s.power ? h.states[s.power]?.attributes?.unit_of_measurement || 'W' : '';
     const on = w !== null && w > 1;
@@ -2260,7 +2335,12 @@ const PAGES = {
       top.push({ kind: 'energy_flow', power, size: ['half', 2] });
       top.push({ kind: 'energy_now', power, size: ['half', 2] });
     }
-    const S = (ids, role, sign = 1) => ids.map((id) => ({ id, role: `${role}:${id}`, sign }));
+    // each meter's power sensor (for the live estimate between meter readings): grid + import /
+    // − export, battery + discharge / − charge (only when there's one meter for that side)
+    const LIVE = { gin: [power.grid, 1, gridIn], gout: [power.grid, -1, gridOut], sol: [power.solar, 1, solarIds],
+      bout: [power.battery, 1, batOut], bin: [power.battery, -1, batIn] };
+    const liveFor = (role) => { const [pw, sign, list] = LIVE[role] || []; return pw && list.length === 1 ? { power: pw, sign } : null; };
+    const S = (ids, role, sign = 1) => ids.map((id) => ({ id, role: `${role}:${id}`, sign, live: liveFor(role) }));
     const sumRole = (v, role) => Object.entries(v).filter(([k]) => k.startsWith(role + ':')).reduce((acc, [, x]) => acc + (x || 0), 0);
     const all = [...S(gridIn, 'gin'), ...S(gridOut, 'gout'), ...S(solarIds, 'sol'), ...S(batOut, 'bout'), ...S(batIn, 'bin')];
     const homeUse = (v) => sumRole(v, 'gin') + sumRole(v, 'sol') - sumRole(v, 'gout') + sumRole(v, 'bout') - sumRole(v, 'bin');
@@ -2314,8 +2394,13 @@ const PAGES = {
         return { kind: 'energy_load', stat: statId, power: byDc('power'), current: byDc('current'), sw, name, admin: !!h.user?.is_admin, row: true };
       });
       // most used today first: once every number is in, the page is rebuilt in that order
-      loads.forEach((t) => getStatToday(h, t.stat, () => page.scheduleRebuild()));
+      // most used today first; rebuilt only when that order actually changes (the numbers
+      // themselves update in place every minute)
+      const orderOf = () => [...loads].sort((a, b) => (getStatToday(hvHass || h, b.stat) || 0) - (getStatToday(hvHass || h, a.stat) || 0)).map((t) => t.stat).join('|');
+      const reorder = () => { if (orderOf() !== page._loadOrder) page.scheduleRebuild(); };
+      loads.forEach((t) => getStatToday(h, t.stat, reorder));
       loads.sort((a, b) => (getStatToday(h, b.stat) || 0) - (getStatToday(h, a.stat) || 0));
+      page._loadOrder = loads.map((t) => t.stat).join('|');
       const limit = ec.devices || 10;
       const shown = page._allLoads ? loads : loads.slice(0, limit);
       const grid = ec.grid_status || [...(m.byDomain.binary_sensor || []), ...(m.byDomain.sensor || [])]
@@ -2472,6 +2557,7 @@ class HomeViewPage extends HTMLElement {
 
   set hass(h) {
     this._hass = h;
+    hvHass = h;
     if (this.isConnected && Date.now() - (this._kAt || 0) > 2500) { this._kAt = Date.now(); applyKiosk(kioskWanted(this._config?.options)); }
     const sig = this._signature(h);
     if (sig !== this._sig) { this._sig = sig; this.rebuild(); return; }

@@ -385,8 +385,14 @@ To do it **automatically**, import the blueprint and pick your grid-status entit
 [![Import blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fnexhenry%2Fhomeview%2Fblob%2Fmain%2Fblueprints%2Fhomeview_outage.yaml)
 
 It turns the labelled devices off 30 s after the grid goes down and on again 2 min after it is
-back (both adjustable). Solar self-sufficiency and the window percentages are worked out hour
-by hour from Home Assistant's statistics, so they are close estimates, not to-the-minute tallies.
+back (both adjustable).
+
+**Live numbers:** energy meters usually report every few minutes, so between two readings
+HomeView adds an estimate from the matching power sensor (power × time since the last
+reading, at most 15 minutes) — the totals move every minute and snap to the real number at the
+next reading. *Right now* shows **Live** with the time of the latest reading, or a warning when
+the power sensors stop updating. Solar self-sufficiency and the window percentages are worked
+out hour by hour (the current hour from 5-minute statistics), so they are close estimates.
 
 ## Taps
 
