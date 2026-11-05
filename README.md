@@ -278,9 +278,14 @@ strategy:
   weather: weather.home                          # default: the first weather entity
   cameras: [camera.front_door, camera.garden]    # default: all cameras
 
-  members:                        # a page per family member (default: everyone whose name is in a room's name)
-    person.lucy: { area: bedroom_lucy, calendars: [calendar.lucy_school] }
-                                  # members: false = no member pages
+  access:                         # who sees which pages (default: admins all pages; everyone else the
+                                  # shared pages + only their own person page)
+    person.ben: [widgets, home, living, rooms, energy, cameras]   # rooms = their own person page
+    person.wall_tablet: all       # all pages, every person page included (also: all_members)
+    guest: [widgets, home]        # a login name works too
+  members: [person.hana, person.ben, person.lucy]   # their pages, in this order (default: everyone
+                                  # whose name is in a room's name, alphabetically); false = none
+  # members: { person.lucy: { area: bedroom_lucy, calendars: [calendar.lucy_school] } }   by hand
   widgets:
     slideshow: media-source://media_source/local/Photos   # photo folder, or samples (default: the
                                   # first media folder named Photos / Pictures / Slideshow …, else
@@ -325,6 +330,9 @@ strategy:
     battery_capacity: 13.5        # kWh, when there's no energy-left sensor (× the battery level)
     grid_status: binary_sensor.grid_status     # power-outage list (default: a sensor named like grid status)
     home_current: sensor.mains_current         # the "A at V" line (default: on the home power sensor's device)
+    flow_card: auto               # auto = Power Flow Card Plus when it's installed (HACS), else HomeView's own; homeview
+    flow_devices: 0               # devices shown as their own circles in Power Flow Card Plus (default none)
+    flow_card_options: {}         # anything else for Power Flow Card Plus
     voltage: sensor.mains_voltage
     solar_power: sensor.solar_power
     grid_power: sensor.grid_power         # + import / − export
@@ -338,7 +346,8 @@ strategy:
   # layout and editing
   tile_size: 175                  # instead of the standard grid: as many columns as fit tiles this wide
   max_columns: 8
-  swipe: true                     # swipe between pages
+  swipe: true                     # swipe between pages (turns the swipe-navigation plugin off on this
+                                  # dashboard so one swipe is one page; false = leave swiping to it)
   edit_button: true               # the pencil (admins only)
   kiosk: true                     # full screen: hide HA's header and sidebar
   kiosk_chip: true                # the Menu / Full screen chip
@@ -347,6 +356,11 @@ strategy:
 
 ### What goes where
 
+- **Who sees what:** each person page belongs to the login linked to that person (Settings →
+  People → the person → *Allow person to login*). Admins see every page; everyone else sees the
+  shared pages and only their own person page. `access` sets it per person or login — e.g. a
+  wall tablet's login with `all`, or a child who is an admin limited to their own page. Pages
+  someone may not see aren't built for them at all (not in their page bar or swipe order).
 - **Family members** get their own page when a room (area) is named after them — "Bedroom
   Lucy", "Ben's room" — or when you list them under `members`. A calendar with their name in
   it ("Lucy School") is used for their next event.

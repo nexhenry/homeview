@@ -11,7 +11,7 @@
  * Home, Widgets, Family, Rooms (plus one page per room), Energy and Cameras. Everything is
  * optional and can be tuned in the strategy config — see README.md.
  */
-const HV_VERSION = '0.8.1';
+const HV_VERSION = '0.8.2';
 // where this file was loaded from (to re-download it after an update)
 const HV_URL = (() => { try { return import.meta.url; } catch (e) { return null; } })();
 
@@ -61,7 +61,7 @@ const COLOR_CYCLE = ['orange', 'green', 'amber', 'blue', 'purple', 'pink', 'teal
 const KNOWN_OPTIONS = ['type', 'title', 'theme', 'pages', 'pages_config', 'room_order', 'hide_rooms', 'rooms',
   'exclude_entities', 'customize', 'people', 'calendars', 'weather', 'cameras', 'home', 'pills', 'battery_low',
   'people_chips', 'energy', 'tile_size', 'max_columns', 'swipe', 'custom_pages', 'edit_button', 'update_notice',
-  'kiosk', 'kiosk_chip', 'members', 'living_rooms', 'widgets', 'avatars', 'phone_favorites'];   // energy.* : see the energy page
+  'kiosk', 'kiosk_chip', 'members', 'living_rooms', 'widgets', 'avatars', 'phone_favorites', 'access'];   // energy.* : see the energy page
 
 // What a room page / room row shows, in this order
 const ROOM_GROUPS = [
@@ -454,8 +454,10 @@ function buildModel(hass, cfg) {
   // (members: { person.lucy: { area, calendars, name } } sets them by hand; false = none)
   model.members = [];
   if (cfg.members !== false) {
-    const list = cfg.members && typeof cfg.members === 'object' ? Object.entries(cfg.members).map(([pid, c]) => [pid, c || {}])
-      : model.persons.map((pid) => [pid, {}]);
+    // members: [person.hana, person.ben] (that order) | { person.hana: { area, calendars, name } } | auto
+    const list = Array.isArray(cfg.members) ? cfg.members.map((x) => (typeof x === 'string' ? [x, {}] : [x?.person, x || {}])).filter(([pid]) => pid)
+      : cfg.members && typeof cfg.members === 'object' ? Object.entries(cfg.members).map(([pid, c]) => [pid, c || {}])
+        : model.persons.map((pid) => [pid, {}]);
     for (const [pid, c] of list) {
       const st = hass.states[pid];
       if (!st) continue;
@@ -464,7 +466,7 @@ function buildModel(hass, cfg) {
       if (!key) continue;
       const re = new RegExp(`(^|[^a-z0-9])${key}([^a-z0-9]|$)`, 'i');
       const room = c.area ? model.areaById[c.area] : model.areas.find((a) => re.test(a.name) || re.test(a.id.replace(/_/g, ' ')));
-      if (!room && !c.area && !(cfg.members && cfg.members[pid])) continue;
+      if (!room && !c.area && !(cfg.members && typeof cfg.members === 'object')) continue;
       const cals = c.calendars ? asList(c.calendars)
         : model.calendars.filter((id) => re.test(hass.states[id]?.attributes?.friendly_name || '') || re.test(id.split('.')[1].replace(/_/g, ' ')));
       model.members.push({ person: pid, name, room: room || null, calendars: cals, slug: pid.split('.')[1], hue: room ? room.hue : 335 });
@@ -1879,7 +1881,10 @@ class HomeViewTile extends HTMLElement {
       const el = helpers.createCardElement(this._spec.card);
       el.hass = this._hass;
       const box = document.createElement('div');
-      box.style.cssText = 'height:100%;overflow:auto;border-radius:var(--hv-radius,22px)';
+      box.style.cssText = 'height:100%;overflow:auto;border-radius:var(--hv-radius,22px);display:flex;flex-direction:column;justify-content:center;background:var(--hv-tile)';
+      el.style.setProperty('--ha-card-background', 'transparent');
+      el.style.setProperty('--ha-card-box-shadow', 'none');
+      el.style.setProperty('--ha-card-border-width', '0');
       box.appendChild(el);
       this._wrap.replaceChildren(box);
       this._wrap.style.position = 'relative';
@@ -2332,7 +2337,29 @@ const PAGES = {
 
     const top = [];
     if (Object.keys(power).length) {
-      top.push({ kind: 'energy_flow', power, size: ['half', 2] });
+      // the flow: Power Flow Card Plus (HACS) when it's installed, else HomeView's own
+      const want = ec.flow_card || 'auto';
+      const pfcp = want !== 'homeview' && customElements.get('power-flow-card-plus');
+      if (!pfcp && want !== 'homeview') customElements.whenDefined('power-flow-card-plus').then(() => page.scheduleRebuild());
+      if (pfcp) {
+        const individual = asList(prefs?.device_consumption).map((d) => {
+          const dev = devOf(d.stat_consumption);
+          const pw = onDevice(dev, 'power');
+          return pw ? { entity: pw, name: d.name || h.devices?.[dev]?.name_by_user || h.devices?.[dev]?.name, w: num(h.states[pw]?.state) || 0 } : null;
+        }).filter(Boolean).sort((a, b) => b.w - a.w).slice(0, ec.flow_devices ?? 0).map(({ w, ...x }) => ({ ...x, display_zero: true }));
+        const entities = {};
+        if (power.grid) entities.grid = { entity: power.grid };                          // + import, − export
+        if (power.solar) entities.solar = { entity: power.solar, display_zero_state: true };
+        if (power.battery || power.battery_level) entities.battery = { entity: power.battery, state_of_charge: power.battery_level };   // + discharge
+        // home: the sensor's own value (the card otherwise adds up the sources itself)
+        entities.home = power.home ? { entity: power.home, override_state: true } : {};
+        if (individual.length) entities.individual = individual;
+        top.push({ kind: 'card', size: ['half', 2], phoneSpan: [2, 6], card: { type: 'custom:power-flow-card-plus', entities,
+          clickable_entities: true, use_new_flow_rate_model: true, w_decimals: 0, kw_decimals: 1, watt_threshold: 1000,
+          display_zero_lines: { mode: 'transparency', transparency: 50 }, min_flow_rate: 0.75, max_flow_rate: 6, ...(ec.flow_card_options || {}) } });
+      } else {
+        top.push({ kind: 'energy_flow', power, size: ['half', 2] });
+      }
       top.push({ kind: 'energy_now', power, size: ['half', 2] });
     }
     // each meter's power sensor (for the live estimate between meter readings): grid + import /
@@ -2948,7 +2975,7 @@ class HomeViewPage extends HTMLElement {
       let [sw, sh] = t._hvSize;
       if (phone) {   // rows are 64 px: big tiles span several, compact tiles one
         const k = t.spec?.kind;
-        const span = PHONE_SPAN[k];
+        const span = t.spec?.phoneSpan || PHONE_SPAN[k];
         if (span) [sw, sh] = span;
         else if (t.spec?.row) { sh = 1; sw = sw >= 2 ? 2 : 1; }
         else if (k === 'card') { sw = 2; sh = Math.max(2, (sh || 2) * 3); }
@@ -3339,8 +3366,29 @@ class HomeViewStrategy extends HTMLElement {
     const pages = [...wanted.filter((p) => !PAGE_DEFS[p] || available[p]),
       ...customs.map((c) => c.path).filter((p) => !wanted.includes(p))];
     const pc = options.pages_config || {};
-    const paths = [...new Set(pages.flatMap((p) => (p !== 'rooms' ? [p]
+    const allPaths = [...new Set(pages.flatMap((p) => (p !== 'rooms' ? [p]
       : m.members.length ? m.members.map((x) => `member-${x.slug}`) : ['all_rooms'])))];
+    // who sees which pages — the dashboard is generated per viewer, so pages a viewer may not see
+    // simply aren't made for them (not in their page bar or swipe order either):
+    //   admins: every page;  everyone else: the shared pages + their own person page
+    //   access: { <person entity or login name>: all | [page ids / paths, rooms = their own person
+    //             page, all_members = every person page] }
+    const me = hass.user || {};
+    const mine = Object.keys(hass.states).filter((id) => id.startsWith('person.') && hass.states[id].attributes.user_id === me.id);
+    const acc = options.access || {};
+    const accKey = Object.keys(acc).find((k) => mine.includes(k) || k.toLowerCase() === String(me.name || '').toLowerCase());
+    const rule = accKey !== undefined ? acc[accKey] : (me.is_admin ? 'all' : null);
+    const memberOf = (path) => m.members.find((x) => `member-${x.slug}` === path);
+    const own = (mem) => mine.includes(mem.person);
+    const allowed = (path) => {
+      if (rule === 'all') return true;
+      const mem = memberOf(path);
+      if (rule === null) return mem ? own(mem) : true;                     // default for non-admins
+      const set = new Set(asList(rule).map((x) => PAGE_ALIASES[x] || x));
+      if (mem) return set.has(path) || set.has('all_members') || (set.has('rooms') && own(mem));
+      return set.has(path) || (path === 'all_rooms' && set.has('rooms'));
+    };
+    const paths = allPaths.filter(allowed);
     const views = paths.map((p) => {
       const mem = m.members.find((x) => `member-${x.slug}` === p);
       if (mem) {
@@ -3366,7 +3414,9 @@ class HomeViewStrategy extends HTMLElement {
         cards: [{ type: 'custom:homeview-page', page: 'room', area: r.id, order: [], options }],
       });
     }
-    return { title: options.title || 'HomeView', views };
+    // the HACS "swipe-navigation" plugin acts on every dashboard unless told not to: with
+    // HomeView's own swipe as well, one swipe moved two pages. swipe: false hands it back.
+    return { title: options.title || 'HomeView', views, ...(options.swipe !== false ? { swipe_nav: { enable: false } } : {}) };
   }
 
   // the visual editor in HA's "Edit dashboard" dialog

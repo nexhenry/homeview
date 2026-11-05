@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.8.2 — 2026-11-05
+
+- **Swiping no longer skips pages** when the HACS *swipe-navigation* plugin is installed: it
+  acts on every dashboard, so one swipe moved two pages (its and HomeView's). HomeView's
+  dashboard now turns it off while HomeView swipes itself (`swipe: false` hands swiping
+  back to the plugin).
+- **Pages per person:** admins see every page; everyone else the shared pages plus only their
+  own person page (the person linked to their login). `access: { <person or login>: all |
+  [pages] }` sets it per person — `rooms` = their own person page, `all_members` = every one.
+  The dashboard is built per viewer, so hidden pages aren't in their page bar or swipe order.
+- **Member pages in your order:** `members: [person.hana, person.ben, person.lucy]` (a plain
+  list; rooms are still found from the area names).
+- **Power Flow Card Plus** draws the Energy page's flow when it's installed (HACS): grid,
+  solar, battery with its level and home (the home sensor's own value) — the flow stops at the
+  house. `energy.flow_card: homeview` keeps HomeView's own diagram; `energy.flow_devices: N`
+  adds the N devices using the most power as their own circles (default none);
+  `energy.flow_card_options` is passed to the card.
+
 ## 0.8.1 — 2026-11-05
 
 **Live energy numbers.** Energy meters only report every few minutes (polled integrations,
