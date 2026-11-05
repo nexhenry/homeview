@@ -67,7 +67,12 @@ What one family's wall tablet looks like after taking the same design further by
 **Slopeview** dashboard that HomeView is modelled on, on a Pixel Tablet (1280 × 800, full
 screen). HomeView builds this kind of page from your home automatically. Use these as ideas
 for your own fine-tuning: favourites, `customize`, your own sections and pages (a pond, a
-media room), energy time windows. Camera pictures and the calendar are blurred for privacy.
+media room), energy time windows. Camera pictures, photos, the calendar and the town are blurred for privacy.
+
+**Widgets**, the wall tablet's resting page: a big date, a clock, the family photo slideshow,
+what's next and the weather.
+
+![Widgets: big date with sunrise / sunset, analog clock, photo slideshow, up next and the weather](docs/screenshots/slopeview-widgets.png)
 
 | Home | Living |
 |---|---|
