@@ -11,7 +11,7 @@
  * Home, Widgets, Family, Rooms (plus one page per room), Energy and Cameras. Everything is
  * optional and can be tuned in the strategy config — see README.md.
  */
-const HV_VERSION = '0.2.0';
+const HV_VERSION = '0.2.1';
 
 /* ============================================================================================
  * Constants
@@ -42,7 +42,7 @@ const COLOR_CYCLE = ['orange', 'green', 'amber', 'blue', 'purple', 'pink', 'teal
 // every strategy option (anything else is reported as a likely typo)
 const KNOWN_OPTIONS = ['type', 'title', 'theme', 'pages', 'pages_config', 'room_order', 'hide_rooms', 'rooms',
   'exclude_entities', 'customize', 'people', 'calendars', 'weather', 'cameras', 'home', 'pills', 'battery_low',
-  'people_chips', 'energy', 'tile_size', 'max_columns', 'swipe', 'custom_pages', 'edit_button'];
+  'people_chips', 'energy', 'tile_size', 'max_columns', 'swipe', 'custom_pages', 'edit_button', 'update_notice'];
 
 // What a room page / room row shows, in this order
 const ROOM_GROUPS = [
@@ -190,6 +190,17 @@ function isDark(hass, cfg) {
   if (t === 'dark') return true;
   if (t === 'light') return false;
   return !!hass?.themes?.darkMode;
+}
+
+/**
+ * HomeView's own update entity from HACS (update.homeview_update or similar), so admins can be
+ * told on the dashboard when a new version is out.
+ */
+function findUpdateEntity(hass) {
+  const regs = Object.values(hass.entities || {});
+  const byReg = regs.find((e) => e.entity_id.startsWith('update.') && e.platform === 'hacs' && /homeview/i.test(e.entity_id));
+  if (byReg) return byReg.entity_id;
+  return Object.keys(hass.states).find((id) => id.startsWith('update.') && /homeview/i.test(id + (hass.states[id].attributes.friendly_name || ''))) || null;
 }
 
 /** Navigate inside the dashboard (path relative to the dashboard URL). */
@@ -1421,6 +1432,9 @@ const PAGE_CSS = `
 .editbar b { color:var(--hv-fg); }
 .eb { display:flex; gap:8px; }
 .hidden-sec .sec-h { color:var(--hv-fg2); }
+.upd { all:unset; cursor:pointer; flex-basis:100%; display:flex; align-items:center; gap:10px; padding:10px 14px; border-radius:16px;
+  background:var(--hv-accent); color:#fff; font:500 14px ${FONT}; --mdc-icon-size:22px; box-sizing:border-box; }
+.upd b { font-weight:700; }
 .hint { color:var(--hv-fg2); font-size:14px; line-height:1.45; margin:0 0 12px; }
 .yaml { background:var(--hv-tile); border-radius:14px; padding:14px 16px; font-size:13px; line-height:1.5; overflow:auto; white-space:pre;
   font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color:var(--hv-fg); user-select:text; -webkit-user-select:text; }
@@ -1749,7 +1763,10 @@ class HomeViewPage extends HTMLElement {
     const today = new Date().toLocaleDateString(h.locale?.language, { weekday: 'long', month: 'long', day: 'numeric' });
     const editing = this._editing;
     const canEdit = h.user?.is_admin && cfg.edit_button !== false;
-    const key = JSON.stringify([today, page.title, editing, canEdit, pills.map(([id, p]) => [id, p.text, p.alert, p.active]), people.map((id) => h.states[id]?.state)]);
+    if (this._updEnt === undefined) this._updEnt = findUpdateEntity(h);
+    const upd = h.user?.is_admin && cfg.update_notice !== false && this._updEnt ? h.states[this._updEnt] : null;
+    const updOn = upd?.state === 'on' && !upd.attributes.skipped_version ? upd.attributes.latest_version : null;
+    const key = JSON.stringify([today, page.title, editing, canEdit, updOn, pills.map(([id, p]) => [id, p.text, p.alert, p.active]), people.map((id) => h.states[id]?.state)]);
     if (key === this._headKey) return;
     this._headKey = key;
     const room = page.room;
@@ -1758,7 +1775,9 @@ class HomeViewPage extends HTMLElement {
       const s = roomSummary(h, room);
       roomSub = [s.t !== null ? `${fmt(s.t, 1)}°` : null, s.hu !== null ? `${fmt(s.hu, 0)}%` : null].filter(Boolean).join(' · ');
     }
-    head.innerHTML = `<div>
+    const updBanner = updOn ? `<button class="upd" data-more="${esc(this._updEnt)}"><ha-icon icon="mdi:arrow-up-circle"></ha-icon>
+        <span><b>HomeView ${esc(updOn)} is available</b> (you have ${esc(HV_VERSION)}). Tap to see what's new and update.</span></button>` : '';
+    head.innerHTML = `${updBanner}<div>
         <div class="date">${esc(today)}</div>
         <div class="title">${page.back ? '<button class="back" data-back><ha-icon icon="mdi:chevron-left"></ha-icon></button>' : ''}${esc(page.title)}${roomSub ? `<span class="sub">${esc(roomSub)}</span>` : ''}${canEdit && !editing ? '<button class="back pen" data-edit-on title="Edit HomeView"><ha-icon icon="mdi:pencil-outline"></ha-icon></button>' : ''}</div>
         ${editing ? `<div class="editbar"><span><b>Editing</b> · <ha-icon icon="mdi:star-outline"></ha-icon> on Home · <ha-icon icon="mdi:resize"></ha-icon> size · <ha-icon icon="mdi:rename-outline"></ha-icon> name · <ha-icon icon="mdi:eye-off-outline"></ha-icon> hide · <ha-icon icon="mdi:palette-outline"></ha-icon> room colour</span>
@@ -1833,6 +1852,7 @@ const EDITOR_LABELS = {
   pages: ['Pages', 'Which pages to show, in swipe order. Pages with nothing to show are skipped.'],
   swipe: ['Swipe between pages'],
   edit_button: ['Show the edit (pencil) button', 'Admins only.'],
+  update_notice: ['Tell me when a HomeView update is out', 'A banner for admins when HACS has a newer version.'],
   favorites: ['Favourites', 'Tiles near the top of Home. Empty = automatic (alarm, locks, garage, thermostat).'],
   rooms: ['Show rooms on Home'],
   scenes: ['Show scenes on Home'],
@@ -1861,7 +1881,7 @@ const PILL_NAMES = { alarm: 'Alarm', climate: 'Climate', lights: 'Lights on', lo
   safety: 'Leaks, smoke & gas', batteries: 'Batteries', media: 'Now playing' };
 
 // What HomeView does when an option is not set: shown in the editor, left out when saving
-const EDITOR_DEFAULTS = { theme: 'auto', pages: DEFAULT_PAGES, swipe: true, edit_button: true, people_chips: true, battery_low: 20,
+const EDITOR_DEFAULTS = { theme: 'auto', pages: DEFAULT_PAGES, swipe: true, edit_button: true, update_notice: true, people_chips: true, battery_low: 20,
   home: { rooms: true, scenes: true, max_scenes: 8 } };
 
 function withDefaults(o, d = EDITOR_DEFAULTS) {
@@ -1894,6 +1914,7 @@ function editorSchema(hass) {
         options: DEFAULT_PAGES.map((p) => ({ value: p, label: PAGE_DEFS[p].title })) } } },
       { name: 'swipe', selector: { boolean: {} } },
       { name: 'edit_button', selector: { boolean: {} } },
+      { name: 'update_notice', selector: { boolean: {} } },
     ] },
     { type: 'expandable', name: 'home', title: 'Home page', icon: 'mdi:home-outline', schema: [
       { name: 'favorites', selector: { entity: { multiple: true } } },

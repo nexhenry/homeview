@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1 — 2026-11-04
+
+- **Update notice:** when HACS has a newer HomeView, admins see a banner at the top of the
+  dashboard; tap it for the release notes and the Update button. Turn it off with
+  `update_notice: false` (or in the settings editor).
+
 ## 0.2.0 — 2026-11-04
 
 Make it yours — three ways that edit the same settings:

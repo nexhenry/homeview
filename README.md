@@ -55,6 +55,13 @@ open door, and you can control them right there.
    **Dashboard**.
 2. Install **HomeView** and reload the browser.
 
+### Updates
+
+HACS checks for new versions by itself. When one is out you'll see it in three places:
+Home Assistant's **Settings** (a badge, and the update under *Updates*), **HACS**, and — for
+admins — a banner at the top of HomeView itself. Tap the banner for what's new and the
+**Update** button, then reload the browser. Don't want the banner? `update_notice: false`.
+
 ### Manual
 
 1. Copy `dist/homeview.js` to `<config>/www/homeview/homeview.js`.
@@ -257,6 +264,7 @@ strategy:
   max_columns: 8
   swipe: true                     # swipe between pages
   edit_button: true               # the pencil (admins only)
+  update_notice: true             # a banner for admins when HACS has a newer HomeView
 ```
 
 ### What goes where
