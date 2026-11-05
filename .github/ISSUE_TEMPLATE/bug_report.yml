@@ -1,0 +1,73 @@
+name: Bug report
+description: Something doesn't work or looks wrong
+title: "[Bug]: "
+labels: [bug]
+assignees: [nexhenry]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this! The more of this you fill in, the faster it gets fixed.
+  - type: input
+    id: homeview
+    attributes:
+      label: HomeView version
+      description: HACS → HomeView, or the version in the browser console ("HOMEVIEW 0.x.y").
+      placeholder: "0.2.0"
+    validations:
+      required: true
+  - type: input
+    id: ha
+    attributes:
+      label: Home Assistant version
+      description: Settings → About.
+      placeholder: "2026.10.4"
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device and browser / app
+      placeholder: "iPad Air (iPadOS 18), Companion app — or — Windows, Chrome 130"
+    validations:
+      required: true
+  - type: dropdown
+    id: page
+    attributes:
+      label: Which page?
+      multiple: true
+      options: [Home, Widgets, Family, Rooms, A room page, Energy, Cameras, A custom page, Edit mode / settings editor, All of them]
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you saw. Screenshots help a lot (blur anything private).
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+  - type: textarea
+    id: config
+    attributes:
+      label: Your HomeView config
+      description: Edit dashboard → ⋮ → Raw configuration editor (or the YAML button in HomeView's settings). Remove anything private.
+      render: yaml
+  - type: textarea
+    id: console
+    attributes:
+      label: Browser console errors
+      description: If you can — open the browser's developer tools → Console, reload, and copy any red lines mentioning homeview.
+      render: text
+  - type: checkboxes
+    id: ack
+    attributes:
+      label: Acknowledgement
+      options:
+        - label: I searched the existing issues and this hasn't been reported yet.
+          required: true
+        - label: I removed passwords, tokens, addresses and other private details from what I pasted.
+          required: true
+        - label: I understand HomeView is a free community project, provided as is, and I use it at my own risk.
+          required: true

@@ -11,7 +11,7 @@
  * Home, Widgets, Family, Rooms (plus one page per room), Energy and Cameras. Everything is
  * optional and can be tuned in the strategy config — see README.md.
  */
-const HV_VERSION = '0.1.0';
+const HV_VERSION = '0.2.0';
 
 /* ============================================================================================
  * Constants
@@ -32,7 +32,17 @@ const ROOM_HUES = [28, 110, 45, 205, 265, 335, 170, 15, 230, 80];
 const COLOR_HUES = {
   red: 4, orange: 28, amber: 40, yellow: 50, lime: 80, green: 110, teal: 170, cyan: 190,
   blue: 210, indigo: 235, purple: 265, pink: 335, brown: 25, gray: 220, grey: 220,
+  // Home Assistant's colour picker names
+  primary: 210, accent: 28, 'deep-purple': 255, 'light-blue': 200, 'light-green': 95,
+  'deep-orange': 15, 'blue-grey': 205,
 };
+// the order the on-dashboard editor cycles room colours in
+const COLOR_CYCLE = ['orange', 'green', 'amber', 'blue', 'purple', 'pink', 'teal', 'red', 'indigo', 'lime', 'brown', 'cyan'];
+
+// every strategy option (anything else is reported as a likely typo)
+const KNOWN_OPTIONS = ['type', 'title', 'theme', 'pages', 'pages_config', 'room_order', 'hide_rooms', 'rooms',
+  'exclude_entities', 'customize', 'people', 'calendars', 'weather', 'cameras', 'home', 'pills', 'battery_low',
+  'people_chips', 'energy', 'tile_size', 'max_columns', 'swipe', 'custom_pages', 'edit_button'];
 
 // What a room page / room row shows, in this order
 const ROOM_GROUPS = [
@@ -85,6 +95,52 @@ const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : nu
 const fmt = (v, d = 0) => (v === null || v === undefined ? '—' : Number(v).toLocaleString(undefined, { maximumFractionDigits: d, minimumFractionDigits: d }));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const asList = (v) => (v === undefined || v === null ? [] : Array.isArray(v) ? v : [v]);
+
+/** "2x1", [2, 1] or 2 -> [w, h] */
+function parseSize(v, fallback = null) {
+  if (Array.isArray(v)) return [Number(v[0]) || 1, Number(v[1]) || 1];
+  if (typeof v === 'number') return [v, 1];
+  if (typeof v === 'string') { const m = v.trim().match(/^(\d+)\s*[x×*]\s*(\d+)$/i); if (m) return [+m[1], +m[2]]; }
+  return fallback;
+}
+
+/** Drop empty strings / lists / objects so saved configs stay tidy. */
+const KEEP_EMPTY = new Set(['favorites']);
+function cleanConfig(v) {
+  if (Array.isArray(v)) return v.map(cleanConfig).filter((x) => x !== undefined);
+  if (v && typeof v === 'object') {
+    const out = {};
+    for (const [k, x] of Object.entries(v)) {
+      const c = cleanConfig(x);
+      if (KEEP_EMPTY.has(k) && Array.isArray(c)) { out[k] = c; continue; }
+      if (c === undefined || c === null || c === '' || (Array.isArray(c) && !c.length)
+          || (typeof c === 'object' && !Array.isArray(c) && !Object.keys(c).length)) continue;
+      out[k] = c;
+    }
+    return out;
+  }
+  return v;
+}
+
+/** Minimal YAML writer (for showing a config to copy into a YAML dashboard). */
+function toYaml(v, ind = '') {
+  const scalar = (x) => (typeof x === 'string' && (x === '' || /[:#\[\]{},&*!|>'"%@`]|^\s|\s$|^(true|false|yes|no|null|on|off|[-\d.]+)$/i.test(x)) ? JSON.stringify(x) : String(x));
+  if (Array.isArray(v)) {
+    if (!v.length) return ' []';
+    if (v.every((x) => typeof x !== 'object' || x === null) && v.join(', ').length < 60) return ` [${v.map(scalar).join(', ')}]`;
+    return v.map((x) => (typeof x === 'object' && x !== null ? `\n${ind}- ${toYaml(x, ind + '  ').trimStart()}` : `\n${ind}- ${scalar(x)}`)).join('');
+  }
+  if (v && typeof v === 'object') {
+    const keys = Object.keys(v);
+    if (!keys.length) return ' {}';
+    return keys.map((k) => {
+      const x = v[k];
+      const body = typeof x === 'object' && x !== null ? toYaml(x, ind + '  ') : ` ${scalar(x)}`;
+      return `\n${ind}${k}:${body}`;
+    }).join('');
+  }
+  return ` ${scalar(v)}`;
+}
 
 function hueOf(color, fallback) {
   if (typeof color === 'number') return color;
@@ -184,6 +240,7 @@ function shortName(hass, id, areaName) {
 
 function buildModel(hass, cfg) {
   const exclude = new Set(asList(cfg.exclude_entities));
+  for (const [id, c] of Object.entries(cfg.customize || {})) if (c?.hidden) exclude.add(id);
   const roomCfg = cfg.rooms || {};
   const hiddenAreas = new Set(asList(cfg.hide_rooms));
   const model = {
@@ -442,6 +499,44 @@ function getEnergyPrefs(hass, onUpdate) {
 }
 
 /* ============================================================================================
+ * Saving: the dashboard's strategy config, edited in place
+ * ========================================================================================== */
+
+/** The dashboard's url_path (null for the default dashboard). */
+function dashboardPath() {
+  const p = location.pathname.split('/')[1];
+  return !p || p === 'lovelace' ? null : p;
+}
+
+async function loadStrategyConfig(hass) {
+  try {
+    const cur = await ws(hass, { type: 'lovelace/config', url_path: dashboardPath() });
+    return cur && typeof cur === 'object' ? cur : null;
+  } catch (e) { return null; }
+}
+
+/**
+ * Apply `mutate` to the dashboard's strategy options and save them. Resolves to
+ * { ok: true, config } or { ok: false, config } when the dashboard can't be saved from the
+ * UI (a YAML-mode dashboard) — the caller then shows the YAML to paste.
+ */
+async function saveStrategy(hass, fallbackOptions, mutate) {
+  const cur = await loadStrategyConfig(hass);
+  const base = JSON.parse(JSON.stringify(cur?.strategy || { type: 'custom:homeview', ...(fallbackOptions || {}) }));
+  mutate(base);
+  const next = cleanConfig(base);
+  next.type = next.type || 'custom:homeview';
+  if (!cur?.strategy) return { ok: false, config: next };
+  try {
+    await ws(hass, { type: 'lovelace/config/save', url_path: dashboardPath(), config: { ...cur, strategy: next } });
+    return { ok: true, config: next };
+  } catch (e) {
+    console.warn('HomeView: could not save the dashboard', e);
+    return { ok: false, config: next, error: e };
+  }
+}
+
+/* ============================================================================================
  * Shared tile CSS
  * ========================================================================================== */
 
@@ -472,6 +567,13 @@ const TILE_CSS = `
 .sb.x { font-weight:600; color:var(--hv-accent); }
 .t.on .sb { color:var(--hv-on-fg2); }
 .up { font-size:clamp(9px, 5.4cqi, 13px); letter-spacing:.06em; text-transform:uppercase; font-weight:650; color:var(--hv-fg2); }
+.edit { position:absolute; inset:0; border-radius:var(--hv-radius, 22px); outline:2px dashed var(--hv-accent); outline-offset:-2px;
+  display:flex; flex-wrap:wrap; align-content:flex-start; justify-content:flex-end; gap:5px; padding:7px; pointer-events:none; z-index:2;
+  animation:hv-wiggle .35s ease-in-out infinite alternate; }
+@keyframes hv-wiggle { from { transform:rotate(-.4deg); } to { transform:rotate(.4deg); } }
+.edit button { all:unset; pointer-events:auto; cursor:pointer; width:30px; height:30px; border-radius:50%; background:rgba(20,20,20,.62);
+  color:#fff; display:flex; align-items:center; justify-content:center; --mdc-icon-size:17px; backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px); }
+.edit button[data-edit=unfav] { background:#FF9F0A; }
 .ctl { position:absolute; display:flex; gap:6px; bottom:7%; right:7%; }
 .ctl button { all:unset; width:min(22cqh, 34px); height:min(22cqh, 34px); border-radius:50%; background:var(--hv-pill);
   color:var(--hv-fg); display:flex; align-items:center; justify-content:center; --mdc-icon-size:70%; cursor:pointer; }
@@ -548,7 +650,7 @@ R.entity = {
   async action(h, s, tile, kind, ev) {
     const st = h.states[s.entity];
     if (!st) return;
-    const act = ev?.target?.closest?.('[data-act]')?.dataset.act;
+    const act = ev?.target?.closest?.('[data-act]')?.dataset?.act;
     if (act && kind === 'tap') {
       const step = st.attributes.target_temp_step || (h.config.unit_system?.temperature === '°C' ? 0.5 : 1);
       const t = (st.attributes.temperature || 0) + (act === 'up' ? step : -step);
@@ -853,6 +955,9 @@ R.energy_device = {
   action: (h, s, tile) => moreInfo(tile, s.power || s.stat),
 };
 
+// ---- any Lovelace card (rendered by <homeview-tile> itself) -----------------------------------
+R.card = { key: () => 'card', html: () => '' };
+
 // ---- page link (Home: "Rooms ›" etc.) ---------------------------------------------------------
 R.link = {
   key: () => 'l',
@@ -864,21 +969,32 @@ R.link = {
  * <homeview-tile>
  * ========================================================================================== */
 
+const EDIT_ICONS = {
+  fav: 'mdi:star-outline', unfav: 'mdi:star', size: 'mdi:resize', name: 'mdi:rename-outline', hide: 'mdi:eye-off-outline',
+  unhide: 'mdi:eye-outline', color: 'mdi:palette-outline', 'hide-room': 'mdi:eye-off-outline', 'unhide-room': 'mdi:eye-outline',
+};
+const EDIT_TITLES = {
+  fav: 'Add to Home', unfav: 'Remove from Home', size: 'Change size', name: 'Rename', hide: 'Hide', unhide: 'Show again',
+  color: 'Change colour', 'hide-room': 'Hide room', 'unhide-room': 'Show room again',
+};
+
 class HomeViewTile extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: 'open' });
     adopt(this.shadowRoot);
     this._wrap = document.createElement('div');
-    this._wrap.style.height = '100%';
+    this._wrap.style.cssText = 'height:100%;position:relative';
     this.shadowRoot.appendChild(this._wrap);
     this.visible = true;
     this._bindPress();
   }
 
-  set spec(s) { this._spec = s; this._key = null; this._render(); }
+  set spec(s) { this._spec = s; this._key = null; this._card = null; this._render(); }
   get spec() { return this._spec; }
   set hass(h) { this._hass = h; this._render(); }
+  /** Edit mode: { actions: ['fav', 'size', ...], onEdit(action, spec) } or null */
+  set edit(e) { this._edit = e; this._key = null; this._render(); }
 
   refresh() { this._key = null; this._render(); }
 
@@ -900,14 +1016,45 @@ class HomeViewTile extends HTMLElement {
 
   _render() {
     if (!this._hass || !this._spec) return;
+    if (this._spec.kind === 'card') { this._renderCard(); return; }
     const r = R[this._spec.kind];
     if (!r) return;
-    const key = r.key(this._hass, this._spec);
+    const key = r.key(this._hass, this._spec) + (this._edit ? '|edit' + this._edit.actions.join() : '');
     if (key === this._key) return;
     this._key = key;
-    this._wrap.innerHTML = r.html(this._hass, this._spec, this);
+    this._wrap.innerHTML = r.html(this._hass, this._spec, this) + this._editHtml();
     fillIcons(this._wrap, this._hass);
     if (r.update) r.update(this._hass, this._spec, this);
+  }
+
+  // a Lovelace card from the user's config, created once with HA's card helpers
+  _renderCard() {
+    if (this._card && this._card !== 'loading') {
+      this._card.hass = this._hass;
+      if (this._edit && !this._wrap.querySelector('.edit')) this._wrap.insertAdjacentHTML('beforeend', this._editHtml());
+      if (!this._edit) this._wrap.querySelector('.edit')?.remove();
+      return;
+    }
+    if (this._card === 'loading') return;
+    this._card = 'loading';
+    (async () => {
+      const helpers = await window.loadCardHelpers();
+      const el = helpers.createCardElement(this._spec.card);
+      el.hass = this._hass;
+      const box = document.createElement('div');
+      box.style.cssText = 'height:100%;overflow:auto;border-radius:var(--hv-radius,22px)';
+      box.appendChild(el);
+      this._wrap.replaceChildren(box);
+      this._wrap.style.position = 'relative';
+      this._card = el;
+      this._renderCard();
+    })().catch((e) => { this._card = null; this._wrap.innerHTML = `<div class="t na"><div class="sb">Card error: ${esc(e.message)}</div></div>`; });
+  }
+
+  _editHtml() {
+    if (!this._edit) return '';
+    return `<div class="edit">${this._edit.actions.map((a) =>
+      `<button data-edit="${a}" title="${EDIT_TITLES[a]}"><ha-icon icon="${EDIT_ICONS[a]}"></ha-icon></button>`).join('')}</div>`;
   }
 
   // Pointer events, not click: iOS cancels synthetic clicks inside HA's action handlers,
@@ -917,8 +1064,9 @@ class HomeViewTile extends HTMLElement {
     const card = () => this._wrap.firstElementChild;
     const cancel = () => { clearTimeout(timer); timer = null; down = false; card()?.classList.remove('press'); };
     this.addEventListener('pointerdown', (e) => {
-      if (e.button > 0) return;
+      if (e.button > 0 || this._spec?.kind === 'card') return;
       down = true; held = false; x0 = e.clientX; y0 = e.clientY;
+      if (this._edit) return;
       card()?.classList.add('press');
       timer = setTimeout(() => { held = true; card()?.classList.remove('press'); this._act('hold', e); }, 500);
     });
@@ -926,15 +1074,26 @@ class HomeViewTile extends HTMLElement {
     this.addEventListener('pointerup', (e) => { const wasDown = down; cancel(); if (wasDown && !held) this._act('tap', e); });
     this.addEventListener('pointercancel', cancel);
     this.addEventListener('pointerleave', cancel);
-    this.addEventListener('contextmenu', (e) => e.preventDefault());
+    this.addEventListener('contextmenu', (e) => { if (this._spec?.kind !== 'card') e.preventDefault(); });
   }
 
   _act(kind, ev) {
+    // events from inside the shadow root are retargeted to the host, and a tap on an icon
+    // lands inside <ha-icon>'s own shadow root: find the marked element along the event path
+    const path = ev?.composedPath ? ev.composedPath() : [ev?.target];
+    const marked = (attr) => path.find((n) => n?.dataset?.[attr] !== undefined)?.dataset?.[attr];
+    const target = { closest: (sel) => { const attr = sel.match(/\[data-([a-z]+)\]/)?.[1]; const v = attr && marked(attr);
+      return v === undefined ? null : { dataset: { [attr]: v } }; } };
+    if (this._edit) {
+      const a = marked('edit');
+      if (a && kind === 'tap') this._edit.onEdit(a, this._spec, this);
+      return;
+    }
     const r = R[this._spec?.kind];
     if (!r?.action || !this._hass) return;
     if (this._spec.navigate && kind === 'tap') { navigate(this._spec.navigate); return; }
     try {
-      const p = r.action(this._hass, this._spec, this, kind, ev);
+      const p = r.action(this._hass, this._spec, this, kind, { target });
       if (p?.catch) p.catch((e) => console.warn('HomeView action failed', e));
       if (navigator.vibrate && kind === 'hold') navigator.vibrate(10);
     } catch (e) { console.warn('HomeView action failed', e); }
@@ -1022,6 +1181,48 @@ function favoritesAuto(h, m) {
   add((m.byDomain.climate || []).slice(0, 1));
   return out.slice(0, 6);
 }
+
+// Default sizes of the tile types a user can place
+const TYPE_SIZES = { clock: [1, 1], weather: [2, 2], forecast: [2, 2], agenda: [2, 2], date: [2, 2], camera: [2, 1],
+  next_event: [2, 1], person: [2, 1], room: [1, 1], energy_now: [2, 2] };
+
+/**
+ * A tile the user wrote in YAML:
+ *   light.kitchen                                   an entity
+ *   { entity: light.kitchen, name: Island, icon: mdi:x, size: 2x1, tap: more-info }
+ *   { type: clock | weather | forecast | date | next_event | agenda | camera | person, entity?, size? }
+ *   { type: room, area: kitchen }
+ *   { card: { type: history-graph, entities: [...] }, size: 4x2 }   any Lovelace card
+ */
+function userTile(def, h, m) {
+  if (typeof def === 'string') def = { entity: def };
+  if (!def || typeof def !== 'object') return null;
+  const size = parseSize(def.size);
+  if (def.card) return { kind: 'card', card: def.card, size: size || [2, 2] };
+  const t = def.type;
+  if (t === 'room') {
+    const r = m.areaById[def.area];
+    return r ? { ...roomTile(r), size: size || [1, 1] } : null;
+  }
+  if (t && t !== 'entity' && R[t]) {
+    const spec = { ...def, kind: t, size: size || TYPE_SIZES[t] || [1, 1] };
+    delete spec.type;
+    if (t === 'next_event' || t === 'agenda') spec.calendars = asList(def.calendars || m.calendars);
+    if (t === 'weather' || t === 'forecast') spec.entity = def.entity || m.weather;
+    if (t === 'camera') spec.entity = def.entity || m.cameras[0];
+    if (t === 'person' && !spec.battery) spec.battery = personBattery(h, def.entity);
+    return spec;
+  }
+  if (def.entity) {
+    const room = m.areaById[entityArea(h, def.entity)];
+    return entTile(def.entity, { name: def.name, icon: def.icon, tap: def.tap, size: size || [1, 1], showRoom: true, areaName: room?.name, user: true });
+  }
+  return null;
+}
+const userSections = (list, h, m) => asList(list).map((sec) => ({
+  title: sec.title, position: sec.position, hue: sec.color !== undefined ? hueOf(sec.color, undefined) : undefined,
+  tiles: asList(sec.tiles).map((t) => userTile(t, h, m)).filter(Boolean),
+}));
 
 const PAGES = {
   home(h, m, cfg) {
@@ -1159,6 +1360,12 @@ const PAGES = {
   cameras(h, m) {
     return { title: 'Cameras', sections: [{ tiles: m.cameras.map((id) => ({ kind: 'camera', entity: id, size: [2, 1] })) }] };
   },
+
+  // custom_pages: [{ path, title, icon, color, pills, sections: [{ title, tiles: [...] }] }]
+  custom(h, m, cfg, opts) {
+    const d = asList(cfg.custom_pages)[opts.custom] || {};
+    return { title: d.title || 'Page', hue: hueOf(d.color, 200), pills: !!d.pills, sections: [] };
+  },
 };
 
 /* ============================================================================================
@@ -1202,7 +1409,24 @@ const PAGE_CSS = `
 @media (min-width:700px) { .pop { align-items:center; } }
 .sheet { width:min(920px, 100%); max-height:86vh; overflow:auto; background:var(--hv-bg); border-radius:26px 26px 0 0; padding:18px var(--hv-pad) 28px; }
 @media (min-width:700px) { .sheet { border-radius:26px; } }
-.sheet-h { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; font-size:21px; font-weight:750; }
+.sheet-h { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:14px; font-size:21px; font-weight:750; position:sticky; top:-18px; background:inherit; padding:6px 0; z-index:3; }
+.sheet-b { display:flex; gap:8px; align-items:center; }
+.pen { width:32px; height:32px; margin-left:4px; --mdc-icon-size:18px; color:var(--hv-fg2); }
+.txt { all:unset; cursor:pointer; display:inline-flex; align-items:center; gap:6px; padding:8px 14px; border-radius:999px; background:var(--hv-pill);
+  font-size:14px; font-weight:650; color:var(--hv-fg); --mdc-icon-size:17px; font-family:${FONT}; }
+.txt.primary { background:var(--hv-accent); color:#fff; }
+.editbar { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px; margin-top:12px; padding:10px 12px 10px 16px;
+  border-radius:16px; background:var(--hv-pill); font-size:13.5px; color:var(--hv-fg2); --mdc-icon-size:15px; }
+.editbar ha-icon { vertical-align:-2px; }
+.editbar b { color:var(--hv-fg); }
+.eb { display:flex; gap:8px; }
+.hidden-sec .sec-h { color:var(--hv-fg2); }
+.hint { color:var(--hv-fg2); font-size:14px; line-height:1.45; margin:0 0 12px; }
+.yaml { background:var(--hv-tile); border-radius:14px; padding:14px 16px; font-size:13px; line-height:1.5; overflow:auto; white-space:pre;
+  font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color:var(--hv-fg); user-select:text; -webkit-user-select:text; }
+.toast { position:fixed; left:50%; bottom:28px; transform:translateX(-50%); z-index:20; background:rgba(20,20,20,.85); color:#fff;
+  padding:10px 18px; border-radius:999px; font:600 14px ${FONT}; }
+homeview-strategy-editor { display:block; }
 `;
 
 class HomeViewPage extends HTMLElement {
@@ -1268,16 +1492,36 @@ class HomeViewPage extends HTMLElement {
     this._dark = dark;
     this._root.setAttribute('style', styleVars(palette(hue, dark, pd.sat ?? 1)));
 
+    // the user's own sections (pages_config.<page>.sections, rooms.<area>.sections, custom_pages)
+    const extra = this._config.page === 'custom' ? asList(cfg.custom_pages)[this._config.custom]?.sections
+      : this._config.page === 'room' ? cfg.rooms?.[this._config.area]?.sections : pageCfg.sections;
+    for (const sec of userSections(extra, h, this._model)) {
+      if (sec.position === 'top') page.sections.unshift(sec); else page.sections.push(sec);
+    }
+    const editing = this._editing;
+    if (editing) page.sections.push(...this._hiddenSections());
+
     this._tiles = [];
     const frag = document.createDocumentFragment();
     const head = document.createElement('div'); head.className = 'head';
     frag.appendChild(head);
     this._head = head; this._headKey = null;
-    if (page.note) { const n = document.createElement('div'); n.className = 'note'; n.textContent = page.note; frag.appendChild(n); }
+    const notes = [];
+    if (page.note) notes.push(page.note);
+    if (h.user?.is_admin) {
+      const unknown = Object.keys(cfg).filter((k) => !KNOWN_OPTIONS.includes(k));
+      if (unknown.length) notes.push(`HomeView: unknown option${unknown.length > 1 ? 's' : ''} ${unknown.join(', ')} — check the spelling (README → Configuration). Only admins see this.`);
+    }
+    for (const t of notes) { const n = document.createElement('div'); n.className = 'note'; n.textContent = t; frag.appendChild(n); }
+    if (!page.sections.some((x) => x.tiles.length) && !notes.length) {
+      const n = document.createElement('div'); n.className = 'note';
+      n.textContent = this._config.page === 'custom' ? 'This page has no tiles yet. Add some under custom_pages → sections → tiles.' : 'Nothing to show here yet.';
+      frag.appendChild(n);
+    }
     for (const sec of page.sections) {
       if (!sec.tiles.length) continue;
       const s = document.createElement('div');
-      s.className = 'sec' + (page.compactSections ? ' compact' : '');
+      s.className = 'sec' + (page.compactSections && !editing ? ' compact' : '') + (sec.hidden ? ' hidden-sec' : '');
       if (sec.title) {
         s.insertAdjacentHTML('beforeend', `<div class="sec-h">${esc(sec.title)}${sec.sub ? `<span class="sub">${esc(sec.sub)}</span>` : ''}${sec.link ? `<span class="more" data-nav="${esc(sec.link)}">See all ›</span>` : ''}</div>`);
       }
@@ -1293,16 +1537,178 @@ class HomeViewPage extends HTMLElement {
     this._layout();
   }
 
+  /* ---------------- edit mode ---------------- */
+
+  get _editing() {
+    try { return sessionStorage.getItem('homeview-edit') === '1'; } catch (e) { return !!window.__homeviewEdit; }
+  }
+
+  _setEditing(on) {
+    try { if (on) sessionStorage.setItem('homeview-edit', '1'); else sessionStorage.removeItem('homeview-edit'); } catch (e) { window.__homeviewEdit = on; }
+    this.rebuild();
+  }
+
+  _favorites() {
+    const f = this._config.options?.home?.favorites;
+    return f !== undefined ? asList(f) : favoritesAuto(this._hass, this._model);
+  }
+
+  // what you can do to a tile in edit mode
+  _editFor(spec) {
+    if (!this._editing || !this._hass?.user?.is_admin) return null;
+    const onEdit = (a, s) => this._onEdit(a, s);
+    if (spec.hiddenRoom) return { actions: ['unhide-room'], onEdit };
+    if (spec.hiddenEnt) return { actions: ['unhide'], onEdit };
+    if (spec.kind === 'room') return { actions: ['color', 'hide-room'], onEdit };
+    if (spec.kind === 'entity' && !spec.user) {
+      return { actions: [this._favorites().includes(spec.entity) ? 'unfav' : 'fav', 'size', 'name', 'hide'], onEdit };
+    }
+    return null;
+  }
+
+  // hidden entities / rooms, shown faded at the bottom in edit mode so they can come back
+  _hiddenSections() {
+    const h = this._hass, cfg = this._config.options || {}, m = this._model;
+    const page = this._config.page;
+    if (!['home', 'rooms', 'room'].includes(page)) return [];
+    let ents = [...new Set([...asList(cfg.exclude_entities),
+      ...Object.entries(cfg.customize || {}).filter(([, c]) => c?.hidden).map(([id]) => id)])].filter((id) => h.states[id]);
+    if (page === 'room') ents = ents.filter((id) => entityArea(h, id) === this._config.area);
+    const rooms = page === 'room' ? [] : asList(cfg.hide_rooms).map((id) => h.areas?.[id]).filter(Boolean)
+      .map((a) => ({ id: a.area_id, name: a.name, icon: a.icon || 'mdi:floor-plan', hue: 220, groups: {}, alerts: [], entities: [] }));
+    if (!ents.length && !rooms.length) return [];
+    return [{ title: 'Hidden', sub: 'tap the eye to show again', hidden: true, tiles: [
+      ...rooms.map((r) => ({ ...roomTile(r), hiddenRoom: true })),
+      ...ents.map((id) => entTile(id, { hiddenEnt: true, showRoom: true, areaName: m.areaById[entityArea(h, id)]?.name })),
+    ] }];
+  }
+
+  async _onEdit(a, spec) {
+    const h = this._hass, id = spec.entity;
+    let name = null;
+    if (a === 'name') {
+      const cur = this._config.options?.customize?.[id]?.name ?? shortName(h, id, spec.areaName);
+      name = window.prompt('Tile name (leave empty for the automatic name)', cur);
+      if (name === null) return;
+    }
+    const autoFavs = this._favorites();
+    await this._save((o) => {
+      o.customize = o.customize || {};
+      o.home = o.home || {};
+      const cz = id ? (o.customize[id] = o.customize[id] || {}) : {};
+      const favs = () => asList(o.home.favorites ?? autoFavs);
+      switch (a) {
+        case 'fav': o.home.favorites = [...favs().filter((x) => x !== id), id]; break;
+        case 'unfav': o.home.favorites = favs().filter((x) => x !== id); break;
+        case 'size': {
+          const sizes = [[1, 1], [2, 1], [2, 2]];
+          const curS = spec.size || [1, 1];
+          const i = sizes.findIndex((x) => x[0] === curS[0] && x[1] === curS[1]);
+          const nx = sizes[(i + 1) % sizes.length];
+          cz.size = `${nx[0]}x${nx[1]}`;
+          break;
+        }
+        case 'name': if (name.trim()) cz.name = name.trim(); else delete cz.name; break;
+        case 'hide':
+          o.exclude_entities = [...new Set([...asList(o.exclude_entities), id])];
+          if (o.home.favorites) o.home.favorites = asList(o.home.favorites).filter((x) => x !== id);
+          break;
+        case 'unhide': o.exclude_entities = asList(o.exclude_entities).filter((x) => x !== id); delete cz.hidden; break;
+        case 'color': {
+          o.rooms = o.rooms || {};
+          const rc = (o.rooms[spec.room.id] = o.rooms[spec.room.id] || {});
+          rc.color = COLOR_CYCLE[(COLOR_CYCLE.indexOf(rc.color) + 1) % COLOR_CYCLE.length];
+          break;
+        }
+        case 'hide-room': o.hide_rooms = [...new Set([...asList(o.hide_rooms), spec.room.id])]; break;
+        case 'unhide-room': o.hide_rooms = asList(o.hide_rooms).filter((x) => x !== spec.room.id); break;
+        default: break;
+      }
+    });
+  }
+
+  // save, then show the result right away (HA also reloads the dashboard after a save)
+  async _save(mutate) {
+    this._toast('Saving…');
+    const r = await saveStrategy(this._hass, this._config.options, mutate);
+    if (r.ok) {
+      const { type, ...opts } = r.config;
+      this._config = { ...this._config, options: opts };
+      this._toast('Saved');
+      this.rebuild();
+    } else {
+      this._toast('');
+      this._yamlSheet(r.config, true);
+    }
+    return r;
+  }
+
+  _toast(text) {
+    let t = this.shadowRoot.querySelector('.toast');
+    if (!text) { t?.remove(); return; }
+    if (!t) { t = document.createElement('div'); t.className = 'toast'; this.shadowRoot.appendChild(t); }
+    t.textContent = text;
+    clearTimeout(this._toastT);
+    if (text !== 'Saving…') this._toastT = setTimeout(() => t.remove(), 1600);
+  }
+
+  _sheet(title, buttons = '') {
+    const pop = document.createElement('div'); pop.className = 'pop';
+    const sheet = document.createElement('div'); sheet.className = 'sheet';
+    sheet.innerHTML = `<div class="sheet-h"><span>${esc(title)}</span><span class="sheet-b">${buttons}<button class="back" data-close title="Close"><ha-icon icon="mdi:close"></ha-icon></button></span></div>`;
+    pop.appendChild(sheet);
+    const close = () => pop.remove();
+    pop.addEventListener('click', (e) => { if (e.target === pop) close(); });
+    sheet.querySelector('[data-close]').addEventListener('click', close);
+    this._root.appendChild(pop);
+    return { pop, sheet, close };
+  }
+
+  _yamlSheet(config, failed) {
+    const yaml = `strategy:${toYaml(config, '  ')}\n`;
+    const { sheet } = this._sheet(failed ? 'Paste this into your dashboard' : 'HomeView YAML', '<button class="txt" data-copy>Copy</button>');
+    sheet.insertAdjacentHTML('beforeend', `${failed ? `<p class="hint">This dashboard is set up in YAML, so HomeView can't save it from here. Copy this into the dashboard's YAML file (or its raw configuration editor) instead.</p>` : '<p class="hint">Your dashboard configuration. Edit it in the raw configuration editor, or keep it as a backup.</p>'}<pre class="yaml"></pre>`);
+    sheet.querySelector('pre').textContent = yaml;
+    sheet.querySelector('[data-copy]').addEventListener('click', async (e) => {
+      try { await navigator.clipboard.writeText(yaml); e.target.textContent = 'Copied'; } catch (err) { e.target.textContent = 'Select and copy'; }
+    });
+  }
+
+  async _settings() {
+    const h = this._hass;
+    const cur = await loadStrategyConfig(h);
+    let draft = cur?.strategy || { type: 'custom:homeview', ...(this._config.options || {}) };
+    const { sheet, close } = this._sheet('HomeView settings', '<button class="txt" data-yaml>YAML</button><button class="txt primary" data-save>Save</button>');
+    const ed = document.createElement('homeview-strategy-editor');
+    ed.hass = h;
+    ed.setConfig(draft);
+    ed.addEventListener('config-changed', (e) => { e.stopPropagation(); draft = e.detail.config; });
+    sheet.appendChild(ed);
+    sheet.querySelector('[data-yaml]').addEventListener('click', () => this._yamlSheet(cleanConfig(draft), false));
+    sheet.querySelector('[data-save]').addEventListener('click', async () => {
+      const r = await this._save((o) => { Object.keys(o).forEach((k) => delete o[k]); Object.assign(o, JSON.parse(JSON.stringify(draft))); });
+      if (r.ok) close();
+    });
+  }
+
   scheduleRebuild() {
     clearTimeout(this._rb);
     this._rb = setTimeout(() => this.rebuild(), 400);
   }
 
   _tile(spec, dark) {
+    // customize: per-entity name / icon / size / tap from the config
+    const cz = spec.entity && this._config.options?.customize?.[spec.entity];
+    if (cz && ['entity', 'camera', 'person'].includes(spec.kind)) {
+      spec = { ...spec, name: cz.name ?? spec.name, icon: cz.icon ?? spec.icon, tap: cz.tap ?? spec.tap, size: parseSize(cz.size, spec.size) };
+    }
     const t = document.createElement('homeview-tile');
     t.spec = spec;
     t.hass = this._hass;
+    const edit = this._editFor(spec);
+    if (edit) t.edit = edit;
     if (spec.hue !== undefined) t.setAttribute('style', styleVars(palette(spec.hue, dark)));
+    if (spec.hiddenEnt || spec.hiddenRoom) t.style.opacity = '0.6';
     t._hvSize = spec.size || [1, 1];
     this._tiles.push(t);
     return t;
@@ -1341,7 +1747,9 @@ class HomeViewPage extends HTMLElement {
       : [];
     const people = page.people && cfg.people_chips !== false ? m.persons : [];
     const today = new Date().toLocaleDateString(h.locale?.language, { weekday: 'long', month: 'long', day: 'numeric' });
-    const key = JSON.stringify([today, page.title, pills.map(([id, p]) => [id, p.text, p.alert, p.active]), people.map((id) => h.states[id]?.state)]);
+    const editing = this._editing;
+    const canEdit = h.user?.is_admin && cfg.edit_button !== false;
+    const key = JSON.stringify([today, page.title, editing, canEdit, pills.map(([id, p]) => [id, p.text, p.alert, p.active]), people.map((id) => h.states[id]?.state)]);
     if (key === this._headKey) return;
     this._headKey = key;
     const room = page.room;
@@ -1352,7 +1760,9 @@ class HomeViewPage extends HTMLElement {
     }
     head.innerHTML = `<div>
         <div class="date">${esc(today)}</div>
-        <div class="title">${page.back ? '<button class="back" data-back><ha-icon icon="mdi:chevron-left"></ha-icon></button>' : ''}${esc(page.title)}${roomSub ? `<span class="sub">${esc(roomSub)}</span>` : ''}</div>
+        <div class="title">${page.back ? '<button class="back" data-back><ha-icon icon="mdi:chevron-left"></ha-icon></button>' : ''}${esc(page.title)}${roomSub ? `<span class="sub">${esc(roomSub)}</span>` : ''}${canEdit && !editing ? '<button class="back pen" data-edit-on title="Edit HomeView"><ha-icon icon="mdi:pencil-outline"></ha-icon></button>' : ''}</div>
+        ${editing ? `<div class="editbar"><span><b>Editing</b> · <ha-icon icon="mdi:star-outline"></ha-icon> on Home · <ha-icon icon="mdi:resize"></ha-icon> size · <ha-icon icon="mdi:rename-outline"></ha-icon> name · <ha-icon icon="mdi:eye-off-outline"></ha-icon> hide · <ha-icon icon="mdi:palette-outline"></ha-icon> room colour</span>
+          <span class="eb"><button class="txt" data-settings><ha-icon icon="mdi:cog-outline"></ha-icon> Settings</button><button class="txt primary" data-edit-off>Done</button></span></div>` : ''}
         ${people.length ? `<div class="people">${people.map((id) => {
           const st = h.states[id]; if (!st) return '';
           const pic = st.attributes.entity_picture, nm = st.attributes.friendly_name || id;
@@ -1361,6 +1771,9 @@ class HomeViewPage extends HTMLElement {
       </div>
       ${pills.length ? `<div class="pills">${pills.map(([id, p]) => `<button class="pill${p.alert ? ' alert' : p.active ? ' active' : ''}" data-pill="${id}"><ha-icon icon="${p.icon}"></ha-icon>${esc(p.text)}${p.popup ? '<ha-icon icon="mdi:chevron-right" style="--mdc-icon-size:15px;opacity:.6"></ha-icon>' : ''}</button>`).join('')}</div>` : ''}`;
     head.querySelector('[data-back]')?.addEventListener('click', () => (history.length > 1 ? history.back() : navigate(cfg.rooms_path || 'rooms')));
+    head.querySelector('[data-edit-on]')?.addEventListener('click', () => this._setEditing(true));
+    head.querySelector('[data-edit-off]')?.addEventListener('click', () => this._setEditing(false));
+    head.querySelector('[data-settings]')?.addEventListener('click', () => this._settings());
     head.querySelectorAll('[data-more]').forEach((el) => el.addEventListener('click', () => moreInfo(this, el.dataset.more)));
     head.querySelectorAll('[data-pill]').forEach((el) => el.addEventListener('click', () => {
       const p = PILLS[el.dataset.pill](h, m, cfg);
@@ -1401,13 +1814,198 @@ class HomeViewPage extends HTMLElement {
       const cfg = this._config.options || {};
       if (cfg.swipe === false || Math.abs(dx) < 80 || Math.abs(dx) < Math.abs(dy) * 2 || Date.now() - t0 > 700) return;
       const order = this._config.order || [];
-      const i = order.indexOf(this._config.page);
+      const i = order.indexOf(this._config.path || this._config.page);
       if (i === -1 || order.length < 2) return;
       navigate(order[(i + (dx < 0 ? 1 : -1) + order.length) % order.length]);
     }, { passive: true });
   }
 }
 customElements.get('homeview-page') || customElements.define('homeview-page', HomeViewPage);
+
+/* ============================================================================================
+ * <homeview-strategy-editor>: the visual editor (HA's "Edit dashboard" dialog and the
+ * Settings sheet in HomeView's own edit mode). Built from HA's <ha-form> and selectors.
+ * ========================================================================================== */
+
+const EDITOR_LABELS = {
+  title: ['Title', 'The Home page heading. Empty = your home\'s name.'],
+  theme: ['Theme'],
+  pages: ['Pages', 'Which pages to show, in swipe order. Pages with nothing to show are skipped.'],
+  swipe: ['Swipe between pages'],
+  edit_button: ['Show the edit (pencil) button', 'Admins only.'],
+  favorites: ['Favourites', 'Tiles near the top of Home. Empty = automatic (alarm, locks, garage, thermostat).'],
+  rooms: ['Show rooms on Home'],
+  scenes: ['Show scenes on Home'],
+  max_scenes: ['Most scenes on Home'],
+  people: ['People', 'Empty = everyone with a phone / tracker.'],
+  calendars: ['Calendars', 'Empty = all calendars.'],
+  weather: ['Weather', 'Empty = the first weather entity.'],
+  cameras: ['Cameras', 'Empty = all cameras.'],
+  people_chips: ['People avatars under the Home title'],
+  room_order: ['Room order', 'These rooms first, in this order; the rest after.'],
+  hide_rooms: ['Hide rooms'],
+  name: ['Name'], icon: ['Icon'], color: ['Colour'],
+  entities: ['Show first', 'These entities first, in this order (instead of the automatic pick on the Rooms page).'],
+  temperature: ['Temperature sensor'], humidity: ['Humidity sensor'],
+  exclude_entities: ['Hide entities', 'Never show these anywhere.'],
+  pills: ['Status pills', 'Empty = all of them.'],
+  battery_low: ['Low battery below'],
+  solar_power: ['Solar power'], grid_power: ['Grid power', '+ import, − export'],
+  battery_power: ['Battery power', '+ discharge, − charge'], battery_level: ['Battery level'],
+  home_power: ['Home power', 'Empty = solar + grid + battery.'], devices: ['Devices listed'],
+  tile_size: ['Smallest tile width', 'Columns are fitted to the screen with tiles at least this wide.'],
+  max_columns: ['Most columns'],
+};
+
+const PILL_NAMES = { alarm: 'Alarm', climate: 'Climate', lights: 'Lights on', locks: 'Locks', openings: 'Doors & windows',
+  safety: 'Leaks, smoke & gas', batteries: 'Batteries', media: 'Now playing' };
+
+// What HomeView does when an option is not set: shown in the editor, left out when saving
+const EDITOR_DEFAULTS = { theme: 'auto', pages: DEFAULT_PAGES, swipe: true, edit_button: true, people_chips: true, battery_low: 20,
+  home: { rooms: true, scenes: true, max_scenes: 8 } };
+
+function withDefaults(o, d = EDITOR_DEFAULTS) {
+  const out = { ...o };
+  for (const [k, v] of Object.entries(d)) {
+    if (v && typeof v === 'object' && !Array.isArray(v)) out[k] = withDefaults(o[k] || {}, v);
+    else if (out[k] === undefined) out[k] = v;
+  }
+  return out;
+}
+function withoutDefaults(o, d = EDITOR_DEFAULTS) {
+  const out = { ...o };
+  for (const [k, v] of Object.entries(d)) {
+    if (out[k] === undefined) continue;
+    if (v && typeof v === 'object' && !Array.isArray(v)) out[k] = withoutDefaults(out[k] || {}, v);
+    else if (JSON.stringify(out[k]) === JSON.stringify(v)) delete out[k];
+  }
+  return out;
+}
+
+function editorSchema(hass) {
+  const areas = Object.values(hass.areas || {}).sort((a, b) => a.name.localeCompare(b.name));
+  const sensor = (dc) => ({ entity: { filter: { domain: 'sensor', device_class: dc } } });
+  return [
+    { type: 'expandable', name: '', flatten: true, title: 'General', icon: 'mdi:cog-outline', expanded: true, schema: [
+      { name: 'title', selector: { text: {} } },
+      { name: 'theme', selector: { select: { mode: 'dropdown', options: [
+        { value: 'auto', label: 'Follow Home Assistant' }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }] } } },
+      { name: 'pages', selector: { select: { multiple: true, reorder: true,
+        options: DEFAULT_PAGES.map((p) => ({ value: p, label: PAGE_DEFS[p].title })) } } },
+      { name: 'swipe', selector: { boolean: {} } },
+      { name: 'edit_button', selector: { boolean: {} } },
+    ] },
+    { type: 'expandable', name: 'home', title: 'Home page', icon: 'mdi:home-outline', schema: [
+      { name: 'favorites', selector: { entity: { multiple: true } } },
+      { name: 'rooms', selector: { boolean: {} } },
+      { name: 'scenes', selector: { boolean: {} } },
+      { name: 'max_scenes', selector: { number: { min: 0, max: 24, mode: 'box' } } },
+    ] },
+    { type: 'expandable', name: '', flatten: true, title: 'People, calendars, weather & cameras', icon: 'mdi:account-group-outline', schema: [
+      { name: 'people', selector: { entity: { multiple: true, filter: { domain: 'person' } } } },
+      { name: 'people_chips', selector: { boolean: {} } },
+      { name: 'calendars', selector: { entity: { multiple: true, filter: { domain: 'calendar' } } } },
+      { name: 'weather', selector: { entity: { filter: { domain: 'weather' } } } },
+      { name: 'cameras', selector: { entity: { multiple: true, filter: { domain: 'camera' } } } },
+    ] },
+    { type: 'expandable', name: '', flatten: true, title: 'Rooms', icon: 'mdi:sofa-outline', schema: [
+      { name: 'room_order', selector: { select: { multiple: true, reorder: true, options: areas.map((a) => ({ value: a.area_id, label: a.name })) } } },
+      { name: 'hide_rooms', selector: { area: { multiple: true } } },
+      { type: 'expandable', name: 'rooms', title: 'Each room: name, icon, colour, what to show first', icon: 'mdi:floor-plan', schema:
+        areas.map((a) => ({ type: 'expandable', name: a.area_id, title: a.name, icon: a.icon || 'mdi:floor-plan', schema: [
+          { name: 'name', selector: { text: {} } },
+          { name: 'icon', selector: { icon: {} } },
+          { name: 'color', selector: { ui_color: {} } },
+          { name: 'entities', selector: { entity: { multiple: true } } },
+          { name: 'temperature', selector: sensor('temperature') },
+          { name: 'humidity', selector: sensor('humidity') },
+        ] })) },
+    ] },
+    { type: 'expandable', name: '', flatten: true, title: 'Hide things', icon: 'mdi:eye-off-outline', schema: [
+      { name: 'exclude_entities', selector: { entity: { multiple: true } } },
+      { name: 'pills', selector: { select: { multiple: true, options: DEFAULT_PILLS.map((p) => ({ value: p, label: PILL_NAMES[p] })) } } },
+      { name: 'battery_low', selector: { number: { min: 5, max: 60, step: 5, unit_of_measurement: '%', mode: 'slider' } } },
+    ] },
+    { type: 'expandable', name: 'energy', title: 'Energy', icon: 'mdi:lightning-bolt-outline', schema: [
+      { name: 'solar_power', selector: sensor('power') },
+      { name: 'grid_power', selector: sensor('power') },
+      { name: 'battery_power', selector: sensor('power') },
+      { name: 'battery_level', selector: sensor('battery') },
+      { name: 'home_power', selector: sensor('power') },
+      { name: 'devices', selector: { number: { min: 0, max: 40, mode: 'box' } } },
+    ] },
+    { type: 'expandable', name: '', flatten: true, title: 'Layout', icon: 'mdi:view-grid-outline', schema: [
+      { name: 'tile_size', selector: { number: { min: 110, max: 280, step: 5, unit_of_measurement: 'px', mode: 'slider' } } },
+      { name: 'max_columns', selector: { number: { min: 2, max: 12, mode: 'box' } } },
+    ] },
+  ];
+}
+
+/** Make sure <ha-form> is defined (HA loads it lazily with the card editors). */
+async function ensureHaForm(hass) {
+  if (customElements.get('ha-form')) return true;
+  try {
+    const helpers = await window.loadCardHelpers();
+    const any = Object.keys(hass.states)[0];
+    const card = await helpers.createCardElement({ type: 'tile', entity: any });
+    await card.constructor.getConfigElement?.();
+  } catch (e) { /* fall through to the wait */ }
+  await Promise.race([customElements.whenDefined('ha-form'), new Promise((r) => setTimeout(r, 4000))]);
+  return !!customElements.get('ha-form');
+}
+
+class HomeViewStrategyEditor extends HTMLElement {
+  set hass(h) { this._hass = h; if (this._form) this._form.hass = h; else this._render(); }
+  setConfig(config) {
+    this._config = config || { type: 'custom:homeview' };
+    if (this._form) this._form.data = this._data(); else this._render();
+  }
+
+  _data() {
+    const { type, ...o } = this._config;
+    return withDefaults(o);
+  }
+
+  async _render() {
+    if (!this._hass || !this._config || this._busy) return;
+    this._busy = true;
+    const ok = await ensureHaForm(this._hass);
+    this._busy = false;
+    if (this._form) return;
+    if (!ok) {
+      this.innerHTML = '<p style="padding:8px 0">The visual editor needs Home Assistant 2024.8 or newer. Use the code editor instead (see the HomeView README).</p>';
+      return;
+    }
+    this.innerHTML = `<p style="margin:0 0 12px;color:var(--secondary-text-color);font-size:14px;line-height:1.45">
+      HomeView builds every page from your areas and devices. Everything here is optional.
+      To rename, resize, hide or pin a single tile, use the pencil on the dashboard itself.
+      Your own tiles, cards and pages go in YAML (README → Your own tiles and pages).</p>`;
+    const f = document.createElement('ha-form');
+    f.hass = this._hass;
+    f.schema = editorSchema(this._hass);
+    f.data = this._data();
+    f.computeLabel = (s) => EDITOR_LABELS[s.name]?.[0] ?? s.title ?? s.name;
+    f.computeHelper = (s) => EDITOR_LABELS[s.name]?.[1];
+    f.addEventListener('value-changed', (e) => {
+      e.stopPropagation();
+      const keep = Object.fromEntries(Object.entries(this._config).filter(([k]) => !(k in e.detail.value) && !this._formKeys().has(k)));
+      const config = cleanConfig(withoutDefaults({ type: this._config.type || 'custom:homeview', ...keep, ...e.detail.value }));
+      this._config = config;
+      this.dispatchEvent(new CustomEvent('config-changed', { detail: { config }, bubbles: true, composed: true }));
+    });
+    this.appendChild(f);
+    this._form = f;
+  }
+
+  // top-level keys the form owns (anything else, e.g. customize / custom_pages, is kept as is)
+  _formKeys() {
+    const keys = new Set();
+    const walk = (schema) => schema.forEach((s) => { if (s.type === 'expandable' && s.flatten) walk(s.schema); else if (s.name) keys.add(s.name); });
+    walk(editorSchema(this._hass));
+    return keys;
+  }
+}
+customElements.get('homeview-strategy-editor') || customElements.define('homeview-strategy-editor', HomeViewStrategyEditor);
 
 /* ============================================================================================
  * The dashboard strategy: builds the list of views
@@ -1417,7 +2015,8 @@ class HomeViewStrategy extends HTMLElement {
   static async generate(config, hass) {
     const { type, ...options } = config || {};
     const m = buildModel(hass, options);
-    const wanted = asList(options.pages || DEFAULT_PAGES).filter((p) => PAGE_DEFS[p]);
+    const customs = asList(options.custom_pages).map((d, i) => ({ ...d, idx: i, path: String(d.path || `page-${i + 1}`) }));
+    const wanted = asList(options.pages || DEFAULT_PAGES).filter((p) => PAGE_DEFS[p] || customs.some((c) => c.path === p));
     let hasEnergy = false;
     if (wanted.includes('energy')) {
       try {
@@ -1430,15 +2029,18 @@ class HomeViewStrategy extends HTMLElement {
       home: true, widgets: true, rooms: m.rooms.length > 0, energy: hasEnergy,
       family: m.persons.length > 0 || m.calendars.length > 0, cameras: m.cameras.length > 0,
     };
-    const pages = wanted.filter((p) => available[p]);
+    const pages = [...wanted.filter((p) => !PAGE_DEFS[p] || available[p]),
+      ...customs.map((c) => c.path).filter((p) => !wanted.includes(p))];
     const pc = options.pages_config || {};
-    const views = pages.map((p) => ({
-      title: pc[p]?.title || PAGE_DEFS[p].title,
-      path: p,
-      icon: pc[p]?.icon || PAGE_DEFS[p].icon,
-      type: 'panel',
-      cards: [{ type: 'custom:homeview-page', page: p, order: pages, options }],
-    }));
+    const views = pages.map((p) => {
+      const c = customs.find((x) => x.path === p);
+      if (c) {
+        return { title: c.title || 'Page', path: p, icon: c.icon || 'mdi:view-grid-outline', type: 'panel',
+          cards: [{ type: 'custom:homeview-page', page: 'custom', custom: c.idx, path: p, order: pages, options }] };
+      }
+      return { title: pc[p]?.title || PAGE_DEFS[p].title, path: p, icon: pc[p]?.icon || PAGE_DEFS[p].icon, type: 'panel',
+        cards: [{ type: 'custom:homeview-page', page: p, path: p, order: pages, options }] };
+    });
     for (const r of m.rooms) {
       views.push({
         title: r.name, path: `room-${r.id}`, icon: r.icon, subview: true, back_path: pages.includes('rooms') ? 'rooms' : undefined,
@@ -1447,6 +2049,11 @@ class HomeViewStrategy extends HTMLElement {
       });
     }
     return { title: options.title || 'HomeView', views };
+  }
+
+  // the visual editor in HA's "Edit dashboard" dialog
+  static async getConfigElement() {
+    return document.createElement('homeview-strategy-editor');
   }
 }
 customElements.get('ll-strategy-dashboard-homeview') || customElements.define('ll-strategy-dashboard-homeview', HomeViewStrategy);

@@ -1,6 +1,29 @@
 # Changelog
 
-## 0.1.0 — unreleased
+## 0.2.0 — unreleased
+
+Make it yours — three ways that edit the same settings:
+
+- **Edit mode on the dashboard** (admins): the pencil next to the page title. Per tile: put
+  on Home (★), resize (1×1 → 2×1 → 2×2), rename, hide; rooms: colour, hide. Hidden things
+  wait faded at the bottom of the page to be brought back. Saved straight away.
+- **Settings editor**: a visual editor in HA's own *Edit dashboard* dialog and behind
+  Settings in edit mode — pages, theme, Home, people / calendars / weather / cameras, rooms
+  (order, hide, each room's name, icon, colour, first entities, sensors), hiding, pills,
+  energy sensors, layout. A YAML button shows the config.
+- **YAML**: `customize` (per-entity name, icon, size, tap, hidden); your own sections on any
+  page (`pages_config.<page>.sections`, `rooms.<area>.sections`, `position: top`); your own
+  pages (`custom_pages`); tiles can be entities, rooms, HomeView widgets or **any Lovelace
+  card**; sizes as `2x1`.
+- YAML-mode dashboards: the pencil and editor show the YAML to paste instead of failing.
+- Admins see a note for unknown options (typos).
+- Fixes: weather high / low with providers that only have twice-daily or hourly forecasts
+  (e.g. NWS); idle speakers no longer look "on"; only people with a tracker on Family;
+  energy devices sorted by today's use; taps on icons inside buttons.
+- Docs: credits, disclaimer, issue forms; new issues are acknowledged and assigned
+  automatically.
+
+## 0.1.0
 
 First preview.
 

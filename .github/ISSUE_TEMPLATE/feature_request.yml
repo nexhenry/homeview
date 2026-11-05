@@ -1,0 +1,25 @@
+name: Idea / feature request
+description: Suggest something HomeView could do
+title: "[Idea]: "
+labels: [enhancement]
+assignees: [nexhenry]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like?
+      description: What it should do, and the problem it solves for you. Sketches and screenshots welcome.
+    validations:
+      required: true
+  - type: textarea
+    id: home
+    attributes:
+      label: Your setup
+      description: The devices or integrations involved (e.g. "Ecobee thermostat", "Reolink cameras", "Tesla Powerwall").
+  - type: checkboxes
+    id: ack
+    attributes:
+      label: Acknowledgement
+      options:
+        - label: I searched the existing issues and this hasn't been suggested yet.
+          required: true

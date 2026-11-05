@@ -1,0 +1,36 @@
+name: Issue triage
+
+# Every new issue: thank the reporter, label it for triage and assign the maintainer.
+# The assignment is what notifies the maintainer straight away (email / GitHub mobile push).
+on:
+  issues:
+    types: [opened, reopened]
+
+permissions:
+  issues: write
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const owner = context.repo.owner, repo = context.repo.repo, issue_number = issue.number;
+            const maintainer = 'nexhenry';
+            await github.rest.issues.addLabels({ owner, repo, issue_number, labels: ['triage'] }).catch(() => {});
+            if (!issue.assignees?.some((a) => a.login === maintainer)) {
+              await github.rest.issues.addAssignees({ owner, repo, issue_number, assignees: [maintainer] }).catch(() => {});
+            }
+            if (context.payload.action === 'opened') {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body: [
+                `Thanks for the report, @${issue.user.login}! 🙏`,
+                '',
+                `@${maintainer} has been notified and will take a look as soon as possible.`,
+                'If you can, add your HomeView and Home Assistant versions, the device / browser, a screenshot',
+                'and any red "homeview" lines from the browser console — it makes the fix much quicker.',
+                '',
+                '_HomeView is a free community project, provided as is — see the Disclaimer in the README._',
+              ].join('\n') });
+            }
