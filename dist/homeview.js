@@ -11,7 +11,7 @@
  * Home, Widgets, Family, Rooms (plus one page per room), Energy and Cameras. Everything is
  * optional and can be tuned in the strategy config — see README.md.
  */
-const HV_VERSION = '0.6.0';
+const HV_VERSION = '0.6.1';
 // where this file was loaded from (to re-download it after an update)
 const HV_URL = (() => { try { return import.meta.url; } catch (e) { return null; } })();
 
@@ -1056,10 +1056,18 @@ R.agenda = {
 };
 
 // ---- person ---------------------------------------------------------------------------------
-// Sample avatars for people without a picture: DiceBear "Lorelei" (CC0 1.0, public domain).
-// The seed is a hash of the person's entity id — no names leave the house. avatars: initials
-// (or false) shows the first letter instead; a picture set on the person in HA always wins.
+// Sample avatars for people without a picture: DiceBear "Adventurer" — anime-style, by Lisa
+// Wischofsky, CC BY 4.0 (credited in the README). The same face every time for a person, from a
+// hash of the entity id (no names are sent). Gender by hair: man = short, woman = long.
+//   avatars: samples (default) | initials (letters, no internet request)
+//   avatars: { person.ben: man, person.lucy: woman, person.kai: /local/kai.jpg }
+// A picture set on the person in HA always wins.
 let hvAvatarMode = 'samples';
+const AVATAR_HAIR = {
+  man: Array.from({ length: 19 }, (_, i) => `short${String(i + 1).padStart(2, '0')}`),
+  woman: Array.from({ length: 26 }, (_, i) => `long${String(i + 1).padStart(2, '0')}`),
+};
+const AVATAR_ALIASES = { male: 'man', boy: 'man', m: 'man', female: 'woman', girl: 'woman', w: 'woman', f: 'woman' };
 const AVATAR_BG = ['ffdfbf', 'c0aede', 'd1d4f9', 'b6e3f4', 'ffd5dc'];
 function seedOf(text) {
   let x = 2166136261;
@@ -1069,8 +1077,13 @@ function seedOf(text) {
 function avatarUrl(h, personId) {
   const pic = h.states[personId]?.attributes?.entity_picture;
   if (pic) return pic;
-  if (hvAvatarMode === false || hvAvatarMode === 'initials') return null;
-  return `https://api.dicebear.com/9.x/lorelei/svg?seed=hv${seedOf(personId)}&backgroundColor=${AVATAR_BG.join(',')}`;
+  const cfg = hvAvatarMode && typeof hvAvatarMode === 'object' ? hvAvatarMode : { mode: hvAvatarMode };
+  let own = cfg[personId];
+  if (typeof own === 'string') own = AVATAR_ALIASES[own.toLowerCase()] || own;
+  if (typeof own === 'string' && own && !AVATAR_HAIR[own]) return own;   // a picture URL
+  if (cfg.mode === false || cfg.mode === 'initials') return null;
+  const hair = AVATAR_HAIR[own] ? `&hair=${AVATAR_HAIR[own].join(',')}` + (own === 'man' ? '&earringsProbability=0' : '') : '';
+  return `https://api.dicebear.com/9.x/adventurer/svg?seed=hv${seedOf(personId)}${hair}&backgroundColor=${AVATAR_BG.join(',')}`;
 }
 
 function personBattery(h, personId) {
@@ -2119,11 +2132,12 @@ const PAGE_CSS = `
   grid-template-areas:"date clock clock" "date clock clock" "cam next weather"; box-sizing:border-box; overflow:hidden;
   height:var(--hv-board-h, calc(100vh - 140px)); min-height:420px; }
 .board > homeview-tile { min-height:0; min-width:0; }
-.board.narrow { height:auto; min-height:0; grid-template-columns:1fr; grid-template-rows:none; grid-auto-rows:auto; grid-template-areas:"date" "clock" "weather" "next" "cam"; }
-.board.narrow > homeview-tile { height:240px; }
-.board.narrow > homeview-tile.a-date { height:270px; }
-.board.narrow > homeview-tile.a-clock { height:min(86vw, 380px); }
-.board.narrow > homeview-tile.a-cam { height:auto; aspect-ratio:16 / 9; }
+/* phones: one screen, like a hand-made iPhone HomeView — date | clock, the photo, up next
+   (the weather is on Home) */
+.board.narrow { min-height:360px; gap:12px; padding:14px; border-radius:32px;
+  grid-template-columns:repeat(2, minmax(0, 1fr)); grid-template-rows:minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, .85fr);
+  grid-template-areas:"date clock" "cam cam" "next next"; }
+.board.narrow > homeview-tile.a-weather { display:none; }
 img.lt { object-fit:cover; background:var(--hv-pill); }
 .lt { width:20px; height:20px; border-radius:50%; background:var(--hv-accent); color:#fff; font-size:11px; font-weight:750;
   display:inline-flex; align-items:center; justify-content:center; }
@@ -2146,6 +2160,9 @@ img.lt { object-fit:cover; background:var(--hv-pill); }
 .eb { display:flex; gap:8px; }
 .hidden-sec .sec-h { color:var(--hv-fg2); }
 .topbar { flex-basis:100%; min-width:0; max-width:100%; display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:-4px; }
+.head.padr { padding-right:48px; }
+.topbar.solo { position:absolute; top:var(--hv-pad); right:var(--hv-pad); flex-basis:auto; margin:0; z-index:3; }
+.page { position:relative; }
 .nav { display:flex; gap:6px; overflow-x:auto; scrollbar-width:none; min-width:0; flex:1 1 auto; }
 .head > div { min-width:0; max-width:100%; }
 .nav::-webkit-scrollbar { display:none; }
@@ -2202,6 +2219,7 @@ class HomeViewPage extends HTMLElement {
       this._ro.observe(this);
     }
     hvPagesOnScreen++;
+    HomeViewPage._current = this;
     this._kiosk();
     if (!this._onWinResize) { this._onWinResize = () => this._layout(); window.addEventListener('resize', this._onWinResize); }
   }
@@ -2569,7 +2587,8 @@ class HomeViewPage extends HTMLElement {
     const stale = upd && /^\d+\.\d+\.\d+$/.test(instV) && newerVer(instV, HV_VERSION) ? instV : null;
     const kiosk = kioskWanted(cfg);
     const chip = cfg.kiosk !== false && cfg.kiosk_chip !== false;
-    const nav = kiosk && !page.back ? asList(this._config.nav) : [];
+    // the page bar shows with HA's sidebar (Menu); in full screen: swipe or ← / → keys
+    const nav = !kiosk && !page.back ? asList(this._config.nav) : [];
     const here = this._config.path || this._config.page;
     const chips = asList(page.chips);
     const looks = chips.map((c) => chipLook(h, c));
@@ -2586,7 +2605,9 @@ class HomeViewPage extends HTMLElement {
         <span><b>HomeView ${esc(stale)} is installed</b>, but this screen still runs ${esc(HV_VERSION)}. Tap to reload it.</span></button>`
       : updOn ? `<button class="upd" data-more="${esc(this._updEnt)}"><ha-icon icon="mdi:arrow-up-circle"></ha-icon>
         <span><b>HomeView ${esc(updOn)} is available</b> (you have ${esc(HV_VERSION)}). Tap to see what's new and update.</span></button>` : '';
-    const topbar = nav.length > 1 || chip ? `<div class="topbar">
+    const solo = !(nav.length > 1) && !page.minimalHead;   // just the Menu icon: float it top right
+    head.classList.toggle('padr', !!(solo && chip));
+    const topbar = nav.length > 1 || chip ? `<div class="topbar${solo ? ' solo' : ''}">
         <div class="nav">${nav.length > 1 ? nav.map((v) => `<button class="nv${v.path === here ? ' on' : ''}" data-nav-to="${esc(v.path)}" title="${esc(v.title)}">${v.avatar ? `<img class="lt" src="${esc(v.avatar)}" alt="">` : v.letter ? `<span class="lt">${esc(v.letter)}</span>` : `<ha-icon icon="${esc(v.icon)}"></ha-icon>`}<span>${esc(v.title)}</span></button>`).join('') : ''}</div>
         ${chip ? `<button class="chip" data-kiosk title="${kiosk ? 'Menu: show Home Assistant\'s sidebar and header' : 'Full screen: hide Home Assistant\'s sidebar and header'}" aria-label="${kiosk ? 'Menu' : 'Full screen'}"><ha-icon icon="${kiosk ? 'mdi:dock-left' : 'mdi:fullscreen'}"></ha-icon></button>` : ''}</div>` : '';
     head.innerHTML = page.minimalHead ? `${updBanner}${topbar}` : `${updBanner}${topbar}<div>
@@ -2648,8 +2669,26 @@ class HomeViewPage extends HTMLElement {
     this._layout();
   }
 
+  _go(step) {
+    const order = this._config.order || [];
+    const i = order.indexOf(this._config.path || this._config.page);
+    if (i === -1 || order.length < 2) return;
+    navigate(order[(i + step + order.length) % order.length]);
+  }
+
   // swipe left / right between the top-level pages (tablets, phones)
   _bindSwipe() {
+    if (!HomeViewPage._keys) {   // ← / → on a keyboard (one listener for the whole dashboard)
+      HomeViewPage._keys = true;
+      window.addEventListener('keydown', (e) => {
+        if (e.altKey || e.ctrlKey || e.metaKey || !['ArrowLeft', 'ArrowRight'].includes(e.key)) return;
+        const t = e.composedPath()[0];
+        if (t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable)) return;
+        const pg = HomeViewPage._current;
+        if (!pg || !pg.isConnected || pg._root.querySelector('.pop') || pg._config.options?.swipe === false) return;
+        pg._go(e.key === 'ArrowRight' ? 1 : -1);
+      });
+    }
     let x0 = null, y0 = 0, t0 = 0;
     this.addEventListener('touchstart', (e) => {
       if (e.touches.length !== 1 || this._root.querySelector('.pop')) { x0 = null; return; }
@@ -2661,10 +2700,7 @@ class HomeViewPage extends HTMLElement {
       x0 = null;
       const cfg = this._config.options || {};
       if (cfg.swipe === false || Math.abs(dx) < 80 || Math.abs(dx) < Math.abs(dy) * 2 || Date.now() - t0 > 700) return;
-      const order = this._config.order || [];
-      const i = order.indexOf(this._config.path || this._config.page);
-      if (i === -1 || order.length < 2) return;
-      navigate(order[(i + (dx < 0 ? 1 : -1) + order.length) % order.length]);
+      this._go(dx < 0 ? 1 : -1);
     }, { passive: true });
   }
 }
@@ -2698,7 +2734,7 @@ const EDITOR_LABELS = {
   weather: ['Weather', 'Empty = the first weather entity.'],
   cameras: ['Cameras', 'Empty = all cameras.'],
   people_chips: ['People avatars under the Home title'],
-  avatars: ['Avatars for people without a picture', 'A picture set on the person in Home Assistant is always used first.'],
+  avatars: ['Avatars for people without a picture', 'A picture set on the person in Home Assistant is always used first. Man / woman per person: YAML (avatars: { person.ben: man }).'],
   room_order: ['Room order', 'These rooms first, in this order; the rest after.'],
   hide_rooms: ['Hide rooms'],
   living_rooms: ['Living page rooms', 'The rooms on the Living page, in this order. Empty = the indoor rooms that aren\'t a bedroom or bathroom, living spaces first.'],
@@ -2773,7 +2809,7 @@ function editorSchema(hass) {
       { name: 'people', selector: { entity: { multiple: true, filter: { domain: 'person' } } } },
       { name: 'people_chips', selector: { boolean: {} } },
       { name: 'avatars', selector: { select: { mode: 'dropdown', options: [
-        { value: 'samples', label: 'Sample avatars (DiceBear, free)' }, { value: 'initials', label: 'Initials' }] } } },
+        { value: 'samples', label: 'Anime avatars (DiceBear)' }, { value: 'initials', label: 'Initials' }] } } },
       { name: 'calendars', selector: { entity: { multiple: true, filter: { domain: 'calendar' } } } },
       { name: 'weather', selector: { entity: { filter: { domain: 'weather' } } } },
       { name: 'cameras', selector: { entity: { multiple: true, filter: { domain: 'camera' } } } },

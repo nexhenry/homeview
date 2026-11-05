@@ -36,7 +36,7 @@ no YAML per tile.
 
 | Page | What's on it |
 |---|---|
-| **Widgets** | One tinted panel for a wall tablet: a big date with sunrise / sunset, a big analog clock, the forecast, the week's agenda and a **photo slideshow** from a media folder (sample photos until you add your own) |
+| **Widgets** | One tinted panel that fills the screen: a big date with sunrise / sunset, a big analog clock, the forecast, the week's agenda and a **photo slideshow** from a media folder (sample photos until you add your own). On a phone: date and clock side by side, the photo, then up next |
 | **Home** | One screen, like a hand-made dashboard: date, title, **control chips** (alarm, garage, locks, water valve — red with a word when something needs attention), people and status pills (alarm, climate, lights on, locks, doors & windows, leaks / smoke, batteries, now playing); weather (2×2), air quality (2×1), two doors (front lock, garage), a camera (2×1), *Lights* for the two main rooms (tap = all on / off), a clock and the next event (2×1); your scenes below |
 | **Living** | The living spaces everyone shares — living room, kitchen, dining, family room, garage … — each in its own colour with its lights, climate, locks, covers, fans and media. Bedrooms, bathrooms and outdoor areas are left out (they have their own pages). Choose the rooms with `living_rooms` |
 | **Rooms** — a page per person | One page for each family member's own room (Ben, Lucy, Hana …): the room's temperature, comfort, humidity, doors and windows, its devices, their next event and where they are. Found automatically from rooms named after people ("Bedroom Lucy"), or set with `members` |
@@ -104,8 +104,9 @@ changes: a new light in the kitchen appears on the Kitchen page by itself.
 
 ### Full screen (kiosk mode)
 
-HomeView opens **full screen**: Home Assistant's header and sidebar are hidden, and HomeView's
-own bar at the top switches pages (on a phone it shows just the icons; you can also swipe).
+HomeView opens **full screen**: Home Assistant's header and sidebar are hidden, and so is the
+page bar — move between pages by swiping (or with the ← / → keys). Tap the round **Menu** icon
+(top right) and the sidebar, header and HomeView's page bar come back.
 Leave HomeView for another dashboard and the header and sidebar come back by themselves.
 
 - The round **Menu** icon (top right) brings the sidebar and header back until the page is
@@ -301,7 +302,8 @@ strategy:
   pills: [alarm, climate, lights, locks, openings, safety, batteries, media]   # or false
   battery_low: 20                 # % under which a battery counts as low
   people_chips: true              # the avatars under the Home title
-  avatars: samples                # people without a picture: samples (free illustrated avatars) | initials
+  avatars: samples                # people without a picture: samples (anime avatars) | initials
+  # avatars: { person.ben: man, person.lucy: woman, person.kai: /local/kai.jpg }   per person
 
   energy:                         # live power, when the Energy settings don't say
     solar_power: sensor.solar_power
@@ -328,10 +330,11 @@ strategy:
 - **Family members** get their own page when a room (area) is named after them — "Bedroom
   Lucy", "Ben's room" — or when you list them under `members`. A calendar with their name in
   it ("Lucy School") is used for their next event.
-- **Avatars:** a person's own picture (Settings → People) is always used. Everyone else gets a
-  free illustrated sample avatar from DiceBear — the same one every time. Only a hash of the
-  person's entity id is sent to api.dicebear.com, never a name. `avatars: initials` shows the
-  first letter instead, with no internet request.
+- **Avatars:** a person's own picture (Settings → People) is always used. Everyone else gets an
+  anime-style sample avatar (DiceBear "Adventurer") — the same one every time, from a hash of
+  the person's entity id (no names are sent). Say who's a man or a woman for short / long
+  hair: `avatars: { person.ben: man, person.lucy: woman }` (also `boy`, `girl`), or give a
+  picture URL. `avatars: initials` shows the first letter instead, with no internet request.
 - **Photos** for the slideshow come from Home Assistant's media: put them in **Media → My
   media** (the `media` folder in your config), or add a network share as media. Album
   subfolders are included and shuffled, nothing repeats until every photo has been shown, and
@@ -399,8 +402,8 @@ Ideas and pull requests are welcome too — see [CONTRIBUTING.md](CONTRIBUTING.m
   Thank you, Shane!
 - Written with [Claude Code](https://claude.com/claude-code), Anthropic's AI coding tool, and
   maintained by [@nexhenry](https://github.com/nexhenry).
-- Sample avatars: [DiceBear](https://www.dicebear.com) "Lorelei" by Lisa Wischofsky, CC0 1.0
-  (public domain).
+- Sample avatars: "Adventurer" by Lisa Wischofsky, licensed under
+  [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), via [DiceBear](https://www.dicebear.com).
 - Sample photos: [Unsplash](https://unsplash.com) photographers, served by
   [Lorem Picsum](https://picsum.photos).
 - Icons: [Material Design Icons](https://pictogrammers.com/library/mdi/), as shipped with

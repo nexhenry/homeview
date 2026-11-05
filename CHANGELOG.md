@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.1 — 2026-11-04
+
+- **Anime avatars** for people without a picture (DiceBear "Adventurer", CC BY 4.0), with
+  gender: `avatars: { person.ben: man, person.lucy: woman }` gives short / long hair (also
+  boy / girl), or a picture URL per person. Same face every time; no names are sent.
+- **Widgets on a phone** is one screen, like a hand-made iPhone HomeView: date | clock, the
+  photo across, up next across (rows 1 : 1.3 : 0.85; the weather is on Home).
+- **Clean full screen:** the page bar is hidden too; it comes back with HA's sidebar and
+  header when you tap the Menu icon. In full screen: swipe, or the ← / → keys.
+
 ## 0.6.0 — 2026-11-04
 
 - **Tile sizes like a hand-made HomeView on every device:** Home is one screen — weather 2×2,
