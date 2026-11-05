@@ -79,7 +79,8 @@ media room), energy time windows. Camera pictures and the calendar are blurred f
 
 **An admin page** of the home's own settings (modes, comfort thresholds, light and fan timing,
 climate periods, vacation, the photobeam and the security messages), each a tap or slider on
-an HA helper. Built with `custom_pages` and its own tiles. Family names are changed here.
+an HA helper. In HomeView you'd make a page like this with `custom_pages` and your own tiles.
+Family names are changed here and the hub's address is hidden.
 
 ![Admin: modes, climate thresholds and periods, light and fan timing, vacation, photobeam and security messages](docs/screenshots/slopeview-admin.png)
 
