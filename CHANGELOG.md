@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.8.4 — 2026-11-05
+
+- **Room details page:** hold a room's tile, its bar on phones or its title to open it. New
+  at the top: *Right now* (temperature, comfort, humidity, the room's doors and locks), then
+  quick tiles — all its lights on / off, presence, and the room's power now (its power
+  sensors added up, one per device) — and the 24-hour charts, shorter on phones. Holding a
+  room used to open its temperature; that's the chart on the page now.
+- **Home:** Scenes sit above the clock and the next event.
+- **README:** page names and order brought up to date (Widgets, Home, Living, Rooms …), and a
+  *A real home, fine-tuned* gallery: seven screenshots of the hand-made dashboard HomeView is
+  modelled on, including its admin page (cameras and calendar blurred, names changed).
+- **Tap a room = its lights:** a room's tile, phone bar or title toggles its "all lights"
+  entity — a light group, or a light named as all of them ("Bedroom Bulbs", "Main
+  Lights") — else its main light (main, ceiling / overhead, or named after the room, "Porch
+  Light"), else its only light. A room of separate fixtures (two floodlights) opens its page.
+  Hold opens the room's details page. The same on every room tile: Living, the Rooms
+  directory, a person's room bar (phones) and room summary (tablets), section titles. A
+  person's room on the Rooms directory no longer opens their page on tap; the "Lights" tile
+  (Home, a room's page) still switches all of the room's lights.
+
 ## 0.8.3 — 2026-11-05
 
 - **Accurate power flow:** the live power sensors were guessed by name and the first match

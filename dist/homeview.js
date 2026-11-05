@@ -11,7 +11,7 @@
  * Home, Widgets, Family, Rooms (plus one page per room), Energy and Cameras. Everything is
  * optional and can be tuned in the strategy config — see README.md.
  */
-const HV_VERSION = '0.8.3';
+const HV_VERSION = '0.8.4';
 // where this file was loaded from (to re-download it after an update)
 const HV_URL = (() => { try { return import.meta.url; } catch (e) { return null; } })();
 
@@ -1009,8 +1009,11 @@ R.room = {
       <div class="tx"><div class="nm">${esc(r.name)}</div>
       ${climate ? `<div class="sb">${esc(climate)}</div>` : ''}${lightTxt ? `<div class="sb x">${esc(lightTxt)}</div>` : ''}</div></div>`;
   },
+  // tap: the room's lights (its "all lights" group, else its main light); hold, or a room
+  // without lights: the room's details page
   action(h, s, tile, kind) {
-    if (kind === 'hold' && s.room.temp) return moreInfo(tile, s.room.temp);
+    const light = kind === 'hold' ? null : roomMainLight(h, s.room);
+    if (light) return h.callService('light', 'toggle', {}, { entity_id: light });
     navigate(`room-${s.room.id}`);
   },
 };
@@ -1510,7 +1513,7 @@ R.room_lights = {
       <div class="tx"><div class="nm">${esc(s.name || 'Lights')}</div><div class="sb">${esc(s.roomName)}${s.size?.[0] >= 2 ? ` · ${esc(state)}` : ''}</div></div></div>`;
   },
   action(h, s, tile, kind) {
-    if (kind === 'hold') return navigate(`room-${s.roomId}`);
+    if (kind === 'hold') return s.noHold ? moreInfo(tile, s.lights[0]) : navigate(`room-${s.roomId}`);
     const anyOn = s.lights.some((id) => h.states[id]?.state === 'on');
     return h.callService('light', anyOn ? 'turn_off' : 'turn_on', {}, { entity_id: s.lights });
   },
@@ -1613,7 +1616,31 @@ R.member_hero = {
       <div class="hf">${t !== null ? `<span><span class="ic" style="--mdc-icon-size:1.2em;color:#30B0C7"><i data-i="mdi:thermometer"></i></span>${fmt(t, 1)}° <em>${feel}</em></span>` : ''}
         ${hu !== null ? `<span><span class="ic" style="--mdc-icon-size:1.2em;color:#30B0C7"><i data-i="mdi:water-percent"></i></span>${fmt(hu, 0)}% <em>${hfeel}</em></span>` : ''}</div></div>`;
   },
-  action: (h, s, tile) => (s.room ? navigate(`room-${s.room.id}`) : null),
+  // like every room tile: tap = the room's lights (none: the room's page), hold = the room's
+  // page — on that page itself, hold = the temperature's details
+  action(h, s, tile, kind) {
+    if (!s.room) return null;
+    if (kind === 'hold') return s.here ? (s.room.temp ? moreInfo(tile, s.room.temp) : null) : navigate(`room-${s.room.id}`);
+    const light = roomMainLight(h, s.room);
+    if (light) return h.callService('light', 'toggle', {}, { entity_id: light });
+    return s.here ? (s.room.temp ? moreInfo(tile, s.room.temp) : null) : navigate(`room-${s.room.id}`);
+  },
+};
+
+// ---- a room's power now: its power sensors added up (a device's own sensor once) -------------
+R.room_power = {
+  key: (h, s) => s.ids.map((id) => h.states[id]?.state).join('|'),
+  html(h, s) {
+    const w = s.ids.reduce((acc, id) => { const st = h.states[id]; const x = num(st?.state);
+      return acc + (x === null ? 0 : x * (/^kW$/i.test(st.attributes?.unit_of_measurement || '') ? 1000 : 1)); }, 0);
+    const on = s.ids.filter((id) => (num(h.states[id]?.state) || 0) > 1).length;
+    return `<div class="t flex${w > 1 ? ' on' : ''}" style="--hv-ic-on:#FFB800"><div class="ic"><i data-i="mdi:flash"></i></div>
+      <div class="tx"><div class="nm">${esc(kwFmt(w))}</div><div class="sb">${esc(on ? `Power · ${on} using` : 'Power')}</div></div></div>`;
+  },
+  action(h, s, tile) {
+    const top = [...s.ids].sort((a, b) => (num(h.states[b]?.state) || 0) - (num(h.states[a]?.state) || 0))[0];
+    if (top) moreInfo(tile, top);
+  },
 };
 
 // ---- energy flow diagram ------------------------------------------------------------------------
@@ -1937,7 +1964,8 @@ class HomeViewTile extends HTMLElement {
     }
     const r = R[this._spec?.kind];
     if (!r?.action || !this._hass) return;
-    if (this._spec.navigate && kind === 'tap') { navigate(this._spec.navigate); return; }
+    // a link tile opens its page on tap (room tiles are their own: tap = lights, hold = the room)
+    if (this._spec.navigate && kind === 'tap' && this._spec.kind !== 'room') { navigate(this._spec.navigate); return; }
     try {
       const p = r.action(this._hass, this._spec, this, kind, { target });
       if (p?.catch) p.catch((e) => console.warn('HomeView action failed', e));
@@ -2091,6 +2119,26 @@ function bindPress(el, onTap, onHold) {
  * spec = { kind, size: [w, h], ... }
  * ========================================================================================== */
 
+/**
+ * The light a room's tap toggles, in this order: a light group (most members, "all …" /
+ * "… lights" first); a light named as all of them ("Bedroom Bulbs", "Main Lights" — Zigbee
+ * groups don't list their members); the main light (main, then ceiling / overhead); one
+ * named after the room ("Porch Light"); the only light. null (separate fixtures, say two
+ * floodlights): tap opens the room instead.
+ */
+function roomMainLight(h, room) {
+  const ids = asList(room?.groups?.lights).filter((id) => h.states[id] && !UNAVAILABLE.includes(h.states[id].state));
+  const name = (id) => `${id.split('.')[1].replace(/_/g, ' ')} ${h.states[id]?.attributes?.friendly_name || ''}`;
+  const members = (id) => (Array.isArray(h.states[id].attributes?.entity_id) ? h.states[id].attributes.entity_id.length : 0);
+  const allish = (id) => /\ball\b|(lights|bulbs|lamps)\b/i.test(name(id));
+  const groups = ids.filter(members).sort((a, b) => (allish(b) - allish(a)) || members(b) - members(a));
+  const slug = (room?.id || '').toLowerCase(), rname = (room?.name || '').toLowerCase();
+  return groups[0] || ids.find(allish) || ids.find((id) => /main/i.test(name(id)))
+    || ids.find((id) => /ceiling|overhead/i.test(name(id)))
+    || ids.find((id) => id === `light.${slug}_light` || (h.states[id].attributes?.friendly_name || '').toLowerCase() === `${rname} light`)
+    || (ids.length === 1 ? ids[0] : null);
+}
+
 const roomTile = (room, size = [1, 1]) => ({ kind: 'room', room, size, hue: room.hue });
 const entTile = (id, extra = {}) => ({ kind: 'entity', entity: id, size: [1, 1], ...extra });
 
@@ -2216,11 +2264,12 @@ const PAGES = {
       const lights = nonGroupLights(h, r.groups.lights);
       if (lights.length) tiles.push({ kind: 'room_lights', lights, roomName: r.name, roomId: r.id, size: [1, 1], hue: undefined });
     }
-    tiles.push(...later);
     const sections = [{ tiles }];
     if (pc.rooms === true && m.rooms.length) sections.push({ title: 'Rooms', link: 'rooms', tiles: m.rooms.map((r) => roomTile(r)) });
     const scenes = (m.byDomain.scene || []).slice(0, pc.max_scenes ?? 8);
     if (pc.scenes !== false && scenes.length) sections.push({ title: 'Scenes', layout: 'rows', tiles: scenes.map((id) => rowTile(id, { sub: 'Scene' })) });
+    // the clock and the next event: below the scenes
+    if (later.length) sections.push({ tiles: later });
     const chips = pc.chips === false ? [] : pc.chips ? asList(pc.chips).map((c) => (typeof c === 'string' ? { entity: c } : c)).filter((c) => c?.entity)
       : chipsAuto(h, m);
     return { title: cfg.title || h.config.location_name || 'Home', pills: true, people: true, chips, sections };
@@ -2235,7 +2284,7 @@ const PAGES = {
     const sections = list.map((r) => {
       const ids = (r.pinned || ROOM_ROW_DOMAINS.flatMap((d) => r.entities.filter((id) => domainOf(id) === d
         && !UNAVAILABLE.includes(h.states[id]?.state) && !(d === 'light' && Array.isArray(h.states[id]?.attributes?.entity_id))))).slice(0, 11);
-      return { title: r.name, hue: r.hue, tiles: [roomTile(r), ...ids.map((id) => entTile(id, { areaName: r.name, hue: r.hue }))] };
+      return { title: r.name, room: r.id, hue: r.hue, tiles: [roomTile(r), ...ids.map((id) => entTile(id, { areaName: r.name, hue: r.hue }))] };
     });
     return { title: 'Living', pills: true, greet: true, sections, compactSections: true,
       note: list.length ? null : 'No living spaces found. List them with living_rooms: [living_room, kitchen, …].' };
@@ -2252,12 +2301,10 @@ const PAGES = {
     return { title: 'People', sections };
   },
 
-  // a directory of every room (by floor when floors are set up): tap one for its page
+  // a directory of every room (by floor when floors are set up): tap = its lights, hold = its page
   all_rooms(h, m) {
     const floors = [...new Set(m.rooms.map((r) => r.floor || ''))];
     const sections = floors.map((f) => ({ title: floors.length > 1 ? (f || 'Other rooms') : null, tiles: m.rooms.filter((r) => (r.floor || '') === f).map((r) => roomTile(r)) }));
-    // a member's room opens their page
-    for (const sec of sections) for (const t of sec.tiles) { const mem = m.members.find((x) => x.room?.id === t.room.id); if (mem) t.navigate = `member-${mem.slug}`; }
     return { title: 'Rooms', pills: true, sections };
   },
 
@@ -2270,7 +2317,25 @@ const PAGES = {
     if (r.hum) charts.push({ kind: 'chart', entity: r.hum, title: 'Humidity', icon: 'mdi:water-percent', color: '#30B0C7', decimals: 0, size: [2, 1] });
     const lux = (r.groups.sensors || []).find((id) => h.states[id]?.attributes?.device_class === 'illuminance');
     if (lux) charts.push({ kind: 'chart', entity: lux, title: 'Light level', icon: 'mdi:brightness-6', color: '#8E8E93', decimals: 0, size: [2, 1] });
-    if (charts.length) sections.push({ tiles: charts });
+    // the summary: how the room is now (temperature, comfort, doors), then quick tiles
+    const live = (id) => !UNAVAILABLE.includes(h.states[id]?.state);
+    const dcOf = (id) => h.states[id]?.attributes?.device_class;
+    const openings = r.entities.filter((id) => live(id) && ((domainOf(id) === 'binary_sensor' && OPENING_CLASSES.includes(dcOf(id))) || domainOf(id) === 'lock')).slice(0, 4);
+    const top = [];
+    if (r.temp || r.hum || openings.length) top.push({ kind: 'member_hero', room: r, title: 'Right now', openings, here: true, size: [2, 2] });
+    const lights = nonGroupLights(h, r.groups.lights).filter(live);
+    if (lights.length) top.push({ kind: 'room_lights', lights, roomName: lights.length > 1 ? `All ${lights.length}` : r.name, roomId: r.id, size: [1, 1], noHold: true });
+    const presence = r.entities.find((id) => domainOf(id) === 'binary_sensor' && live(id) && ['occupancy', 'presence', 'motion'].includes(dcOf(id)));
+    if (presence) top.push(entTile(presence, { areaName: r.name, size: [1, 1] }));
+    // power: one sensor per device (a plug's own power, not its per-outlet copies)
+    const seen = new Set();
+    const power = r.entities.filter((id) => domainOf(id) === 'sensor' && dcOf(id) === 'power' && live(id) && !/mean|average|avg|_24h|_max|_min/.test(id))
+      .filter((id) => { const d = h.entities?.[id]?.device_id || id; if (seen.has(d)) return false; seen.add(d); return true; });
+    if (power.length) top.push({ kind: 'room_power', ids: power, size: [1, 1] });
+    if (top.length) sections.push({ tiles: top });
+    // charts: shorter on phones (two rows each)
+    charts.forEach((c) => { c.phoneSpan = [2, 2]; });
+    if (charts.length) sections.push({ title: 'Last 24 hours', tiles: charts });
     if (r.pinned) sections.push({ tiles: r.pinned.map((id) => rowTile(id, { areaName: r.name })), layout: 'rows' });
     for (const g of ROOM_GROUPS) {
       const ids = (r.groups[g.id] || []).filter((id) => !r.pinned?.includes(id) && !charts.some((c) => c.entity === id));
@@ -2745,6 +2810,9 @@ class HomeViewPage extends HTMLElement {
       s.className = 'sec' + (page.compactSections && !editing && sec.layout !== 'favs' ? ' compact' : '') + (sec.hidden ? ' hidden-sec' : '');
       if (sec.title) {
         s.insertAdjacentHTML('beforeend', `<div class="sec-h">${esc(sec.title)}${sec.sub ? `<span class="sub">${esc(sec.sub)}</span>` : ''}${sec.link ? `<span class="more" data-nav="${esc(sec.link)}">See all ›</span>` : ''}</div>`);
+        // a room's title: hold (or tap) = the room's details page
+        if (sec.room && !editing) { const hd = s.lastElementChild; hd.style.cursor = 'pointer'; const go = () => navigate(`room-${sec.room}`);
+          bindPress(hd, () => { const l = roomMainLight(this._hass, this._model.areaById[sec.room]); if (l) this._hass.callService('light', 'toggle', {}, { entity_id: l }); else go(); }, go); }
       }
       const g = document.createElement('div'); g.className = 'grid' + (sec.layout ? ` ${sec.layout}` : '') + (sec.loads ? ' loads' : '');
       if (sec.hue !== undefined) g.setAttribute('style', styleVars(palette(sec.hue, dark)));
@@ -2772,7 +2840,7 @@ class HomeViewPage extends HTMLElement {
       const out = [];
       for (const t of sec.tiles) {
         if (t.kind === 'clock') continue;
-        if (t.kind === 'member_hero') {
+        if (t.kind === 'member_hero' && !t.here) {
           if (t.room) {
             out.push({ kind: 'room', room: t.room, section: true, name: `${page.member?.name || ''}${page.member ? "'s room" : ''}`.trim() || t.room.name,
               navigate: `room-${t.room.id}`, hue: t.room.hue });
@@ -2780,7 +2848,7 @@ class HomeViewPage extends HTMLElement {
           continue;
         }
         if (t.kind === 'room') { out.push({ ...t, section: true }); continue; }
-        if (['entity', 'room_lights', 'energy_device'].includes(t.kind) && !sec.layout) { out.push({ ...t, row: true }); continue; }
+        if (['entity', 'room_lights', 'energy_device', 'room_power'].includes(t.kind) && !sec.layout) { out.push({ ...t, row: true }); continue; }
         out.push(t);
       }
       sec.tiles = out;

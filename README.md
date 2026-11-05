@@ -3,12 +3,12 @@
 An Apple-Home-style dashboard for Home Assistant that **builds itself from your home**.
 
 HomeView reads your areas, floors, devices and entities and generates a complete dashboard —
-Home, Widgets, Family, Rooms (plus a page for every room), Energy and Cameras — that works on
+Widgets, Home, Living, Rooms (plus a page for every room), Energy and Cameras — that works on
 an iPhone, an iPad, a wall tablet and a desktop browser. Add a device to an area and it shows up;
 no YAML per tile.
 
-- **Zero setup:** one line of config. Rooms, people, calendars, weather, cameras and energy
-  are found automatically.
+- **Zero setup:** one line of config. Rooms, people (and a page for each, from their
+  `person` entities), calendars, weather, cameras and energy are found automatically.
 - **Easy to make your own:** tap the pencil to rename, resize, hide or pin tiles right on the
   dashboard, use the settings editor for everything else, or YAML if you prefer.
 - **No other cards needed:** HomeView draws its own tiles. You don't need button-card,
@@ -19,14 +19,15 @@ no YAML per tile.
   a page fits the screen. Very wide screens get more columns.
 - **Light and dark:** follows your Home Assistant theme, each page and room with its own tint.
 - **Full screen like an app:** HA's header and sidebar are always hidden when HomeView opens; a small Menu icon brings them back.
-- **Touch-first:** tap toggles, hold opens the details. Swipe left / right between pages.
+- **Touch-first:** tap toggles, hold opens the details — a room's tile toggles its lights and
+  holding it opens the room's page. Swipe left / right between pages, one page per swipe.
 
-> Status: **0.7 (preview)**. The layout and config keys may still change before 1.0.
+> Status: **0.8 (preview)**. The layout and config keys may still change before 1.0.
 > Use at your own risk — see [Disclaimer](#disclaimer).
 
 ## Contents
 
-- [Pages](#pages) · [Install](#install) · [Create the dashboard](#create-the-dashboard) · [Full screen](#full-screen-kiosk-mode)
+- [Pages](#pages) · [A real home, fine-tuned](#a-real-home-fine-tuned) · [Install](#install) · [Create the dashboard](#create-the-dashboard) · [Full screen](#full-screen-kiosk-mode)
 - [Make it yours](#make-it-yours): [on the dashboard](#1-on-the-dashboard-the-pencil) ·
   [settings editor](#2-the-settings-editor) · [YAML](#3-yaml)
 - [Your own tiles, cards and pages](#your-own-tiles-cards-and-pages) · [All options](#all-options)
@@ -37,12 +38,12 @@ no YAML per tile.
 | Page | What's on it |
 |---|---|
 | **Widgets** | One tinted panel that fills the screen: a big date with sunrise / sunset, a big analog clock, the forecast, the week's agenda and a **photo slideshow** from a media folder (sample photos until you add your own). On a phone: date and clock side by side, the photo, then up next |
-| **Home** | One screen, like a hand-made dashboard: date, title, **control chips** (alarm, garage, locks, water valve — red with a word when something needs attention), people and status pills (alarm, climate, lights on, locks, doors & windows, leaks / smoke, batteries, now playing); weather (2×2), air quality (2×1), two doors (front lock, garage), a camera (2×1), *Lights* for the two main rooms (tap = all on / off), a clock and the next event (2×1); your scenes below |
+| **Home** | One screen, like a hand-made dashboard: date, title, **control chips** (alarm, garage, locks, water valve — red with a word when something needs attention), people and status pills (alarm, climate, lights on, locks, doors & windows, leaks / smoke, batteries, now playing); weather (2×2), air quality (2×1), two doors (front lock, garage), a camera (2×1), *Lights* for the two main rooms (tap = all on / off, hold = the room); your scenes; then a clock and the next event (2×1) |
 | **Living** | The living spaces everyone shares — living room, kitchen, dining, family room, garage … — each in its own colour with its lights, climate, locks, covers, fans and media. Bedrooms, bathrooms and outdoor areas are left out (they have their own pages). Choose the rooms with `living_rooms` |
-| **Rooms** — a page per person | One page for each family member's own room (Alex, Zoe, Mia …): the room's temperature, comfort, humidity, doors and windows, its devices, their next event and where they are. Found automatically from rooms named after people ("Bedroom Zoe"), or set with `members` |
-| **Room pages** | 24-hour charts (temperature, humidity, light level), then everything in the room as compact tiles: lights, climate, doors & security, media, devices, scenes, cameras, sensors |
+| **Rooms** — a page per person | One page for each family member (Alex, Zoe, Mia …), found from your `person` entities: their room's temperature, comfort, humidity, doors and windows, its devices, their next event and where they are. Automatic for everyone with a room named after them ("Bedroom Zoe"); `members` sets who and in what order. Each person sees only their own page unless `access` says otherwise (admins see all) |
+| **Room pages** | A room's details — hold a room's tile or title: *Right now* (temperature, comfort, humidity, its doors and locks), quick tiles (all its lights on / off, presence, power now), 24-hour charts (temperature, humidity, light level), then everything in the room: lights, climate, doors & security, media, devices, scenes, cameras, sensors |
+| **Energy** | A live flow diagram; *right now* (solar, home with amps · volts, grid importing / exporting, battery charging / discharging); **backup time** on battery; **off-grid share in your peak hours** (optional time windows); **solar self-sufficiency**; today's totals; and a **power-outage list** of every device with W · A · kWh today and an on / off button — tick what to turn off when the grid goes down. The flow is [Power Flow Card Plus](https://github.com/flixlix/power-flow-card-plus) when it's installed (HomeView's own otherwise); the numbers are live between meter readings |
 | **Cameras** | Every camera in a 16:9 grid, refreshed every 10 s while on screen. Tap for the live stream |
-| **Energy** | A live flow diagram; *right now* (solar, home with amps · volts, grid importing / exporting, battery charging / discharging); **backup time** on battery; **off-grid share in your peak hours** (optional time windows); **solar self-sufficiency**; today's totals; and a **power-outage list** of every device with W · A · kWh today and an on / off button — tick what to turn off when the grid goes down |
 | **All rooms** *(optional)* | A directory of every room (by floor). Add `all_rooms` to `pages`. It's also what `rooms` shows in a home without member rooms |
 | **People** *(optional)* | Everyone with home / away, since when and phone battery, plus the family calendar. Add `people` to `pages` to use it |
 | **Your pages** | As many as you like, with your own tiles and any Home Assistant card |
@@ -59,6 +60,28 @@ Pages that have nothing to show (no cameras, no energy set up …) are left out.
 
 The pills open a sheet with the matching devices, for example every light that's on or every
 open door, and you can control them right there.
+
+## A real home, fine-tuned
+
+What one family's wall tablet looks like after taking the same design further by hand: the
+**Slopeview** dashboard that HomeView is modelled on, on a Pixel Tablet (1280 × 800, full
+screen). HomeView builds this kind of page from your home automatically. Use these as ideas
+for your own fine-tuning: favourites, `customize`, your own sections and pages (a pond, a
+media room), energy time windows. Camera pictures and the calendar are blurred for privacy.
+
+| Home | Living |
+|---|---|
+| ![Home: control chips, status pills, weather, air quality, camera, doors, lights, clock and the next event](docs/screenshots/slopeview-home.png) | ![Living: every shared room in its own colour, with its devices](docs/screenshots/slopeview-living.png) |
+| **A room's page** (hold the room) | **Energy** (full screen) |
+| ![Living Room: 24-hour charts against outdoor, then every device grouped](docs/screenshots/slopeview-room.png) | ![Energy: live flow, Powerwall, backup time, peak / partial-peak off-grid, solar self-sufficiency and the power-outage list](docs/screenshots/slopeview-energy.png) |
+| **Your own page: a pond** | **Your own page: media** |
+| ![Pond: pumps, air, UV, valves and garden with live power](docs/screenshots/slopeview-pond.png) | ![Media: karaoke controls, TV remote, effect presets and mixer levels](docs/screenshots/slopeview-media.png) |
+
+**An admin page** of the home's own settings (modes, comfort thresholds, light and fan timing,
+climate periods, vacation, the photobeam and the security messages), each a tap or slider on
+an HA helper. Built with `custom_pages` and its own tiles. Family names are changed here.
+
+![Admin: modes, climate thresholds and periods, light and fan timing, vacation, photobeam and security messages](docs/screenshots/slopeview-admin.png)
 
 ## Install
 
@@ -307,7 +330,7 @@ strategy:
       - { entity: automation.night_alert, name: Night alert, off_warn: true, confirm: true }
     camera: camera.front_door     # the camera on Home (default: the first one; false = none)
     air: true                     # the air quality tile, when you have an AQI / PM2.5 / CO2 / VOC sensor
-    rooms: false                  # the room tiles on Home (they're on the Rooms page)
+    rooms: false                  # room tiles on Home (they're on Living and each room's page)
     scenes: true
     max_scenes: 8
 
@@ -386,7 +409,11 @@ strategy:
 - A room's **temperature / humidity** is the area's own setting (Settings → Areas), else the
   first temperature / humidity sensor in it.
 - **Energy** uses Settings → Dashboards → Energy: grid, solar, battery and individual devices.
-  Live power comes from the power sensors you set there, or from `energy:` above.
+  Live power comes from the power sensors you set there, or from `energy:` above; otherwise
+  HomeView finds them itself — a net sensor (grid + import / − export, battery + discharge /
+  − charge) on the meter's own device first, an import / export or charge / discharge pair
+  if that's all there is, never an average. The battery % is the one on the battery's device
+  (or named like it). If the flow looks wrong, set `grid_power`, `battery_power` … by hand.
 
 ## Power outages
 
@@ -426,7 +453,8 @@ alarm opens its panel), hold opens the details.
 | Vacuum, mower | Start / dock | Details |
 | Scene, script, button | Run | Details |
 | Thermostat (wide) | − / + change the target, tile opens details | Details |
-| Room | Opens the room's page | Temperature details |
+| Room (tile, phone bar, a person's room summary, title) | Toggles the room's lights: its "all lights" group, else its main light (no such light: opens the room) | Opens the room's details page |
+| Lights (a room's) | All on / off | The room's details page |
 | Sensor, person, camera, weather | Details | Details |
 
 ## Using a single page as a card
@@ -435,7 +463,7 @@ Every page is also a card, `custom:homeview-page`, for use in your own dashboard
 
 ```yaml
 type: custom:homeview-page
-page: rooms            # home | widgets | family | rooms | room | energy | cameras
+page: living           # widgets | home | living | rooms | room | energy | cameras
 area: kitchen          # for page: room
 options:               # the same options as the strategy
   theme: dark
