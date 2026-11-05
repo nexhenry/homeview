@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+- **Menu opens the sidebar in one tap** on phones and iPads, where Home Assistant keeps its
+  sidebar in a drawer behind its own ☰: Settings, your integrations' panels and the profile are
+  one tap away from full screen.
+- **Comfort follows your thermostat:** *Cold* / *Comfy* / *Warm* now use what the room's
+  thermostat (or the house's) is set to right now, ± 1 °F (0.5 °C). Heat-cool: heat − 1 …
+  cool + 1; heat or cool only: that setting on one side and the fixed band on the other; off or
+  no thermostat: the fixed 66–77 °F (19–25 °C). A schedule that sets a cooler night reads *Comfy*
+  at night instead of *Cold*. New options: `comfort` (`thermostat` | `fixed` | `{cold, warm}`),
+  `comfort_thermostat`, `comfort_margin`.
+- **Comfort words on every room tile:** tablets and desktops now show *Comfy* / *Cold* / *Warm*
+  (and *Humid* / *Dry*) under a room's temperature on Living and the room directory, coloured.
+  Before, only phones' room bars and a person's room summary had them. All three use the same
+  rule now (Dry under 30 %, Humid over 55 %; temperature: see below).
+
 ## 0.8.4 — 2026-11-05
 
 - **Room details page:** hold a room's tile, its bar on phones or its title to open it. New

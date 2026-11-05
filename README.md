@@ -18,7 +18,7 @@ no YAML per tile.
   tall (1.28 : 1, or 1.1 : 1 with 6 across) on screens wider than 3:2 — like the Pixel Tablet — so
   a page fits the screen. Very wide screens get more columns.
 - **Light and dark:** follows your Home Assistant theme, each page and room with its own tint.
-- **Full screen like an app:** HA's header and sidebar are always hidden when HomeView opens; a small Menu icon brings them back.
+- **Full screen like an app:** HA's header and sidebar are always hidden when HomeView opens; a small Menu icon brings them back (on phones and iPads it opens the sidebar too, so Settings is one tap away).
 - **Touch-first:** tap toggles, hold opens the details — a room's tile toggles its lights and
   holding it opens the room's page. Swipe left / right between pages, one page per swipe.
 
@@ -384,6 +384,11 @@ strategy:
 
   pills: [alarm, climate, lights, locks, openings, safety, batteries, media]   # or false
   battery_low: 20                 # % under which a battery counts as low
+  comfort: thermostat             # Cold / Comfy / Warm on room tiles: thermostat (default) follows the
+                                  # room's thermostat (its own, else the house's): heat setting − margin …
+                                  # cool setting + margin; fixed = 66–77 °F (19–25 °C); or { cold: 68, warm: 76 }
+  comfort_thermostat: climate.hallway   # the house thermostat (default: the first one with a setting)
+  comfort_margin: 1               # °F / °C either side of the settings (default 1 °F, 0.5 °C)
   people_chips: true              # the avatars under the Home title
   phone_favorites: [light.kitchen, light.living_room, lock.front_door]   # or { alex: [...], zoe: [...] }
   avatars: samples                # people without a picture: samples (anime avatars) | initials
@@ -437,6 +442,10 @@ strategy:
 - **Family members** get their own page when a room (area) is named after them — "Bedroom
   Zoe", "Alex's room" — or when you list them under `members`. A calendar with their name in
   it ("Zoe School") is used for their next event.
+- **Comfort words** (*Comfy*, *Cold*, *Warm*, plus *Dry* < 30 % / *Humid* > 55 %) follow your
+  thermostat: a room is *Comfy* within a degree of what the thermostat is set to right now, so a
+  cooler night setting reads *Comfy* at night. A room with its own thermostat uses that one. With
+  the thermostat off, or none, the fixed 66–77 °F (19–25 °C) applies.
 - **Avatars:** a person's own picture (Settings → People) is always used. Everyone else gets an
   anime-style sample avatar (DiceBear "Adventurer") — the same one every time, from a hash of
   the person's entity id (no names are sent). Say who's a man or a woman for short / long

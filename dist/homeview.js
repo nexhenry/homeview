@@ -61,7 +61,8 @@ const COLOR_CYCLE = ['orange', 'green', 'amber', 'blue', 'purple', 'pink', 'teal
 const KNOWN_OPTIONS = ['type', 'title', 'theme', 'pages', 'pages_config', 'room_order', 'hide_rooms', 'rooms',
   'exclude_entities', 'customize', 'people', 'calendars', 'weather', 'cameras', 'home', 'pills', 'battery_low',
   'people_chips', 'energy', 'tile_size', 'max_columns', 'swipe', 'custom_pages', 'edit_button', 'update_notice',
-  'kiosk', 'kiosk_chip', 'members', 'living_rooms', 'widgets', 'avatars', 'phone_favorites', 'access'];   // energy.* : see the energy page
+  'kiosk', 'kiosk_chip', 'members', 'living_rooms', 'widgets', 'avatars', 'phone_favorites', 'access',
+  'comfort', 'comfort_thermostat', 'comfort_margin'];   // energy.* : see the energy page
 
 // What a room page / room row shows, in this order
 const ROOM_GROUPS = [
@@ -288,6 +289,20 @@ function kioskWanted(cfg) {
   return !(q === 'off' || q === '0' || q === 'false');
 }
 function setKioskWanted(on) { kioskMenu = !on; }
+/**
+ * On phones and iPads HA's sidebar is a drawer behind its own ☰: after Menu shows the header,
+ * open the drawer too, so Settings, the integrations' panels and the profile are one tap away.
+ * (A wide screen docks the sidebar, which comes back with the header.)
+ */
+function openHaSidebar() {
+  setTimeout(() => {
+    const main = document.querySelector('home-assistant')?.shadowRoot?.querySelector('home-assistant-main');
+    const drawer = main?.shadowRoot?.querySelector('ha-drawer');
+    if (drawer && drawer.type === 'modal' && !drawer.open) {
+      main.dispatchEvent(new CustomEvent('hass-toggle-menu', { detail: { open: true }, bubbles: true, composed: true }));
+    }
+  }, 150);
+}
 // pages on screen right now: kiosk styles come off when you leave HomeView for another dashboard
 let hvPagesOnScreen = 0;
 
@@ -472,6 +487,13 @@ function buildModel(hass, cfg) {
       model.members.push({ person: pid, name, room: room || null, calendars: cals, slug: pid.split('.')[1], hue: room ? room.hue : 335 });
     }
   }
+  // comfort: each room's thermostat (its own climate entity, else the house's) and the options
+  const climates = Object.keys(hass.states).filter((id) => domainOf(id) === 'climate' && !exclude.has(id)
+    && !UNAVAILABLE.includes(hass.states[id].state));
+  const hasSet = (id) => { const a = hass.states[id]?.attributes || {}; return a.target_temp_low != null || a.temperature != null; };
+  const house = cfg.comfort_thermostat || climates.find(hasSet) || null;
+  for (const r of model.areas) r.thermostat = r.entities.find((id) => domainOf(id) === 'climate' && hasSet(id)) || house;
+  HV_COMFORT = { mode: cfg.comfort ?? 'thermostat', margin: cfg.comfort_margin };
   return model;
 }
 
@@ -983,7 +1005,47 @@ function roomSummary(h, room) {
   const t = num(h.states[room.temp]?.state), hu = num(h.states[room.hum]?.state);
   const unit = h.states[room.temp]?.attributes?.unit_of_measurement || '°';
   const alerts = room.alerts.filter((id) => isAlert(h.states[id]));
-  return { lights, t, hu, unit, alerts };
+  const ta = h.states[room.thermostat]?.attributes || {};
+  const band = [h.states[room.thermostat]?.state, ta.target_temp_low, ta.target_temp_high, ta.temperature].join('|');
+  return { lights, t, hu, unit, alerts, band };
+}
+/**
+ * Comfort words for a room's temperature / humidity, the same on every tile:
+ * Cold < 66 °F (19 °C) ≤ Comfy ≤ 77 °F (25 °C) < Warm; Dry < 30 % / Humid > 55 %.
+ * -> { t: {word, color}, h: {word, color}, html } (html = coloured "Comfy · Humid")
+ */
+let HV_COMFORT = { mode: 'thermostat' };
+/**
+ * The comfortable band for a room: { lo, hi }. comfort: thermostat (default) follows the room's
+ * thermostat (its own, else the house's): heat_cool / auto = its heat setting − margin … its cool
+ * setting + margin; heat = setting − margin … the fixed top; cool = the fixed bottom … setting +
+ * margin; off / none = fixed. comfort: fixed, or { cold, warm }, sets it by hand. Fixed: 66–77 °F
+ * (19–25 °C); margin 1 °F (0.5 °C), comfort_margin to change it.
+ */
+function comfortBand(h, room) {
+  const f = /F/.test(h.states[room?.temp]?.attributes?.unit_of_measurement || h.config.unit_system?.temperature || '');
+  const C = HV_COMFORT || {};
+  const fixed = { lo: f ? 66 : 19, hi: f ? 77 : 25 };
+  if (C.mode && typeof C.mode === 'object') return { lo: num(C.mode.cold) ?? fixed.lo, hi: num(C.mode.warm) ?? fixed.hi };
+  if (C.mode === 'fixed') return fixed;
+  const st = h.states[room?.thermostat];
+  if (!st || UNAVAILABLE.includes(st.state) || st.state === 'off') return fixed;
+  const a = st.attributes || {}, m = num(C.margin) ?? (f ? 1 : 0.5);
+  const lo = num(a.target_temp_low), hi = num(a.target_temp_high), one = num(a.temperature);
+  if (lo !== null && hi !== null) return { lo: lo - m, hi: hi + m };
+  if (one !== null && st.state === 'heat') return { lo: one - m, hi: Math.max(fixed.hi, one + m) };
+  if (one !== null && st.state === 'cool') return { lo: Math.min(fixed.lo, one - m), hi: one + m };
+  if (one !== null) return { lo: one - m, hi: one + m };
+  return fixed;
+}
+function comfortOf(h, room, t, hu) {
+  const b = comfortBand(h, room);
+  const tw = t === null ? null : t < b.lo ? ['Cold', '#32ADE6'] : t > b.hi ? ['Warm', '#FF9500'] : ['Comfy', '#34C759'];
+  const hw = hu === null ? null : hu < 30 ? ['Dry', '#C69C3E'] : hu > 55 ? ['Humid', '#30B0C7'] : null;
+  const parts = [tw, hw].filter(Boolean);
+  return { t: tw ? { word: tw[0], color: tw[1] } : null, h: hw ? { word: hw[0], color: hw[1] } : null,
+    text: parts.map((x) => x[0]).join(' · '),
+    html: parts.map((x) => `<span style="color:${x[1]}">${x[0]}</span>`).join(' · ') };
 }
 R.room = {
   key: (h, s) => JSON.stringify(roomSummary(h, s.room)),
@@ -994,11 +1056,8 @@ R.room = {
     const alertSt = sum.alerts.length ? h.states[sum.alerts[0]] : null;
     const badge = alertSt ? `<div class="badge"><i data-e="${esc(alertSt.entity_id)}"></i></div>` : '';
     if (s.section) {   // phones: a 56 px bar that starts the room's tiles (name, comfort, temp · hum)
-      const tSt = h.states[r.temp];
-      const f = /F/.test(tSt?.attributes?.unit_of_measurement || h.config.unit_system?.temperature || '');
-      const feel = sum.t === null ? '' : sum.t < (f ? 66 : 19) ? 'Cold' : sum.t > (f ? 77 : 25) ? 'Warm' : 'Comfy';
-      const hfeel = sum.hu === null ? '' : sum.hu < 30 ? 'Dry' : sum.hu > 55 ? 'Humid' : '';
-      const comfort = [feel, hfeel, lightTxt].filter(Boolean).join(' · ');
+      const cf = comfortOf(h, r, sum.t, sum.hu);
+      const comfort = [cf.text, lightTxt].filter(Boolean).join(' · ');
       return `<div class="t flex sect${sum.lights ? ' on' : ''}" style="--hv-ic-on:#FF9F0A">
         <div class="circ"><div class="ic" style="--mdc-icon-size:inherit;color:${sum.lights ? '#FF9F0A' : 'var(--hv-accent)'}"><i data-i="${esc(r.icon)}"></i></div>${badge}</div>
         <div class="tx" style="flex:1"><div class="nm">${esc(s.name || r.name)}</div>${comfort ? `<div class="sb">${esc(comfort)}</div>` : ''}</div>
@@ -1007,7 +1066,7 @@ R.room = {
     return `<div class="t${sum.lights ? ' on' : ''}" style="--hv-ic-on:#FF9F0A">
       <div class="circ"><div class="ic" style="--mdc-icon-size:inherit;color:${sum.lights ? '#FF9F0A' : 'var(--hv-accent)'}"><i data-i="${esc(r.icon)}"></i></div>${badge}</div>
       <div class="tx"><div class="nm">${esc(r.name)}</div>
-      ${climate ? `<div class="sb">${esc(climate)}</div>` : ''}${lightTxt ? `<div class="sb x">${esc(lightTxt)}</div>` : ''}</div></div>`;
+      ${climate ? `<div class="sb">${esc(climate)}</div>` : ''}${(() => { const cf = comfortOf(h, r, sum.t, sum.hu); return cf.html ? `<div class="sb" style="font-weight:600">${cf.html}</div>` : ''; })()}${lightTxt ? `<div class="sb x">${esc(lightTxt)}</div>` : ''}</div></div>`;
   },
   // tap: the room's lights (its "all lights" group, else its main light); hold, or a room
   // without lights: the room's details page
@@ -1600,9 +1659,7 @@ R.member_hero = {
     const r = s.room;
     const tSt = h.states[r?.temp];
     const t = num(tSt?.state), hu = num(h.states[r?.hum]?.state);
-    const f = /F/.test(tSt?.attributes?.unit_of_measurement || h.config.unit_system?.temperature || '');
-    const feel = t === null ? '' : t < (f ? 66 : 19) ? 'Cold' : t > (f ? 77 : 25) ? 'Warm' : 'Comfy';
-    const hfeel = hu === null ? '' : hu < 30 ? 'Dry' : hu > 55 ? 'Humid' : '';
+    const cf = comfortOf(h, r, t, hu), feel = cf.t?.word || '', hfeel = cf.h?.word || '';
     const ops = (s.openings || []).map((id) => {
       const st = h.states[id];
       const open = isAlert(st);
@@ -3177,7 +3234,10 @@ class HomeViewPage extends HTMLElement {
     head.querySelector('[data-edit-on]')?.addEventListener('click', () => this._setEditing(true));
     head.querySelector('[data-fresh]')?.addEventListener('click', () => reloadFresh());
     head.querySelectorAll('[data-nav-to]').forEach((el) => el.addEventListener('click', () => navigate(el.dataset.navTo)));
-    head.querySelector('[data-kiosk]')?.addEventListener('click', () => { setKioskWanted(!kiosk); applyKiosk(!kiosk); this._headKey = null; this._renderHead(); });
+    head.querySelector('[data-kiosk]')?.addEventListener('click', () => {
+      setKioskWanted(!kiosk); applyKiosk(!kiosk); this._headKey = null; this._renderHead();
+      if (kiosk) openHaSidebar();   // Menu: on phones / iPads also open the sidebar, in the same tap
+    });
     head.querySelector('[data-edit-off]')?.addEventListener('click', () => this._setEditing(false));
     head.querySelector('[data-settings]')?.addEventListener('click', () => this._settings());
     head.querySelectorAll('[data-more]').forEach((el) => el.addEventListener('click', () => moreInfo(this, el.dataset.more)));
