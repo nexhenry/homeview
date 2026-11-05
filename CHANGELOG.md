@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.4.0 — 2026-11-04
+
+A redesign, closer to a hand-made dashboard:
+
+- **New page order:** Widgets → Home → Family → Rooms → one page per family member →
+  Cameras → Energy, wrapping back to Widgets.
+- **Family member pages:** for each person with a room named after them (or set in
+  `members`): a hero with the room's temperature, comfort, humidity, doors and windows; the
+  room's devices; their next event (a calendar with their name); where they are. Member
+  initials in the page bar.
+- **Widgets** is one tinted board: big date, big clock, forecast, agenda, camera.
+- **Home:** air quality tile (AQI / PM2.5 / CO₂ / VOC), a camera, *Lights* tiles for the main
+  rooms (tap = all on / off, hold = the room); rooms moved to the Rooms page
+  (`home.rooms: true` brings them back); scenes as compact tiles.
+- **Room pages:** 24-hour charts for temperature, humidity and light level; everything else
+  as compact one-line tiles.
+- **Energy:** live flow diagram (solar, grid, battery, home) with animated flows; today's
+  numbers in one card; devices as a compact list.
+- **Cameras:** a clean 16:9 grid. Pill sheets use compact tiles.
+- Rooms with nothing to control (only a plug's sensors) are left out.
+- Fixes: weather high / low late in the day; full screen survives an iPad turning (HA
+  rebuilds its sidebar at its phone / tablet breakpoint); no sideways scrolling on phones;
+  people who never reported a location are left out.
+
+### Also in 0.4.0 (the unreleased 0.3.1)
+
+- **"Finish the update" banner:** after updating in HACS, a screen that still runs the old
+  HomeView from the browser cache (Home Assistant caches `/hacsfiles/` for a month, and YAML
+  resources keep the same URL) shows a banner to admins; tap it to re-download HomeView and
+  reload.
+
 ## 0.3.0 — 2026-11-04
 
 - **Full screen by default (kiosk mode):** Home Assistant's header and sidebar are hidden while

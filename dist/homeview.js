@@ -11,7 +11,9 @@
  * Home, Widgets, Family, Rooms (plus one page per room), Energy and Cameras. Everything is
  * optional and can be tuned in the strategy config — see README.md.
  */
-const HV_VERSION = '0.3.0';
+const HV_VERSION = '0.4.0';
+// where this file was loaded from (to re-download it after an update)
+const HV_URL = (() => { try { return import.meta.url; } catch (e) { return null; } })();
 
 /* ============================================================================================
  * Constants
@@ -24,8 +26,10 @@ const PAGE_DEFS = {
   rooms:   { title: 'Rooms',   icon: 'mdi:sofa',                    hue: 110 },
   energy:  { title: 'Energy',  icon: 'mdi:lightning-bolt',          hue: 42 },
   cameras: { title: 'Cameras', icon: 'mdi:cctv',                    hue: 215, sat: 0.4 },
+  members: { title: 'Members', icon: 'mdi:account-multiple',       hue: 335 },
 };
-const DEFAULT_PAGES = ['home', 'widgets', 'family', 'rooms', 'energy', 'cameras'];
+// swipe order (wraps from the last back to the first); `members` = one page per family member
+const DEFAULT_PAGES = ['widgets', 'home', 'family', 'rooms', 'members', 'cameras', 'energy'];
 
 // Room tints, assigned in order to rooms without their own colour
 const ROOM_HUES = [28, 110, 45, 205, 265, 335, 170, 15, 230, 80];
@@ -43,7 +47,7 @@ const COLOR_CYCLE = ['orange', 'green', 'amber', 'blue', 'purple', 'pink', 'teal
 const KNOWN_OPTIONS = ['type', 'title', 'theme', 'pages', 'pages_config', 'room_order', 'hide_rooms', 'rooms',
   'exclude_entities', 'customize', 'people', 'calendars', 'weather', 'cameras', 'home', 'pills', 'battery_low',
   'people_chips', 'energy', 'tile_size', 'max_columns', 'swipe', 'custom_pages', 'edit_button', 'update_notice',
-  'kiosk', 'kiosk_chip'];
+  'kiosk', 'kiosk_chip', 'members'];
 
 // What a room page / room row shows, in this order
 const ROOM_GROUPS = [
@@ -223,8 +227,32 @@ function haShadowRoots() {
   const panel = main?.shadowRoot?.querySelector('partial-panel-resolver')?.querySelector('ha-panel-lovelace');
   return { main: main?.shadowRoot, drawer: drawer?.shadowRoot, root: panel?.shadowRoot?.querySelector('hui-root')?.shadowRoot };
 }
-function applyKiosk(on) {
+// HA rebuilds its drawer when the width crosses its phone / tablet breakpoint (an iPad turning)
+// and drops our style: watch those shadow roots and the window size, and put it back at once.
+let kioskOn = false;
+const kioskWatched = new WeakSet();
+function watchKiosk(sr) {
+  if (!sr || kioskWatched.has(sr)) return;
+  kioskWatched.add(sr);
+  new MutationObserver(() => { if (kioskOn && !sr.querySelector(`#${KIOSK_ID}`)) applyKiosk(true); }).observe(sr, { childList: true });
+}
+let kioskResizeBound = false;
+function bindKioskResize() {
+  if (kioskResizeBound) return;
+  kioskResizeBound = true;
+  let t1 = null, t2 = null;
+  window.addEventListener('resize', () => {
+    if (!kioskOn) return;
+    clearTimeout(t1); clearTimeout(t2);
+    t1 = setTimeout(() => applyKiosk(true, true), 80);
+    t2 = setTimeout(() => applyKiosk(true, true), 700);
+  });
+}
+function applyKiosk(on, quiet) {
+  kioskOn = on;
+  bindKioskResize();
   const roots = haShadowRoots();
+  if (on) Object.values(roots).forEach(watchKiosk);
   for (const [k, css] of Object.entries(KIOSK_CSS)) {
     const sr = roots[k];
     if (!sr) continue;
@@ -234,7 +262,7 @@ function applyKiosk(on) {
       if (st.textContent !== css) st.textContent = css;
     } else st?.remove();
   }
-  window.dispatchEvent(new Event('resize'));
+  if (!quiet) window.dispatchEvent(new Event('resize'));
 }
 function kioskWanted(cfg) {
   if (cfg?.kiosk === false) return false;
@@ -250,6 +278,33 @@ function setKioskWanted(on) {
 }
 // pages on screen right now: kiosk styles come off when you leave HomeView for another dashboard
 let hvPagesOnScreen = 0;
+
+/**
+ * After an update the browser may keep running the old file from its cache (HA serves
+ * /hacsfiles/... with a month-long cache and, with YAML resources, the same URL every time).
+ * Re-download this file bypassing the cache, then reload the page.
+ */
+async function reloadFresh() {
+  try {
+    if (HV_URL) await fetch(HV_URL, { cache: 'reload' });
+    const base = HV_URL ? HV_URL.split('?')[0] : null;
+    if (base && base !== HV_URL) await fetch(base, { cache: 'reload' });
+    if ('caches' in window) {
+      for (const k of await caches.keys()) {
+        const c = await caches.open(k);
+        for (const req of await c.keys()) if (/homeview/i.test(req.url)) await c.delete(req);
+      }
+    }
+  } catch (e) { console.warn('HomeView: refresh failed', e); }
+  location.reload();
+}
+const cleanVer = (v) => String(v || '').replace(/^v/i, '').trim();
+/** a > b for x.y.z versions */
+const newerVer = (a, b) => {
+  const pa = a.split('.').map(Number), pb = b.split('.').map(Number);
+  for (let i = 0; i < 3; i++) if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0);
+  return false;
+};
 
 /** Navigate inside the dashboard (path relative to the dashboard URL). */
 function navigate(path) {
@@ -350,7 +405,7 @@ function buildModel(hass, cfg) {
     if (d === 'binary_sensor' && OPENING_CLASSES.includes(dc)) model.openings.push(id);
     if (d === 'cover' && ['garage', 'door', 'gate'].includes(dc)) model.openings.push(id);
     if (d === 'binary_sensor' && SAFETY_CLASSES.includes(dc)) model.safety.push(id);
-    if (d === 'person' && asList(st.attributes.device_trackers).length) model.persons.push(id);   // real people, not login-only users
+    if (d === 'person' && asList(st.attributes.device_trackers).length && !UNAVAILABLE.includes(st.state)) model.persons.push(id);   // real people with a location
     if (d === 'camera') model.cameras.push(id);
     if (d === 'calendar') model.calendars.push(id);
 
@@ -371,7 +426,10 @@ function buildModel(hass, cfg) {
     const order = (cfg.rooms?.[room.id]?.entities) || null;
     if (order) room.pinned = asList(order).filter((id) => hass.states[id]);
   }
-  model.rooms = model.areas.filter((r) => Object.keys(r.groups).length || r.temp);
+  // rooms worth a tile: something to control or a temperature (not just a smart plug's sensors)
+  model.rooms = model.areas.filter((r) => r.temp || r.pinned?.length
+    || r.entities.some((id) => ROOM_ROW_DOMAINS.includes(domainOf(id)) && !UNAVAILABLE.includes(hass.states[id]?.state)));
+  for (const r of model.areas) if (r.groups.lights) r.groups.lights = r.groups.lights.filter((id) => !Array.isArray(hass.states[id]?.attributes?.entity_id));
 
   // ---- people, calendars, weather (config wins over discovery)
   if (cfg.people) model.persons = asList(cfg.people).filter((id) => hass.states[id]);
@@ -379,6 +437,27 @@ function buildModel(hass, cfg) {
   model.weather = cfg.weather || (model.byDomain.weather || [])[0] || null;
   model.cameras = cfg.cameras ? asList(cfg.cameras).filter((id) => hass.states[id]) : model.cameras;
   for (const k of ['byDomain']) for (const d in model[k]) model[k][d].sort();
+
+  // family members with a room of their own: "Lucy" + an area named like "Bedroom Lucy"
+  // (members: { person.lucy: { area, calendars, name } } sets them by hand; false = none)
+  model.members = [];
+  if (cfg.members !== false) {
+    const list = cfg.members && typeof cfg.members === 'object' ? Object.entries(cfg.members).map(([pid, c]) => [pid, c || {}])
+      : model.persons.map((pid) => [pid, {}]);
+    for (const [pid, c] of list) {
+      const st = hass.states[pid];
+      if (!st) continue;
+      const name = c.name || (st.attributes.friendly_name || pid.split('.')[1]).split(/\s+/)[0];
+      const key = name.toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (!key) continue;
+      const re = new RegExp(`(^|[^a-z0-9])${key}([^a-z0-9]|$)`, 'i');
+      const room = c.area ? model.areaById[c.area] : model.areas.find((a) => re.test(a.name) || re.test(a.id.replace(/_/g, ' ')));
+      if (!room && !c.area && !(cfg.members && cfg.members[pid])) continue;
+      const cals = c.calendars ? asList(c.calendars)
+        : model.calendars.filter((id) => re.test(hass.states[id]?.attributes?.friendly_name || '') || re.test(id.split('.')[1].replace(/_/g, ' ')));
+      model.members.push({ person: pid, name, room: room || null, calendars: cals, slug: pid.split('.')[1], hue: room ? room.hue : 335 });
+    }
+  }
   return model;
 }
 
@@ -633,6 +712,53 @@ const TILE_CSS = `
 .edit button { all:unset; pointer-events:auto; cursor:pointer; width:30px; height:30px; border-radius:50%; background:rgba(20,20,20,.62);
   color:#fff; display:flex; align-items:center; justify-content:center; --mdc-icon-size:17px; backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px); }
 .edit button[data-edit=unfav] { background:#FF9F0A; }
+.t.bare { background:transparent; border:none; box-shadow:none; }
+.t.bare.white { background:transparent; }
+.t.card { align-items:flex-start; justify-content:center; text-align:left; padding:0 7%; gap:0; }
+.t.card .hd { display:flex; align-items:center; gap:6px; }
+.t.card .big { font-weight:700; font-size:clamp(18px, 19cqh, 30px); margin:3px 0 1px; }
+.sq { flex:none; width:min(44cqh, 64px); height:min(44cqh, 64px); border-radius:22%; display:flex; align-items:center; justify-content:center;
+  color:#fff; --mdc-icon-size:60%; }
+.ecg { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:10px; flex:1; }
+.ec { background:var(--hv-pill); border-radius:16px; padding:10px 12px; display:flex; flex-direction:column; justify-content:center; gap:4px; min-width:0; }
+.ec .hd { display:flex; align-items:center; gap:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ec b { font-size:clamp(15px, 5.5cqi, 24px); font-weight:700; }
+.t.chart { padding:0; align-items:stretch; justify-content:space-between; text-align:left; }
+.ch { display:flex; justify-content:space-between; padding:5% 6% 0; }
+.ct { font-weight:600; font-size:clamp(12px, 9cqh, 16px); }
+.cv { font-size:clamp(15px, 13cqh, 24px); font-weight:600; margin-top:3px; }
+.cv span { font-size:.55em; color:var(--hv-fg2); margin-left:3px; font-weight:500; }
+.cg { position:relative; flex:1; min-height:0; margin-top:4px; }
+.cg svg { position:absolute; inset:0; width:100%; height:100%; }
+.cv .rg { font-size:11px; margin-left:10px; white-space:pre; }
+.cx { display:flex; justify-content:space-between; padding:2% 6% 4%; font-size:10.5px; color:var(--hv-fg2); }
+.t.hero { justify-content:space-between; padding:6% 7%; }
+.hh { display:flex; justify-content:space-between; align-items:baseline; width:100%; font-weight:650; font-size:clamp(14px, 5.5cqi, 22px); }
+.hh .sb { margin:0; }
+.hbig { font-weight:700; font-size:min(42cqh, 32cqi); line-height:1; letter-spacing:-.04em; }
+.ops { display:flex; flex-direction:column; align-items:center; gap:4px; }
+.op { display:flex; align-items:center; gap:8px; font-weight:600; font-size:clamp(12px, 4.6cqi, 18px); }
+.hf { display:flex; gap:7%; justify-content:center; width:100%; border-top:1px solid var(--hv-line); padding-top:4%; font-weight:600; font-size:clamp(12px, 4.8cqi, 19px); }
+.hf > span { display:inline-flex; align-items:center; gap:4px; }
+.hf em { font-style:normal; color:#30B0C7; font-weight:650; margin-left:4px; }
+.flowbox { position:relative; width:100%; height:calc(100% - 22px); }
+.flowbox svg { position:absolute; inset:9% 8%; width:84%; height:82%; overflow:visible; }
+.fl { fill:none; stroke-width:2; opacity:.22; }
+.fl.on { opacity:1; stroke-dasharray:1.5 2.5; animation:hv-flow 1.4s linear infinite; }
+.fl.rev { animation-direction:reverse; }
+@keyframes hv-flow { to { stroke-dashoffset:-8; } }
+.node { position:absolute; transform:translate(-50%, -50%); width:min(26cqh, 22cqw, 100px); aspect-ratio:1; border-radius:50%; border:2.5px solid;
+  background:var(--hv-tile); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px;
+  font-size:clamp(10px, 3.4cqh, 14px); --mdc-icon-size:min(8cqh, 26px); }
+.node b { font-weight:700; white-space:nowrap; }
+.node small { font-size:.8em; color:var(--hv-fg2); }
+.node .nl { position:absolute; top:calc(100% + 4px); font-size:11.5px; color:var(--hv-fg2); white-space:nowrap; }
+/* compact one-line tiles (room pages, lists) */
+.t.flex.row-t { padding:0 14px; gap:12px; border-radius:16px; }
+.t.flex.row-t .ic { --mdc-icon-size:24px; }
+.t.flex.row-t .nm { font-size:15px; font-weight:650; }
+.t.flex.row-t .sb { font-size:13px; }
+.t.flex.row-t .up { font-size:10.5px; }
 .ctl { position:absolute; display:flex; gap:6px; bottom:7%; right:7%; }
 .ctl button { all:unset; width:min(22cqh, 34px); height:min(22cqh, 34px); border-radius:50%; background:var(--hv-pill);
   color:var(--hv-fg); display:flex; align-items:center; justify-content:center; --mdc-icon-size:70%; cursor:pointer; }
@@ -764,9 +890,15 @@ R.weather = {
     const fc = getForecast(h, s.entity, () => tile.refresh()) || [];
     const today = fc[0] || {};
     const [cond, icon] = WEATHER[st.state] || [st.state, 'mdi:weather-partly-cloudy'];
-    const unit = st.attributes.temperature_unit || '°';
     const now = new Date();
-    const hi = today.temperature, lo = today.templow, rain = today.precipitation_probability;
+    let hi = today.temperature, lo = today.templow ?? null;
+    const rain = today.precipitation_probability;
+    // late in the day only tonight is left in the forecast: the current temperature counts too
+    const curT = st.attributes.temperature;
+    if (today.datetime && new Date(today.datetime).toDateString() === now.toDateString() && curT != null) {
+      if (hi != null) hi = Math.max(hi, curT);
+      if (lo != null) lo = Math.min(lo, curT);
+    }
     const big = s.size?.[1] >= 2;
     if (!big) {
       return `<div class="t flex"><div class="ic"><i data-i="${icon}"></i></div><div class="tx">
@@ -827,7 +959,7 @@ R.clock = {
     let nums = '';
     for (let i = 1; i <= 12; i++) {
       const a = (i * 30 - 90) * Math.PI / 180;
-      nums += `<text x="${50 + 31 * Math.cos(a)}" y="${50 + 31 * Math.sin(a) + 3.6}" text-anchor="middle" font-size="10" fill="var(--hv-accent)">${i}</text>`;
+      nums += `<text x="${50 + 31 * Math.cos(a)}" y="${50 + 31 * Math.sin(a) + 3.6}" text-anchor="middle" font-size="10" style="fill:var(--hv-clock-num, var(--hv-accent))">${i}</text>`;
     }
     const hand = (deg, len, w, color) => `<line x1="50" y1="50" x2="50" y2="${50 - len}" stroke="${color}" stroke-width="${w}" stroke-linecap="round" transform="rotate(${deg} 50 50)"/>`;
     return `<div class="t white" style="padding:6%;cursor:default"><svg viewBox="0 0 100 100" style="width:100%;height:100%;color:var(--hv-fg)" font-family="${FONT}">
@@ -997,10 +1129,26 @@ R.energy_stat = {
     if (s.compute) value = s.compute(Object.fromEntries(vals.map((x) => [x.role, x.v])));
     else value = vals.reduce((a, x) => a + (x.v || 0) * (x.sign || 1), 0);
     const txt = loading ? '…' : value === null || Number.isNaN(value) ? '—' : s.unit === '%' ? `${fmt(value, 0)}%` : `${fmt(value, value >= 100 ? 0 : 1)} kWh`;
-    return `<div class="t flex"><div class="ic" style="color:${s.color || 'var(--hv-accent)'}"><i data-i="${s.icon}"></i></div>
-      <div class="tx"><div class="up">${esc(s.title)}</div><div class="nm">${txt}</div><div class="sb">${esc(s.sub || 'Today')}</div></div></div>`;
+    return `<div class="t card"><div class="up hd"><span class="ic" style="--mdc-icon-size:18px;color:${s.color || 'var(--hv-accent)'}"><i data-i="${s.icon}"></i></span>${esc(s.title)}</div>
+      <div class="big">${txt}</div><div class="sb">${esc(s.sub || 'Today')}</div></div>`;
   },
 };
+// today's energy numbers as one card of small cells (next to the flow diagram)
+R.energy_today = {
+  key: (h, s) => s.items.flatMap((it) => it.stats.map((x) => tileCacheTag(`st:${x.id}:${new Date().toDateString()}`))).join('|'),
+  html(h, s, tile) {
+    const cells = s.items.map((it) => {
+      const vals = it.stats.map((x) => ({ ...x, v: getStatToday(h, x.id, () => tile.refresh()) }));
+      const loading = vals.some((x) => x.v === undefined);
+      const value = it.compute ? it.compute(Object.fromEntries(vals.map((x) => [x.role, x.v]))) : vals.reduce((a, x) => a + (x.v || 0) * (x.sign || 1), 0);
+      const txt = loading ? '…' : value === null || Number.isNaN(value) ? '—' : it.unit === '%' ? `${fmt(value, 0)}%` : `${fmt(value, value >= 100 ? 0 : 1)} kWh`;
+      return `<div class="ec"><span class="up hd"><span class="ic" style="--mdc-icon-size:16px;color:${it.color}"><i data-i="${it.icon}"></i></span>${esc(it.title)}</span><b>${txt}</b></div>`;
+    }).join('');
+    return `<div class="t" style="cursor:default;align-items:stretch;justify-content:flex-start;padding:5%;text-align:left">
+      <div class="up" style="margin-bottom:4%">Today</div><div class="ecg">${cells}</div></div>`;
+  },
+};
+
 R.energy_device = {
   key: (h, s) => `${tileCacheTag(`st:${s.stat}:${new Date().toDateString()}`)}|${h.states[s.power]?.state}`,
   html(h, s, tile) {
@@ -1012,6 +1160,162 @@ R.energy_device = {
       <div class="tx"><div class="nm">${esc(s.name)}</div><div class="sb">${kwh === undefined ? '…' : `${fmt(kwh || 0, 2)} kWh today`}${w !== null ? ` · ${fmt(w, 0)} ${esc(u)}` : ''}</div></div></div>`;
   },
   action: (h, s, tile) => moreInfo(tile, s.power || s.stat),
+};
+
+// ---- all the lights of one room as one tile ------------------------------------------------------
+R.room_lights = {
+  key: (h, s) => s.lights.map((id) => h.states[id]?.state).join(''),
+  html(h, s) {
+    const on = s.lights.filter((id) => h.states[id]?.state === 'on').length;
+    const state = on ? (s.lights.length > 1 ? `${on} of ${s.lights.length} on` : 'On') : 'Off';
+    return `<div class="t flex${on ? ' on' : ''}" style="--hv-ic-on:#FF9F0A"><div class="ic"><i data-i="${on ? 'mdi:lightbulb-group' : 'mdi:lightbulb-group-outline'}"></i></div>
+      <div class="tx"><div class="nm">${esc(s.name || 'Lights')}</div><div class="sb">${esc(s.roomName)}${s.size?.[0] >= 2 ? ` · ${esc(state)}` : ''}</div></div></div>`;
+  },
+  action(h, s, tile, kind) {
+    if (kind === 'hold') return navigate(`room-${s.roomId}`);
+    const anyOn = s.lights.some((id) => h.states[id]?.state === 'on');
+    return h.callService('light', anyOn ? 'turn_off' : 'turn_on', {}, { entity_id: s.lights });
+  },
+};
+
+// ---- air quality --------------------------------------------------------------------------------
+const AIR_KINDS = [
+  ['aqi', (v) => (v <= 50 ? 0 : v <= 100 ? 1 : 2), 'AQI', ''],
+  ['pm25', (v) => (v <= 12 ? 0 : v <= 35 ? 1 : 2), 'PM2.5', 'µg/m³'],
+  ['carbon_dioxide', (v) => (v <= 800 ? 0 : v <= 1200 ? 1 : 2), 'CO₂', 'ppm'],
+  ['volatile_organic_compounds', (v) => (v <= 300 ? 0 : v <= 1000 ? 1 : 2), 'VOC', 'µg/m³'],
+  ['volatile_organic_compounds_parts', (v) => (v <= 250 ? 0 : v <= 2000 ? 1 : 2), 'VOC', 'ppb'],
+];
+const AIR_LEVELS = [['Excellent', '#30D158'], ['Fair', '#FFB800'], ['Poor', '#FF3B30']];
+function findAir(h, m) {
+  const sensors = m.byDomain.sensor || [];
+  for (const [dc] of AIR_KINDS) {
+    const id = sensors.find((x) => h.states[x]?.attributes?.device_class === dc && !UNAVAILABLE.includes(h.states[x].state));
+    if (id) { const room = m.areaById[entityArea(h, id)]; return { entity: id, temp: room?.temp, hum: room?.hum, roomName: room?.name }; }
+  }
+  return null;
+}
+R.air = {
+  key: (h, s) => [s.entity, s.temp, s.hum].map((id) => h.states[id]?.state).join('|'),
+  html(h, s) {
+    const st = h.states[s.entity];
+    const k = AIR_KINDS.find((x) => x[0] === st?.attributes?.device_class) || AIR_KINDS[0];
+    const v = num(st?.state);
+    const lvl = v === null ? null : AIR_LEVELS[k[1](v)];
+    const t = num(h.states[s.temp]?.state), hu = num(h.states[s.hum]?.state);
+    return `<div class="t flex"><div class="sq" style="background:${lvl ? lvl[1] : 'var(--hv-pill)'}"><ha-icon icon="mdi:air-filter"></ha-icon></div>
+      <div class="tx" style="flex:1"><div class="up">Air quality${s.roomName ? ` · ${esc(s.roomName)}` : ''}</div><div class="nm">${lvl ? lvl[0] : '—'}</div>
+      <div class="sb">${k[2]} ${fmt(v, 0)} ${k[3]}</div></div>
+      ${t !== null ? `<div class="tx" style="align-items:flex-end;text-align:right;flex:none"><div class="nm" style="color:${lvl ? lvl[1] : 'inherit'};font-size:clamp(16px,17cqh,32px)">${fmt(t, 0)}°</div>
+      ${hu !== null ? `<div class="sb">${fmt(hu, 0)}% RH</div>` : ''}</div>` : ''}</div>`;
+  },
+  action: (h, s, tile) => moreInfo(tile, s.entity),
+};
+
+// ---- 24-hour chart -------------------------------------------------------------------------------
+function getHistory(hass, id, hours, onUpdate) {
+  return cached(`hist:${id}:${hours}`, 5 * 60e3, async () => {
+    const r = await ws(hass, { type: 'history/history_during_period', start_time: new Date(Date.now() - hours * 3600e3).toISOString(),
+      entity_ids: [id], minimal_response: true, no_attributes: true, significant_changes_only: false });
+    return (r?.[id] || []).map((p) => ({ t: (p.lu ?? p.lc ?? 0) * 1000, v: num(p.s) })).filter((p) => p.v !== null && p.t);
+  }, onUpdate);
+}
+R.chart = {
+  key: (h, s) => `${h.states[s.entity]?.state}|${tileCacheTag(`hist:${s.entity}:24`)}`,
+  html(h, s, tile) {
+    const st = h.states[s.entity];
+    const pts = getHistory(h, s.entity, 24, () => tile.refresh()) || [];
+    const unit = st?.attributes?.unit_of_measurement || '';
+    const cur = num(st?.state);
+    const now = Date.now(), t0 = now - 24 * 3600e3;
+    const data = [...pts];
+    if (cur !== null) data.push({ t: now, v: cur });
+    let line = '', area = '', lo = null, hi = null;
+    if (data.length > 1) {
+      lo = Math.min(...data.map((p) => p.v)); hi = Math.max(...data.map((p) => p.v));
+      const span = hi - lo || 1;
+      const xy = data.map((p) => [((Math.max(p.t, t0) - t0) / (now - t0)) * 100, 92 - ((p.v - lo) / span) * 80]);
+      line = 'M' + xy.map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`).join(' L');
+      area = `${line} L100,100 L0,100 Z`;
+    }
+    const color = s.color || 'var(--hv-accent)';
+    return `<div class="t chart">
+      <div class="ch"><div><div class="ct" style="color:${color}">${esc(s.title)}</div>
+        <div class="cv">${cur === null ? '—' : fmt(cur, s.decimals ?? 1)}<span>${esc(unit)}</span>${hi !== null ? `<span class="rg">↑ ${fmt(hi, s.decimals ?? 1)}  ↓ ${fmt(lo, s.decimals ?? 1)}</span>` : ''}</div></div>
+        <span class="ic" style="--mdc-icon-size:22px;color:${color}"><i data-i="${esc(s.icon)}"></i></span></div>
+      <div class="cg"><svg viewBox="0 0 100 100" preserveAspectRatio="none">${line ? `<path d="${area}" style="fill:${color};opacity:.14"/>
+        <path d="${line}" style="fill:none;stroke:${color};stroke-width:2" vector-effect="non-scaling-stroke"/>` : ''}</svg>
+</div>
+      <div class="cx"><span>24h</span><span>18h</span><span>12h</span><span>6h</span><span>Now</span></div></div>`;
+  },
+  action: (h, s, tile) => moreInfo(tile, s.entity),
+};
+
+// ---- a family member's room (hero) --------------------------------------------------------------
+R.member_hero = {
+  tick: 60e3,
+  key: (h, s) => [s.room?.temp, s.room?.hum, ...(s.openings || [])].map((id) => h.states[id]?.state).join('|') + new Date().getDate(),
+  html(h, s) {
+    const r = s.room;
+    const tSt = h.states[r?.temp];
+    const t = num(tSt?.state), hu = num(h.states[r?.hum]?.state);
+    const f = /F/.test(tSt?.attributes?.unit_of_measurement || h.config.unit_system?.temperature || '');
+    const feel = t === null ? '' : t < (f ? 66 : 19) ? 'Cold' : t > (f ? 77 : 25) ? 'Warm' : 'Comfy';
+    const hfeel = hu === null ? '' : hu < 30 ? 'Dry' : hu > 55 ? 'Humid' : '';
+    const ops = (s.openings || []).map((id) => {
+      const st = h.states[id];
+      const open = isAlert(st);
+      const nm = shortName(h, id, r?.name).replace(/\b(sensor|contact)\b/ig, '').trim();
+      return `<div class="op"><span class="ic" style="--mdc-icon-size:1.25em;color:${open ? '#30B0C7' : 'inherit'}"><i data-e="${esc(id)}"></i></span>${esc(nm)} ${open ? (domainOf(id) === 'lock' ? 'unlocked' : 'open') : (domainOf(id) === 'lock' ? 'locked' : 'closed')}</div>`;
+    }).join('');
+    return `<div class="t hero">
+      <div class="hh"><span>${esc(s.title)}</span><span class="sb">${esc(new Date().toLocaleDateString(h.locale?.language, { weekday: 'long', month: 'short', day: 'numeric' }))}</span></div>
+      <div class="hbig">${t !== null ? `${fmt(t, 0)}°` : '—'}</div>
+      <div class="ops">${ops}</div>
+      <div class="hf">${t !== null ? `<span><span class="ic" style="--mdc-icon-size:1.2em;color:#30B0C7"><i data-i="mdi:thermometer"></i></span>${fmt(t, 1)}° <em>${feel}</em></span>` : ''}
+        ${hu !== null ? `<span><span class="ic" style="--mdc-icon-size:1.2em;color:#30B0C7"><i data-i="mdi:water-percent"></i></span>${fmt(hu, 0)}% <em>${hfeel}</em></span>` : ''}</div></div>`;
+  },
+  action: (h, s, tile) => (s.room ? navigate(`room-${s.room.id}`) : null),
+};
+
+// ---- energy flow diagram ------------------------------------------------------------------------
+function powerValues(h, p) {
+  const v = (id) => (id ? num(h.states[id]?.state) : null);
+  const scale = (id) => { const u = h.states[id]?.attributes?.unit_of_measurement; return u === 'kW' ? 1000 : u === 'MW' ? 1e6 : 1; };
+  const w = (id) => { const x = v(id); return x === null ? null : x * scale(id); };
+  const solar = w(p.solar), grid = w(p.grid), battery = w(p.battery), soc = v(p.battery_level);
+  let home = w(p.home);
+  if (home === null && (solar !== null || grid !== null)) home = (solar || 0) + (grid || 0) + (battery || 0);
+  return { solar, grid, battery, soc, home };
+}
+const kwFmt = (x) => (x === null ? '—' : Math.abs(x) >= 1000 ? `${fmt(Math.abs(x) / 1000, 1)} kW` : `${fmt(Math.abs(x), 0)} W`);
+R.energy_flow = {
+  key: (h, s) => Object.values(s.power).map((id) => h.states[id]?.state).join('|'),
+  html(h, s) {
+    const p = s.power, P = powerValues(h, p);
+    const has = { solar: !!p.solar, battery: !!(p.battery || p.battery_level) };
+    const act = (x) => x !== null && x > 20;
+    const lines = [];
+    const L = (d, color, on, rev) => lines.push(`<path class="fl${on ? ' on' : ''}${rev ? ' rev' : ''}" d="${d}" pathLength="100" style="stroke:${color}" vector-effect="non-scaling-stroke"/>`);
+    L('M15,50 L85,50', '#5B8DEF', act(P.grid) || act(-P.grid), act(-P.grid));
+    if (has.solar) { L('M50,16 Q50,50 85,50', '#FFB800', act(P.solar) && act(P.home)); L('M50,16 Q50,50 15,50', '#FFB800', act(-P.grid) && act(P.solar)); }
+    if (has.battery) {
+      L('M50,84 Q50,50 85,50', '#34C759', act(P.battery));
+      if (has.solar) L('M50,16 L50,84', '#FFB800', act(-P.battery) && act(P.solar));
+      L('M15,50 Q50,50 50,84', '#5B8DEF', act(-P.battery) && act(P.grid));
+    }
+    const node = (x, y, color, icon, value, label, extra = '') => `<div class="node" style="left:${x}%;top:${y}%;border-color:${color}">
+      <ha-icon icon="${icon}" style="color:${color}"></ha-icon><b>${value}</b>${extra}<span class="nl">${label}</span></div>`;
+    const batIcon = P.soc !== null ? `mdi:battery-${P.soc >= 95 ? 'high' : P.soc >= 50 ? 'medium' : P.soc >= 15 ? 'low' : 'outline'}` : 'mdi:home-battery-outline';
+    return `<div class="t" style="padding:0;cursor:default"><div class="flowbox">
+      <svg viewBox="0 0 100 100" preserveAspectRatio="none">${lines.join('')}</svg>
+      ${has.solar ? node(50, 16, '#FFB800', 'mdi:solar-power-variant', kwFmt(P.solar), 'Solar') : ''}
+      ${node(15, 50, '#5B8DEF', 'mdi:transmission-tower', kwFmt(P.grid), 'Grid', P.grid !== null ? `<small>${P.grid > 20 ? 'in' : P.grid < -20 ? 'out' : ''}</small>` : '')}
+      ${node(85, 50, '#30B0C7', 'mdi:home', kwFmt(P.home), 'Home')}
+      ${has.battery ? node(50, 84, '#34C759', batIcon, P.soc !== null ? `${fmt(P.soc, 0)}%` : kwFmt(P.battery), 'Battery', P.soc !== null && P.battery !== null ? `<small>${kwFmt(P.battery)}</small>` : '') : ''}
+    </div></div>`;
+  },
+  action(h, s, tile) { moreInfo(tile, s.power.home || s.power.grid || s.power.solar); },
 };
 
 // ---- any Lovelace card (rendered by <homeview-tile> itself) -----------------------------------
@@ -1082,6 +1386,9 @@ class HomeViewTile extends HTMLElement {
     if (key === this._key) return;
     this._key = key;
     this._wrap.innerHTML = r.html(this._hass, this._spec, this) + this._editHtml();
+    const card = this._wrap.firstElementChild;
+    if (card && this._spec.bare) card.classList.add('bare');
+    if (card && this._spec.row && card.classList.contains('flex')) card.classList.add('row-t');
     fillIcons(this._wrap, this._hass);
     if (r.update) r.update(this._hass, this._spec, this);
   }
@@ -1243,7 +1550,7 @@ function favoritesAuto(h, m) {
 
 // Default sizes of the tile types a user can place
 const TYPE_SIZES = { clock: [1, 1], weather: [2, 2], forecast: [2, 2], agenda: [2, 2], date: [2, 2], camera: [2, 1],
-  next_event: [2, 1], person: [2, 1], room: [1, 1], energy_now: [2, 2] };
+  next_event: [2, 1], person: [2, 1], room: [1, 1], energy_now: [2, 2], energy_flow: [3, 2], air: [2, 1], chart: [2, 1] };
 
 /**
  * A tile the user wrote in YAML:
@@ -1283,12 +1590,28 @@ const userSections = (list, h, m) => asList(list).map((sec) => ({
   tiles: asList(sec.tiles).map((t) => userTile(t, h, m)).filter(Boolean),
 }));
 
+const rowTile = (id, extra = {}) => entTile(id, { row: true, ...extra });
+const nonGroupLights = (h, ids) => asList(ids).filter((id) => !Array.isArray(h.states[id]?.attributes?.entity_id));
+
 const PAGES = {
+  // a tinted board: big date, big clock, camera, up next, weather — for a wall tablet
+  widgets(h, m) {
+    const board = [{ kind: 'date', area: 'date', bare: true }, { kind: 'clock', area: 'clock', bare: true }];
+    if (m.weather) board.push({ kind: 'forecast', entity: m.weather, days: 3, area: 'weather', bare: true });
+    if (m.calendars.length) board.push({ kind: 'agenda', calendars: m.calendars, days: 7, max: 5, area: 'next', bare: true, title: 'Up next' });
+    if (m.cameras[0]) board.push({ kind: 'camera', entity: m.cameras[0], area: 'cam' });
+    return { title: 'Widgets', minimalHead: true, board, sections: [] };
+  },
+
   home(h, m, cfg) {
     const pc = cfg.home || {};
     const tiles = [];
     if (m.weather) tiles.push({ kind: 'weather', entity: m.weather, size: [2, 2] });
+    const air = pc.air !== false ? findAir(h, m) : null;
+    if (air) tiles.push({ kind: 'air', ...air, size: [2, 1] });
     if (m.calendars.length) tiles.push({ kind: 'next_event', calendars: m.calendars, size: [2, 1] });
+    const cam = pc.camera !== false ? (pc.camera || m.cameras.find((id) => !UNAVAILABLE.includes(h.states[id]?.state))) : null;
+    if (cam) tiles.push({ kind: 'camera', entity: cam, size: [2, 1] });
     tiles.push({ kind: 'clock', size: [1, 1] });
     const favs = pc.favorites ? asList(pc.favorites) : favoritesAuto(h, m);
     favs.forEach((id) => {
@@ -1297,37 +1620,37 @@ const PAGES = {
       const room = m.areaById[entityArea(h, id)];
       tiles.push(entTile(id, { showRoom: true, areaName: room?.name, size: domainOf(id) === 'climate' ? [2, 1] : [1, 1] }));
     });
+    // "Lights" for the main rooms: tap = all on / off, hold = the room
+    const main = /living|lounge|kitchen|dining|family|great|den/i;
+    const lightRooms = (pc.light_rooms ? asList(pc.light_rooms).map((id) => m.areaById[id]).filter(Boolean)
+      : m.rooms.filter((r) => nonGroupLights(h, r.groups.lights).length)
+        .map((r, i) => ({ r, score: (main.test(r.name) ? 100 : 0) + nonGroupLights(h, r.groups.lights).length - i / 100 }))
+        .sort((a, b) => b.score - a.score).map((x) => x.r)).slice(0, pc.max_light_rooms ?? 4);
+    for (const r of lightRooms) {
+      const lights = nonGroupLights(h, r.groups.lights);
+      if (lights.length) tiles.push({ kind: 'room_lights', lights, roomName: r.name, roomId: r.id, size: [1, 1], hue: undefined });
+    }
     const sections = [{ tiles }];
-    if (pc.rooms !== false && m.rooms.length) {
-      sections.push({ title: 'Rooms', link: 'rooms', tiles: m.rooms.map((r) => roomTile(r)) });
-    }
-    if (pc.scenes !== false && (m.byDomain.scene || []).length) {
-      sections.push({ title: 'Scenes', tiles: (m.byDomain.scene || []).slice(0, pc.max_scenes || 8).map((id) => entTile(id, { size: [2, 1], sub: 'Scene' })) });
-    }
+    if (pc.rooms === true && m.rooms.length) sections.push({ title: 'Rooms', link: 'rooms', tiles: m.rooms.map((r) => roomTile(r)) });
+    const scenes = (m.byDomain.scene || []).slice(0, pc.max_scenes ?? 8);
+    if (pc.scenes !== false && scenes.length) sections.push({ title: 'Scenes', layout: 'rows', tiles: scenes.map((id) => rowTile(id, { sub: 'Scene' })) });
     return { title: cfg.title || h.config.location_name || 'Home', pills: true, people: true, sections };
-  },
-
-  widgets(h, m) {
-    const tiles = [{ kind: 'date', size: [2, 2] }, { kind: 'clock', size: [2, 2] }];
-    if (m.weather) tiles.push({ kind: 'forecast', entity: m.weather, size: [2, 2] });
-    if (m.calendars.length) tiles.push({ kind: 'agenda', calendars: m.calendars, size: [2, 2], days: 7, max: 6 });
-    if (m.cameras[0]) tiles.push({ kind: 'camera', entity: m.cameras[0], size: [2, 1] });
-    return { title: 'Widgets', sections: [{ tiles }] };
   },
 
   family(h, m) {
     const sections = [];
     if (m.persons.length) sections.push({ title: 'People', tiles: m.persons.map((id) => ({ kind: 'person', entity: id, battery: personBattery(h, id), size: [2, 1] })) });
-    if (m.calendars.length) {
-      sections.push({ title: 'Calendar', tiles: [{ kind: 'agenda', calendars: m.calendars, size: [4, 2], days: 14, max: 12, title: 'Next two weeks' }] });
+    if (m.members.some((x) => x.room)) {
+      sections.push({ title: 'Their rooms', tiles: m.members.filter((x) => x.room).map((x) => ({ ...roomTile(x.room), navigate: `member-${x.slug}` })) });
     }
-    return { title: 'Family', people: false, sections };
+    if (m.calendars.length) sections.push({ title: 'Calendar', tiles: [{ kind: 'agenda', calendars: m.calendars, size: [4, 2], days: 14, max: 12, title: 'Next two weeks' }] });
+    return { title: 'Family', sections };
   },
 
   rooms(h, m) {
     const sections = m.rooms.map((r) => {
       const ids = (r.pinned || ROOM_ROW_DOMAINS.flatMap((d) => r.entities.filter((id) => domainOf(id) === d
-        && !UNAVAILABLE.includes(h.states[id]?.state)))).slice(0, 11);
+        && !UNAVAILABLE.includes(h.states[id]?.state) && !(d === 'light' && Array.isArray(h.states[id]?.attributes?.entity_id))))).slice(0, 11);
       return { title: r.name, sub: r.floor, hue: r.hue,
         tiles: [roomTile(r), ...ids.map((id) => entTile(id, { areaName: r.name, hue: r.hue }))] };
     });
@@ -1338,14 +1661,44 @@ const PAGES = {
     const r = m.areaById[opts.area];
     if (!r) return { title: 'Room', sections: [{ tiles: [] }] };
     const sections = [];
-    if (r.pinned) sections.push({ tiles: r.pinned.map((id) => entTile(id, { areaName: r.name })) });
+    const charts = [];
+    if (r.temp) charts.push({ kind: 'chart', entity: r.temp, title: 'Temperature', icon: 'mdi:thermometer', color: '#34C759', size: [2, 1] });
+    if (r.hum) charts.push({ kind: 'chart', entity: r.hum, title: 'Humidity', icon: 'mdi:water-percent', color: '#30B0C7', decimals: 0, size: [2, 1] });
+    const lux = (r.groups.sensors || []).find((id) => h.states[id]?.attributes?.device_class === 'illuminance');
+    if (lux) charts.push({ kind: 'chart', entity: lux, title: 'Light level', icon: 'mdi:brightness-6', color: '#8E8E93', decimals: 0, size: [2, 1] });
+    if (charts.length) sections.push({ tiles: charts });
+    if (r.pinned) sections.push({ tiles: r.pinned.map((id) => rowTile(id, { areaName: r.name })), layout: 'rows' });
     for (const g of ROOM_GROUPS) {
-      let ids = (r.groups[g.id] || []).filter((id) => !r.pinned?.includes(id));
+      const ids = (r.groups[g.id] || []).filter((id) => !r.pinned?.includes(id) && !charts.some((c) => c.entity === id));
       if (!ids.length) continue;
-      if (g.id === 'cameras') { sections.push({ title: g.title, tiles: ids.map((id) => ({ kind: 'camera', entity: id, size: [2, 1] })) }); continue; }
-      sections.push({ title: g.title, tiles: ids.map((id) => entTile(id, { areaName: r.name, size: domainOf(id) === 'climate' ? [2, 1] : [1, 1] })) });
+      if (g.id === 'cameras') { sections.push({ title: g.title, layout: 'cams', tiles: ids.map((id) => ({ kind: 'camera', entity: id })) }); continue; }
+      sections.push({ title: g.title, layout: 'rows', tiles: ids.map((id) => rowTile(id, { areaName: r.name })) });
     }
     return { title: r.name, back: true, room: r, hue: r.hue, sections };
+  },
+
+  // one family member: their room (hero), its devices, their calendar and where they are
+  member(h, m, cfg, opts) {
+    const mem = m.members.find((x) => x.person === opts.member);
+    if (!mem) return { title: 'Member', sections: [{ tiles: [] }] };
+    const r = mem.room;
+    const tiles = [];
+    const openings = r ? r.entities.filter((id) => {
+      const dc = h.states[id]?.attributes?.device_class;
+      return (domainOf(id) === 'binary_sensor' && OPENING_CLASSES.includes(dc)) || domainOf(id) === 'lock';
+    }).slice(0, 3) : [];
+    tiles.push({ kind: 'member_hero', room: r, title: `${mem.name}'s ${r ? 'room' : 'day'}`, openings, size: [2, 2] });
+    tiles.push({ kind: 'clock', size: [1, 1] });
+    if (r) {
+      const ids = ROOM_ROW_DOMAINS.flatMap((d) => r.entities.filter((id) => domainOf(id) === d && !UNAVAILABLE.includes(h.states[id]?.state)
+        && !(d === 'light' && Array.isArray(h.states[id]?.attributes?.entity_id)))).slice(0, 7);
+      ids.forEach((id) => tiles.push(entTile(id, { areaName: r.name })));
+      openings.filter((id) => domainOf(id) === 'binary_sensor').forEach((id) => tiles.push(entTile(id, { areaName: r.name })));
+    }
+    const cals = mem.calendars.length ? mem.calendars : m.calendars;
+    if (cals.length) tiles.push({ kind: 'next_event', calendars: cals, size: [2, 1] });
+    tiles.push({ kind: 'person', entity: mem.person, battery: personBattery(h, mem.person), size: [2, 1] });
+    return { title: mem.name, hue: mem.hue, sections: [{ tiles }] };
   },
 
   energy(h, m, cfg, opts, page) {
@@ -1353,19 +1706,19 @@ const PAGES = {
     const ec = cfg.energy || {};
     if (prefs === undefined) return { title: 'Energy', sections: [{ tiles: [] }], note: 'Loading energy settings…' };
     const src = prefs?.energy_sources || [];
-    const grid = src.find((s) => s.type === 'grid') || {};
-    const solar = src.filter((s) => s.type === 'solar');
-    const bat = src.filter((s) => s.type === 'battery');
+    const grid = src.find((x) => x.type === 'grid') || {};
+    const solar = src.filter((x) => x.type === 'solar');
+    const bat = src.filter((x) => x.type === 'battery');
     const gridIn = [...asList(grid.flow_from).map((f) => f.stat_energy_from), grid.stat_energy_from].filter(Boolean);
     const gridOut = [...asList(grid.flow_to).map((f) => f.stat_energy_to), grid.stat_energy_to].filter(Boolean);
-    const solarIds = solar.map((s) => s.stat_energy_from).filter(Boolean);
-    const batOut = bat.map((s) => s.stat_energy_from).filter(Boolean);
-    const batIn = bat.map((s) => s.stat_energy_to).filter(Boolean);
+    const solarIds = solar.map((x) => x.stat_energy_from).filter(Boolean);
+    const batOut = bat.map((x) => x.stat_energy_from).filter(Boolean);
+    const batIn = bat.map((x) => x.stat_energy_to).filter(Boolean);
 
     // live power: config, else the energy settings' power sensors, else a guess by name
     const powerSensors = (m.byDomain.sensor || []).filter((id) => h.states[id]?.attributes?.device_class === 'power');
     const guess = (re) => powerSensors.find((id) => re.test(id)) || null;
-    const statRate = (s) => s?.stat_rate || s?.power_config?.stat_rate || null;
+    const statRate = (x) => x?.stat_rate || x?.power_config?.stat_rate || null;
     const power = {
       solar: ec.solar_power || statRate(solar[0]) || (solarIds.length ? guess(/solar|pv/) : null),
       grid: ec.grid_power || statRate(grid) || guess(/grid/),
@@ -1376,24 +1729,24 @@ const PAGES = {
     Object.keys(power).forEach((k) => { if (!power[k]) delete power[k]; });
 
     const top = [];
-    if (Object.keys(power).length) top.push({ kind: 'energy_now', power, size: [2, 2] });
-    const stats = [];
+    if (Object.keys(power).length) top.push({ kind: 'energy_flow', power, size: ['half', 2] });
     const S = (ids, role, sign = 1) => ids.map((id) => ({ id, role: `${role}:${id}`, sign }));
-    const sumRole = (v, role) => Object.entries(v).filter(([k]) => k.startsWith(role + ':')).reduce((a, [, x]) => a + (x || 0), 0);
+    const sumRole = (v, role) => Object.entries(v).filter(([k]) => k.startsWith(role + ':')).reduce((acc, [, x]) => acc + (x || 0), 0);
     const all = [...S(gridIn, 'gin'), ...S(gridOut, 'gout'), ...S(solarIds, 'sol'), ...S(batOut, 'bout'), ...S(batIn, 'bin')];
     const homeUse = (v) => sumRole(v, 'gin') + sumRole(v, 'sol') - sumRole(v, 'gout') + sumRole(v, 'bout') - sumRole(v, 'bin');
-    if (gridIn.length || solarIds.length) {
-      stats.push({ kind: 'energy_stat', title: 'Home used', icon: 'mdi:home-lightning-bolt-outline', stats: all, compute: homeUse, size: [2, 1] });
-    }
-    if (solarIds.length) stats.push({ kind: 'energy_stat', title: 'Solar produced', icon: 'mdi:solar-power-variant', color: '#FFB800', stats: S(solarIds, 'sol'), size: [2, 1] });
-    if (gridIn.length) stats.push({ kind: 'energy_stat', title: 'From grid', icon: 'mdi:transmission-tower-import', color: '#8E8E93', stats: S(gridIn, 'gin'), size: [2, 1] });
-    if (gridOut.length) stats.push({ kind: 'energy_stat', title: 'To grid', icon: 'mdi:transmission-tower-export', color: '#8E8E93', stats: S(gridOut, 'gout'), size: [2, 1] });
-    if (batOut.length) stats.push({ kind: 'energy_stat', title: 'From battery', icon: 'mdi:home-battery-outline', color: '#34C759', stats: S(batOut, 'bout'), size: [2, 1] });
+    const items = [];
+    const stat = (title, icon, color, stats, extra = {}) => items.push({ title, icon, color, stats, ...extra });
+    if (gridIn.length || solarIds.length) stat('Home used', 'mdi:home-lightning-bolt-outline', '#30B0C7', all, { compute: homeUse });
+    if (solarIds.length) stat('Solar', 'mdi:solar-power-variant', '#FFB800', S(solarIds, 'sol'));
+    if (gridIn.length) stat('From grid', 'mdi:transmission-tower-import', '#5B8DEF', S(gridIn, 'gin'));
+    if (gridOut.length) stat('To grid', 'mdi:transmission-tower-export', '#5B8DEF', S(gridOut, 'gout'));
+    if (batOut.length) stat('From battery', 'mdi:home-battery-outline', '#34C759', S(batOut, 'bout'));
     if (gridIn.length && (solarIds.length || batOut.length)) {
-      stats.push({ kind: 'energy_stat', title: 'Self-sufficiency', icon: 'mdi:leaf', color: '#34C759', unit: '%', stats: all, size: [2, 1],
+      stat('Self-sufficiency', 'mdi:leaf', '#34C759', all, { unit: '%',
         compute: (v) => { const u = homeUse(v); return u > 0.05 ? clamp(100 * (1 - sumRole(v, 'gin') / u), 0, 100) : null; } });
     }
-    const sections = [{ tiles: [...top, ...stats] }];
+    if (items.length) top.push({ kind: 'energy_today', items, size: ['half', 2] });
+    const sections = [{ tiles: top }];
 
     const devices = asList(prefs?.device_consumption);
     if (devices.length) {
@@ -1403,12 +1756,12 @@ const PAGES = {
         const dev = reg?.device_id && h.devices?.[reg.device_id];
         const powerId = dev ? Object.values(h.entities).find((e) => e.device_id === dev.id && h.states[e.entity_id]?.attributes?.device_class === 'power')?.entity_id : null;
         const name = d.name || dev?.name_by_user || dev?.name || h.states[statId]?.attributes?.friendly_name || statId;
-        return { kind: 'energy_device', stat: statId, power: powerId, name, size: [2, 1] };
+        return { kind: 'energy_device', stat: statId, power: powerId, name, row: true };
       });
       // most used today first: once every number is in, the page is rebuilt in that order
       devTiles.forEach((t) => getStatToday(h, t.stat, () => page.scheduleRebuild()));
       devTiles.sort((a, b) => (getStatToday(h, b.stat) || 0) - (getStatToday(h, a.stat) || 0));
-      sections.push({ title: 'Devices today', tiles: devTiles.slice(0, ec.devices || 12) });
+      sections.push({ title: 'Devices today', layout: 'rows', tiles: devTiles.slice(0, ec.devices || 12) });
     }
     if (!src.length && !Object.keys(power).length && !devices.length) {
       return { title: 'Energy', sections: [], note: 'Set up the Energy dashboard in Home Assistant (Settings → Dashboards → Energy) and HomeView fills this page in.' };
@@ -1417,7 +1770,7 @@ const PAGES = {
   },
 
   cameras(h, m) {
-    return { title: 'Cameras', sections: [{ tiles: m.cameras.map((id) => ({ kind: 'camera', entity: id, size: [2, 1] })) }] };
+    return { title: 'Cameras', sections: [{ layout: 'cams', tiles: m.cameras.map((id) => ({ kind: 'camera', entity: id })) }] };
   },
 
   // custom_pages: [{ path, title, icon, color, pills, sections: [{ title, tiles: [...] }] }]
@@ -1434,7 +1787,7 @@ const PAGES = {
 const PAGE_CSS = `
 :host { display:block; }
 * { box-sizing:border-box; }
-.page { min-height:calc(100vh - var(--header-height, 56px)); background:var(--hv-bg); color:var(--hv-fg); font-family:${FONT};
+.page { overflow-x:hidden; min-height:calc(100vh - var(--header-height, 56px)); background:var(--hv-bg); color:var(--hv-fg); font-family:${FONT};
   padding:var(--hv-pad) var(--hv-pad) calc(var(--hv-pad) * 2); -webkit-font-smoothing:antialiased; }
 .head { display:flex; flex-wrap:wrap; align-items:flex-start; justify-content:space-between; gap:12px 20px; margin-bottom:calc(var(--hv-gap) * 1.2); }
 .date { font-size:13px; font-weight:650; letter-spacing:.06em; text-transform:uppercase; color:var(--hv-fg2); }
@@ -1462,6 +1815,20 @@ const PAGE_CSS = `
 .compact .sec-h { display:none; }
 .grid { display:grid; grid-template-columns:repeat(var(--hv-cols), minmax(0, 1fr)); grid-auto-rows:var(--hv-row);
   gap:var(--hv-gap); grid-auto-flow:row dense; }
+.grid.rows { grid-template-columns:repeat(auto-fill, minmax(min(100%, 230px), 1fr)); grid-auto-rows:66px; gap:10px; }
+.grid.cams { grid-template-columns:repeat(auto-fill, minmax(min(100%, 300px), 1fr)); grid-auto-rows:auto; }
+.grid.cams > homeview-tile { aspect-ratio:16 / 9; height:auto; }
+.board { display:grid; gap:var(--hv-gap); padding:clamp(16px, 3vw, 40px); border-radius:34px; background:var(--hv-board); color:var(--hv-fg);
+  grid-template-columns:repeat(3, minmax(0, 1fr)); grid-template-rows:calc(var(--hv-row) * 1.3) calc(var(--hv-row) * 1.3) calc(var(--hv-row) * 1.15);
+  grid-template-areas:"date clock clock" "date clock clock" "cam next weather"; }
+.board > homeview-tile { min-height:0; min-width:0; }
+.board.narrow { grid-template-columns:1fr; grid-template-rows:none; grid-auto-rows:auto; grid-template-areas:"date" "clock" "weather" "next" "cam"; }
+.board.narrow > homeview-tile { height:240px; }
+.board.narrow > homeview-tile.a-date { height:270px; }
+.board.narrow > homeview-tile.a-clock { height:min(86vw, 380px); }
+.board.narrow > homeview-tile.a-cam { height:auto; aspect-ratio:16 / 9; }
+.lt { width:20px; height:20px; border-radius:50%; background:var(--hv-accent); color:#fff; font-size:11px; font-weight:750;
+  display:inline-flex; align-items:center; justify-content:center; }
 .note { padding:24px; border-radius:22px; background:var(--hv-tile); color:var(--hv-fg2); font-size:15px; }
 .pop { position:fixed; inset:0; z-index:10; background:rgba(0,0,0,.35); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);
   display:flex; align-items:flex-end; justify-content:center; }
@@ -1480,15 +1847,16 @@ const PAGE_CSS = `
 .editbar b { color:var(--hv-fg); }
 .eb { display:flex; gap:8px; }
 .hidden-sec .sec-h { color:var(--hv-fg2); }
-.topbar { flex-basis:100%; display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:-4px; }
-.nav { display:flex; gap:6px; overflow-x:auto; scrollbar-width:none; min-width:0; }
+.topbar { flex-basis:100%; min-width:0; max-width:100%; display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:-4px; }
+.nav { display:flex; gap:6px; overflow-x:auto; scrollbar-width:none; min-width:0; flex:1 1 auto; }
+.head > div { min-width:0; max-width:100%; }
 .nav::-webkit-scrollbar { display:none; }
 .nv, .chip { all:unset; cursor:pointer; display:inline-flex; align-items:center; gap:6px; padding:7px 12px; border-radius:999px; flex:none;
   font:650 13.5px ${FONT}; color:var(--hv-fg2); --mdc-icon-size:18px; }
 .nv.on { background:var(--hv-pill); color:var(--hv-fg); }
 .nv.on ha-icon { color:var(--hv-accent); }
 .chip { background:var(--hv-pill); color:var(--hv-fg); }
-@media (max-width:700px) { .nv span { display:none; } .nv { padding:8px 10px; } }
+@media (max-width:700px) { .nv > span:not(.lt), .chip .ct { display:none; } .nv { padding:8px 9px; } .chip { padding:8px 10px; } }
 .upd { all:unset; cursor:pointer; flex-basis:100%; display:flex; align-items:center; gap:10px; padding:10px 14px; border-radius:16px;
   background:var(--hv-accent); color:#fff; font:500 14px ${FONT}; --mdc-icon-size:22px; box-sizing:border-box; }
 .upd b { font-weight:700; }
@@ -1523,6 +1891,7 @@ class HomeViewPage extends HTMLElement {
 
   set hass(h) {
     this._hass = h;
+    if (this.isConnected && Date.now() - (this._kAt || 0) > 2500) { this._kAt = Date.now(); applyKiosk(kioskWanted(this._config?.options)); }
     const sig = this._signature(h);
     if (sig !== this._sig) { this._sig = sig; this.rebuild(); return; }
     this._tiles.forEach((t) => { t.hass = h; });
@@ -1599,10 +1968,27 @@ class HomeViewPage extends HTMLElement {
       if (unknown.length) notes.push(`HomeView: unknown option${unknown.length > 1 ? 's' : ''} ${unknown.join(', ')} — check the spelling (README → Configuration). Only admins see this.`);
     }
     for (const t of notes) { const n = document.createElement('div'); n.className = 'note'; n.textContent = t; frag.appendChild(n); }
-    if (!page.sections.some((x) => x.tiles.length) && !notes.length) {
+    if (!page.board && !page.sections.some((x) => x.tiles.length) && !notes.length) {
       const n = document.createElement('div'); n.className = 'note';
       n.textContent = this._config.page === 'custom' ? 'This page has no tiles yet. Add some under custom_pages → sections → tiles.' : 'Nothing to show here yet.';
       frag.appendChild(n);
+    }
+    if (page.board) {
+      const b = document.createElement('div'); b.className = 'board';
+      const bh = page.hue ?? pd.hue ?? 200;
+      b.setAttribute('style', styleVars({ ...palette(bh, dark, 0.3),
+        '--hv-board': dark ? `hsl(${bh} 12% 15%)` : `hsl(${bh} 13% 72%)`,
+        '--hv-fg': dark ? '#EEF2F3' : '#15191B', '--hv-fg2': dark ? `hsl(${bh} 8% 66%)` : `hsl(${bh} 9% 30%)`,
+        '--hv-accent': dark ? '#FF9F45' : '#E8640C', '--hv-clock-num': 'var(--hv-fg)', '--hv-line': dark ? 'rgba(255,255,255,.14)' : 'rgba(0,0,0,.14)',
+        '--hv-tile': 'transparent', '--hv-pill': dark ? 'rgba(255,255,255,.08)' : 'rgba(255,255,255,.35)' }));
+      for (const spec of page.board) {
+        const t = this._tile({ ...spec, size: [1, 1] }, dark);
+        t._hvFree = true;
+        t.style.gridArea = spec.area;
+        t.classList.add(`a-${spec.area}`);
+        b.appendChild(t);
+      }
+      frag.appendChild(b);
     }
     for (const sec of page.sections) {
       if (!sec.tiles.length) continue;
@@ -1611,9 +1997,13 @@ class HomeViewPage extends HTMLElement {
       if (sec.title) {
         s.insertAdjacentHTML('beforeend', `<div class="sec-h">${esc(sec.title)}${sec.sub ? `<span class="sub">${esc(sec.sub)}</span>` : ''}${sec.link ? `<span class="more" data-nav="${esc(sec.link)}">See all ›</span>` : ''}</div>`);
       }
-      const g = document.createElement('div'); g.className = 'grid';
+      const g = document.createElement('div'); g.className = 'grid' + (sec.layout ? ` ${sec.layout}` : '');
       if (sec.hue !== undefined) g.setAttribute('style', styleVars(palette(sec.hue, dark)));
-      for (const spec of sec.tiles) g.appendChild(this._tile(spec, dark));
+      for (const spec of sec.tiles) {
+        const t = this._tile(sec.layout === 'rows' ? { ...spec, row: true } : spec, dark);
+        if (sec.layout) t._hvFree = true;
+        g.appendChild(t);
+      }
       s.appendChild(g);
       frag.appendChild(s);
     }
@@ -1815,8 +2205,12 @@ class HomeViewPage extends HTMLElement {
     this._root.style.setProperty('--hv-row', `${row}px`);
     this._root.style.setProperty('--hv-gap', `${gap}px`);
     this._root.style.setProperty('--hv-pad', `${pad}px`);
+    this._root.querySelector('.board')?.classList.toggle('narrow', cols < 4);
     for (const t of this._tiles) {
-      const [sw, sh] = t._hvSize;
+      if (t._hvFree) continue;
+      let [sw, sh] = t._hvSize;
+      if (sw === 'half') sw = cols >= 4 ? Math.ceil(cols / 2) : cols;
+      if (sw === 'full') sw = cols;
       t.style.gridColumn = `span ${Math.min(sw, cols)}`;
       t.style.gridRow = `span ${sh}`;
     }
@@ -1838,11 +2232,14 @@ class HomeViewPage extends HTMLElement {
     if (this._updEnt === undefined) this._updEnt = findUpdateEntity(h);
     const upd = h.user?.is_admin && cfg.update_notice !== false && this._updEnt ? h.states[this._updEnt] : null;
     const updOn = upd?.state === 'on' && !upd.attributes.skipped_version ? upd.attributes.latest_version : null;
+    // installed by HACS, but this screen still runs an older copy from the browser cache
+    const instV = cleanVer(upd?.attributes?.installed_version);
+    const stale = upd && /^\d+\.\d+\.\d+$/.test(instV) && newerVer(instV, HV_VERSION) ? instV : null;
     const kiosk = kioskWanted(cfg);
     const chip = cfg.kiosk !== false && cfg.kiosk_chip !== false;
     const nav = kiosk && !page.back ? asList(this._config.nav) : [];
     const here = this._config.path || this._config.page;
-    const key = JSON.stringify([today, page.title, editing, canEdit, updOn, kiosk, here, pills.map(([id, p]) => [id, p.text, p.alert, p.active]), people.map((id) => h.states[id]?.state)]);
+    const key = JSON.stringify([today, page.title, editing, canEdit, updOn, stale, kiosk, here, pills.map(([id, p]) => [id, p.text, p.alert, p.active]), people.map((id) => h.states[id]?.state)]);
     if (key === this._headKey) return;
     this._headKey = key;
     const room = page.room;
@@ -1851,12 +2248,14 @@ class HomeViewPage extends HTMLElement {
       const s = roomSummary(h, room);
       roomSub = [s.t !== null ? `${fmt(s.t, 1)}°` : null, s.hu !== null ? `${fmt(s.hu, 0)}%` : null].filter(Boolean).join(' · ');
     }
-    const updBanner = updOn ? `<button class="upd" data-more="${esc(this._updEnt)}"><ha-icon icon="mdi:arrow-up-circle"></ha-icon>
+    const updBanner = stale ? `<button class="upd" data-fresh><ha-icon icon="mdi:refresh-circle"></ha-icon>
+        <span><b>HomeView ${esc(stale)} is installed</b>, but this screen still runs ${esc(HV_VERSION)}. Tap to reload it.</span></button>`
+      : updOn ? `<button class="upd" data-more="${esc(this._updEnt)}"><ha-icon icon="mdi:arrow-up-circle"></ha-icon>
         <span><b>HomeView ${esc(updOn)} is available</b> (you have ${esc(HV_VERSION)}). Tap to see what's new and update.</span></button>` : '';
     const topbar = nav.length > 1 || chip ? `<div class="topbar">
-        <div class="nav">${nav.length > 1 ? nav.map((v) => `<button class="nv${v.path === here ? ' on' : ''}" data-nav-to="${esc(v.path)}" title="${esc(v.title)}"><ha-icon icon="${esc(v.icon)}"></ha-icon><span>${esc(v.title)}</span></button>`).join('') : ''}</div>
-        ${chip ? `<button class="chip" data-kiosk title="${kiosk ? 'Show the Home Assistant menu and header' : 'Full screen: hide the Home Assistant menu and header'}"><ha-icon icon="${kiosk ? 'mdi:dock-left' : 'mdi:fullscreen'}"></ha-icon>${kiosk ? 'Menu' : 'Full screen'}</button>` : ''}</div>` : '';
-    head.innerHTML = `${updBanner}${topbar}<div>
+        <div class="nav">${nav.length > 1 ? nav.map((v) => `<button class="nv${v.path === here ? ' on' : ''}" data-nav-to="${esc(v.path)}" title="${esc(v.title)}">${v.letter ? `<span class="lt">${esc(v.letter)}</span>` : `<ha-icon icon="${esc(v.icon)}"></ha-icon>`}<span>${esc(v.title)}</span></button>`).join('') : ''}</div>
+        ${chip ? `<button class="chip" data-kiosk title="${kiosk ? 'Show the Home Assistant menu and header' : 'Full screen: hide the Home Assistant menu and header'}"><ha-icon icon="${kiosk ? 'mdi:dock-left' : 'mdi:fullscreen'}"></ha-icon><span class="ct">${kiosk ? 'Menu' : 'Full screen'}</span></button>` : ''}</div>` : '';
+    head.innerHTML = page.minimalHead ? `${updBanner}${topbar}` : `${updBanner}${topbar}<div>
         <div class="date">${esc(today)}</div>
         <div class="title">${page.back ? '<button class="back" data-back><ha-icon icon="mdi:chevron-left"></ha-icon></button>' : ''}${esc(page.title)}${roomSub ? `<span class="sub">${esc(roomSub)}</span>` : ''}${canEdit && !editing ? '<button class="back pen" data-edit-on title="Edit HomeView"><ha-icon icon="mdi:pencil-outline"></ha-icon></button>' : ''}</div>
         ${editing ? `<div class="editbar"><span><b>Editing</b> · <ha-icon icon="mdi:star-outline"></ha-icon> on Home · <ha-icon icon="mdi:resize"></ha-icon> size · <ha-icon icon="mdi:rename-outline"></ha-icon> name · <ha-icon icon="mdi:eye-off-outline"></ha-icon> hide · <ha-icon icon="mdi:palette-outline"></ha-icon> room colour</span>
@@ -1870,6 +2269,7 @@ class HomeViewPage extends HTMLElement {
       ${pills.length ? `<div class="pills">${pills.map(([id, p]) => `<button class="pill${p.alert ? ' alert' : p.active ? ' active' : ''}" data-pill="${id}"><ha-icon icon="${p.icon}"></ha-icon>${esc(p.text)}${p.popup ? '<ha-icon icon="mdi:chevron-right" style="--mdc-icon-size:15px;opacity:.6"></ha-icon>' : ''}</button>`).join('')}</div>` : ''}`;
     head.querySelector('[data-back]')?.addEventListener('click', () => (history.length > 1 ? history.back() : navigate(cfg.rooms_path || 'rooms')));
     head.querySelector('[data-edit-on]')?.addEventListener('click', () => this._setEditing(true));
+    head.querySelector('[data-fresh]')?.addEventListener('click', () => reloadFresh());
     head.querySelectorAll('[data-nav-to]').forEach((el) => el.addEventListener('click', () => navigate(el.dataset.navTo)));
     head.querySelector('[data-kiosk]')?.addEventListener('click', () => { setKioskWanted(!kiosk); applyKiosk(!kiosk); this._headKey = null; this._renderHead(); });
     head.querySelector('[data-edit-off]')?.addEventListener('click', () => this._setEditing(false));
@@ -1886,10 +2286,12 @@ class HomeViewPage extends HTMLElement {
     const pop = document.createElement('div'); pop.className = 'pop';
     const sheet = document.createElement('div'); sheet.className = 'sheet';
     sheet.innerHTML = `<div class="sheet-h">${esc(title)}<button class="back" data-close><ha-icon icon="mdi:close"></ha-icon></button></div>`;
-    const g = document.createElement('div'); g.className = 'grid';
+    const g = document.createElement('div'); g.className = 'grid rows';
     const tiles = ids.map((id) => {
       const room = this._model.areaById[entityArea(h, id)];
-      return this._tile(entTile(id, { showRoom, areaName: room?.name }), this._dark);
+      const t = this._tile(rowTile(id, { showRoom, areaName: room?.name }), this._dark);
+      t._hvFree = true;
+      return t;
     });
     tiles.forEach((t) => g.appendChild(t));
     sheet.appendChild(g); pop.appendChild(sheet);
@@ -1965,7 +2367,7 @@ const PILL_NAMES = { alarm: 'Alarm', climate: 'Climate', lights: 'Lights on', lo
 
 // What HomeView does when an option is not set: shown in the editor, left out when saving
 const EDITOR_DEFAULTS = { theme: 'auto', pages: DEFAULT_PAGES, swipe: true, edit_button: true, update_notice: true, kiosk: true, kiosk_chip: true, people_chips: true, battery_low: 20,
-  home: { rooms: true, scenes: true, max_scenes: 8 } };
+  home: { rooms: false, scenes: true, max_scenes: 8 } };
 
 function withDefaults(o, d = EDITOR_DEFAULTS) {
   const out = { ...o };
@@ -2132,23 +2534,29 @@ class HomeViewStrategy extends HTMLElement {
       if (options.energy) hasEnergy = true;
     }
     const available = {
-      home: true, widgets: true, rooms: m.rooms.length > 0, energy: hasEnergy,
+      home: true, widgets: true, rooms: m.rooms.length > 0, energy: hasEnergy, members: m.members.length > 0,
       family: m.persons.length > 0 || m.calendars.length > 0, cameras: m.cameras.length > 0,
     };
     const pages = [...wanted.filter((p) => !PAGE_DEFS[p] || available[p]),
       ...customs.map((c) => c.path).filter((p) => !wanted.includes(p))];
     const pc = options.pages_config || {};
-    const views = pages.map((p) => {
+    const paths = pages.flatMap((p) => (p === 'members' ? m.members.map((x) => `member-${x.slug}`) : [p]));
+    const views = paths.map((p) => {
+      const mem = m.members.find((x) => `member-${x.slug}` === p);
+      if (mem) {
+        return { title: mem.name, path: p, icon: mem.room?.icon || 'mdi:account', letter: mem.name.slice(0, 1).toUpperCase(), type: 'panel',
+          cards: [{ type: 'custom:homeview-page', page: 'member', member: mem.person, path: p, order: paths, options }] };
+      }
       const c = customs.find((x) => x.path === p);
       if (c) {
         return { title: c.title || 'Page', path: p, icon: c.icon || 'mdi:view-grid-outline', type: 'panel',
-          cards: [{ type: 'custom:homeview-page', page: 'custom', custom: c.idx, path: p, order: pages, options }] };
+          cards: [{ type: 'custom:homeview-page', page: 'custom', custom: c.idx, path: p, order: paths, options }] };
       }
       return { title: pc[p]?.title || PAGE_DEFS[p].title, path: p, icon: pc[p]?.icon || PAGE_DEFS[p].icon, type: 'panel',
-        cards: [{ type: 'custom:homeview-page', page: p, path: p, order: pages, options }] };
+        cards: [{ type: 'custom:homeview-page', page: p, path: p, order: paths, options }] };
     });
-    const nav = views.map((v) => ({ path: v.path, title: v.title, icon: v.icon }));
-    views.forEach((v) => { v.cards[0].nav = nav; });
+    const nav = views.map((v) => ({ path: v.path, title: v.title, icon: v.icon, letter: v.letter }));
+    views.forEach((v) => { v.cards[0].nav = nav; delete v.letter; });
     for (const r of m.rooms) {
       views.push({
         title: r.name, path: `room-${r.id}`, icon: r.icon, subview: true, back_path: pages.includes('rooms') ? 'rooms' : undefined,

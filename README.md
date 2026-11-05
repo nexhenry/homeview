@@ -19,7 +19,7 @@ no YAML per tile.
 - **Full screen like an app:** HA's header and sidebar are hidden; a Menu chip brings them back.
 - **Touch-first:** tap toggles, hold opens the details. Swipe left / right between pages.
 
-> Status: **0.3 (preview)**. The layout and config keys may still change before 1.0.
+> Status: **0.4 (preview)**. The layout and config keys may still change before 1.0.
 > Use at your own risk — see [Disclaimer](#disclaimer).
 
 ## Contents
@@ -34,15 +34,17 @@ no YAML per tile.
 
 | Page | What's on it |
 |---|---|
-| **Home** | Date and title, status pills (alarm, climate, lights on, locks, doors & windows, leaks / smoke, batteries, now playing), people, the weather, the next calendar event, a clock, your favourites (alarm, locks, garage doors, thermostat — or your own list), every room and your scenes |
-| **Widgets** | Big date with sunrise / sunset, an analog clock, the forecast, the week's agenda, a camera — made for a wall tablet |
-| **Family** | Each person: home or away, since when, their phone's battery. The family calendar for the next two weeks |
+| **Widgets** | One tinted panel for a wall tablet: a big date with sunrise / sunset, a big analog clock, the forecast, the week's agenda and a camera |
+| **Home** | Date, title, people and status pills (alarm, climate, lights on, locks, doors & windows, leaks / smoke, batteries, now playing); the weather, air quality, the next event, a camera, a clock, your favourites (alarm, locks, garage, thermostat), *Lights* for the main rooms (tap = all on / off) and your scenes |
+| **Family** | Each person: home or away, since when, their phone's battery; the family members' rooms; the calendar for the next two weeks |
 | **Rooms** | Every room in its own colour with its lights, climate, locks, covers, fans and media. Tap a room for its page |
-| **Room pages** | Everything in the room, grouped: lights, climate, doors & security, media, devices, scenes, cameras, sensors |
-| **Energy** | Right now (solar, home, grid, battery), today's totals and self-sufficiency, and the devices that used the most today — all from your Energy dashboard settings |
-| **Cameras** | Every camera, refreshed every 10 s while on screen. Tap for the live stream |
+| **Room pages** | 24-hour charts (temperature, humidity, light level), then everything in the room as compact tiles: lights, climate, doors & security, media, devices, scenes, cameras, sensors |
+| **A page per family member** | For each person with a room named after them ("Bedroom Lucy"): their room's temperature, humidity, doors and windows, its devices, their next event and where they are |
+| **Cameras** | Every camera in a 16:9 grid, refreshed every 10 s while on screen. Tap for the live stream |
+| **Energy** | A live flow diagram (solar, grid, battery, home), today's numbers and self-sufficiency, and the devices that used the most today — from your Energy dashboard settings |
 | **Your pages** | As many as you like, with your own tiles and any Home Assistant card |
 
+The pages come in this order, and swiping past Energy wraps back to Widgets.
 Pages that have nothing to show (no cameras, no energy set up …) are left out.
 
 The pills open a sheet with the matching devices, for example every light that's on or every
@@ -61,7 +63,19 @@ open door, and you can control them right there.
 HACS checks for new versions by itself. When one is out you'll see it in three places:
 Home Assistant's **Settings** (a badge, and the update under *Updates*), **HACS**, and — for
 admins — a banner at the top of HomeView itself. Tap the banner for what's new and the
-**Update** button, then reload the browser. Don't want the banner? `update_notice: false`.
+**Update** button. Don't want the banner? `update_notice: false`.
+
+After updating, each screen has to load the new file. If a screen still runs the old version
+(Home Assistant lets browsers cache it), HomeView shows *"… is installed, but this screen
+still runs …"* — tap it to reload. Otherwise: hard reload (Ctrl/Cmd+Shift+R), or in the
+Companion app Settings → Companion App → Debugging → **Reset frontend cache**.
+
+**Behind Cloudflare or another caching proxy?** Home Assistant lets caches keep
+`/hacsfiles/` files for a month, so the proxy can keep handing out the old HomeView (and old
+versions of every other HACS card) on your external address even after a hard reload, while
+the local address shows the new one. Purge the file once in the proxy, and add a rule so it
+never caches card files. On Cloudflare: Caching → Cache Rules → *URI Path starts with*
+`/hacsfiles/` **or** `/local/` → **Bypass cache**.
 
 ### Manual
 
@@ -218,7 +232,7 @@ strategy:
   type: custom:homeview
   title: Our Home                 # Home page title (default: your location name)
   theme: auto                     # auto | light | dark
-  pages: [home, widgets, family, rooms, energy, cameras]   # which pages, in this order (+ custom page paths)
+  pages: [widgets, home, family, rooms, members, cameras, energy]   # which pages, in this order (+ custom page paths)
   pages_config:                   # per page: title, icon, color, sections
     home: { color: orange }
     rooms: { title: House, icon: mdi:floor-plan }
@@ -248,10 +262,17 @@ strategy:
   weather: weather.home                          # default: the first weather entity
   cameras: [camera.front_door, camera.garden]    # default: all cameras
 
+  members:                        # a page per family member (default: everyone whose name is in a room's name)
+    person.lucy: { area: bedroom_lucy, calendars: [calendar.lucy_school] }
+                                  # members: false = no member pages
   home:
     favorites: [alarm_control_panel.home, lock.front_door, cover.garage, climate.hallway]
                                   # default: automatic; [] = none
-    rooms: true                   # the room tiles on Home
+    light_rooms: [living_room, kitchen]   # rooms with a "Lights" tile (default: the main rooms, up to 4)
+    max_light_rooms: 4
+    camera: camera.front_door     # the camera on Home (default: the first one; false = none)
+    air: true                     # the air quality tile, when you have an AQI / PM2.5 / CO2 / VOC sensor
+    rooms: false                  # the room tiles on Home (they're on the Rooms page)
     scenes: true
     max_scenes: 8
 
@@ -281,6 +302,9 @@ strategy:
 
 ### What goes where
 
+- **Family members** get their own page when a room (area) is named after them — "Bedroom
+  Lucy", "Ben's room" — or when you list them under `members`. A calendar with their name in
+  it ("Lucy School") is used for their next event.
 - **Rooms** are your Home Assistant **areas**. An entity belongs to a room through its own
   area or its device's area. Floors (if you use them) set the room order.
 - An entity is **left out** when it is hidden, disabled, or a configuration / diagnostic entity
