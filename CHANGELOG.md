@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.8.7 — 2026-11-05
+
+- **Menu mode without the duplicate header:** leaving full screen now shows Home Assistant's
+  sidebar and HomeView's own page bar, but not HA's header, whose page tabs repeated the page bar.
+  On phones and iPads, where HA keeps its sidebar in a drawer behind that header's ☰, the page bar
+  gets a sidebar button. `kiosk: false` still gives HA's normal header.
+- **Settings shows what HomeView uses:** fields that were blank because HomeView picks them by
+  itself now show its current pick — title, people, calendars, weather, cameras, status pills,
+  Home favourites and chips, room order, the Living rooms, each room's icon and sensors, the photo
+  folder and the energy sensors. Leave a field as it is (or clear it) and it stays automatic: only
+  what you change is saved (Save with no change leaves the config exactly as it was).
+- **Battery list by urgency:** the Batteries pill's list is grouped: Low (below your threshold, in
+  red), Offline (faded), Getting low (below twice the threshold, amber), OK.
+- **Colour for a person's page:** in edit mode the room summary on a person's page has the 🎨
+  button too (as room tiles do). It sets that room's colour, which tints the person's page.
+- **Editing keeps your place:** changing a tile's size, colour, name or favourite (and turning
+  edit mode on or off) no longer jumps back to the top of the page.
+- **Hide is a toggle, in place:** while editing, a hidden tile or room stays where it is, faded,
+  with an eye to show it again. Only when you tap **Done** does it leave the page. Hiding a Home
+  favourite keeps it in the favourites, so showing it again puts it back where it was. (The
+  "Hidden" list at the bottom of some pages is gone; hidden things were lost on the others.)
+- **Menu and update icons on the Home page only**, so every other page stays clean. Swipe to Home
+  to leave full screen.
+
 ## 0.8.6 — 2026-11-05
 
 - **Fixed "Page isn't responding"** (seen on the Energy page, after a minute or two). Every time

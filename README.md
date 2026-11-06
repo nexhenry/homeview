@@ -18,7 +18,7 @@ no YAML per tile.
   tall (1.28 : 1, or 1.1 : 1 with 6 across) on screens wider than 3:2 — like the Pixel Tablet — so
   a page fits the screen. Very wide screens get more columns.
 - **Light and dark:** follows your Home Assistant theme, each page and room with its own tint.
-- **Full screen like an app:** HA's header and sidebar are always hidden when HomeView opens; a small Menu icon in front of the page title brings them back (on phones and iPads it opens the sidebar too, so Settings is one tap away).
+- **Full screen like an app:** HA's header and sidebar are always hidden when HomeView opens; a small Menu icon in front of the Home title brings them back (on phones and iPads it opens the sidebar too, so Settings is one tap away).
 - **Touch-first:** tap toggles, hold opens the details — a room's tile toggles its lights and
   holding it opens the room's page. Swipe left / right between pages, one page per swipe.
 
@@ -143,7 +143,7 @@ turn those requests off. Nothing else leaves your network.
 
 HACS checks for new versions by itself. When one is out you'll see it in three places:
 Home Assistant's **Settings** (a badge, and the update under *Updates*), **HACS**, and — for
-admins — a small ⬆ icon in front of HomeView's page title. Tap it for what's new and the
+admins — a small ⬆ icon in front of the Home page's title. Tap it for what's new and the
 **Update** button. Don't want it? `update_notice: false`.
 
 After updating, each screen has to load the new file. If a screen still runs the old version
@@ -184,8 +184,10 @@ changes: a new light in the kitchen appears on the Kitchen page by itself.
 
 HomeView opens **full screen**: Home Assistant's header and sidebar are hidden, and so is the
 page bar — move between pages by swiping (or with the ← / → keys). Tap the round **Menu** icon
-in front of the page title (top right on Widgets) and the sidebar, header and HomeView's page bar
-come back; on phones and iPads the sidebar opens in the same tap.
+in front of the Home page's title (it's on Home only, for a clean look elsewhere) and Home Assistant's
+sidebar and HomeView's page bar come back (HA's own header stays hidden: its tabs would repeat the
+page bar). On phones and iPads the sidebar opens in the same tap, and the page bar has a button to
+open it again.
 Leave HomeView for another dashboard and the header and sidebar come back by themselves.
 
 - The round **Menu** icon brings the sidebar and header back until the page is
@@ -212,10 +214,10 @@ Tap it and every tile shows its buttons:
 | ★ | Put the tile on the Home page (or take it off). Filled = it's on Home |
 | ⤢ | Change the size: 1×1 → 2×1 → 2×2 |
 | ✎ | Rename the tile (empty = the automatic name) |
-| 👁 | Hide it everywhere. Hidden tiles wait at the bottom of the page, faded — tap the eye to bring one back |
-| 🎨 | Rooms: change the room's colour |
+| 👁 | Hide it everywhere. While you edit, a hidden tile stays in its place, faded — tap the eye again to show it. It leaves the page when you tap **Done** |
+| 🎨 | Rooms and a person's room summary: change the room's colour (it tints that person's page too) |
 
-Each change is saved straight away. **Settings** opens the settings editor, **Done** leaves
+Each change is saved straight away, and the page stays where you scrolled to. **Settings** opens the settings editor, **Done** leaves
 edit mode. Turn the pencil off with `edit_button: false`.
 
 ### 2. The settings editor

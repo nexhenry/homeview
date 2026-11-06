@@ -11,7 +11,7 @@
  * Home, Widgets, Family, Rooms (plus one page per room), Energy and Cameras. Everything is
  * optional and can be tuned in the strategy config — see README.md.
  */
-const HV_VERSION = '0.8.6';
+const HV_VERSION = '0.8.7';
 // where this file was loaded from (to re-download it after an update)
 const HV_URL = (() => { try { return import.meta.url; } catch (e) { return null; } })();
 
@@ -243,8 +243,11 @@ function haShadowRoots() {
 }
 // HA rebuilds its drawer when the width crosses its phone / tablet breakpoint (an iPad turning)
 // and drops our style: watch those shadow roots and the window size, and put it back at once.
+// kioskOn: true = full screen (header + sidebar hidden), 'menu' = HA's header hidden only (the
+// sidebar and HomeView's own page bar show — HA's header would repeat the page tabs), false = off
 let kioskOn = false;
 const kioskWatched = new WeakSet();
+const kioskWants = (mode, k) => mode === true || (mode === 'menu' && k === 'root');
 function watchKiosk(sr) {
   if (!sr || kioskWatched.has(sr)) return;
   kioskWatched.add(sr);
@@ -254,10 +257,12 @@ function watchKiosk(sr) {
   let n = 0, since = 0;
   new MutationObserver(() => {
     if (!kioskOn || sr.querySelector(`#${KIOSK_ID}`)) return;
+    const k = Object.entries(haShadowRoots()).find(([, r]) => r === sr)?.[0];
+    if (!k || !kioskWants(kioskOn, k)) return;
     const t = Date.now();
     if (t - since > 1000) { since = t; n = 0; }
-    if (++n > 5) { setTimeout(() => { if (kioskOn) applyKiosk(true, true); }, 1000); return; }
-    applyKiosk(true, true);
+    if (++n > 5) { setTimeout(() => { if (kioskOn) applyKiosk(kioskOn, true); }, 1000); return; }
+    applyKiosk(kioskOn, true);
   }).observe(sr, { childList: true });
 }
 let kioskResizeBound = false;
@@ -268,8 +273,8 @@ function bindKioskResize() {
   window.addEventListener('resize', () => {
     if (!kioskOn) return;
     clearTimeout(t1); clearTimeout(t2);
-    t1 = setTimeout(() => applyKiosk(true, true), 80);
-    t2 = setTimeout(() => applyKiosk(true, true), 700);
+    t1 = setTimeout(() => applyKiosk(kioskOn, true), 80);
+    t2 = setTimeout(() => applyKiosk(kioskOn, true), 700);
   });
 }
 function applyKiosk(on, quiet) {
@@ -281,7 +286,7 @@ function applyKiosk(on, quiet) {
     const sr = roots[k];
     if (!sr) continue;
     let st = sr.querySelector(`#${KIOSK_ID}`);
-    if (on) {
+    if (kioskWants(on, k)) {
       if (!st) { st = document.createElement('style'); st.id = KIOSK_ID; sr.appendChild(st); }
       if (st.textContent !== css) st.textContent = css;
     } else st?.remove();
@@ -299,6 +304,24 @@ function kioskWanted(cfg) {
   return !(q === 'off' || q === '0' || q === 'false');
 }
 function setKioskWanted(on) { kioskMenu = !on; }
+/** Full screen (true), menu mode — HA's header hidden, sidebar and page bar shown ('menu') — or
+ *  Home Assistant's normal header (false: kiosk: false in the config). */
+function kioskMode(cfg) { return cfg?.kiosk === false ? false : kioskWanted(cfg) ? true : 'menu'; }
+/**
+ * Keep the scroll position across an edit: saving rebuilds the page (and Home Assistant reloads
+ * the dashboard after a save), which used to jump back to the top. keepScroll() before the change,
+ * restoreScroll() after each rebuild — a few times, as tiles take their size.
+ */
+let hvScrollKeep = null;
+function keepScroll() { hvScrollKeep = { path: location.pathname, y: window.scrollY, at: Date.now() }; }
+function restoreScroll() {
+  const k = hvScrollKeep;
+  if (!k || k.path !== location.pathname || Date.now() - k.at > 15000 || !k.y) return;
+  for (const ms of [0, 60, 200, 500, 1000, 1800]) {
+    setTimeout(() => { if (hvScrollKeep === k && Math.abs(window.scrollY - k.y) > 2) window.scrollTo(0, k.y); }, ms);
+  }
+  setTimeout(() => { if (hvScrollKeep === k) hvScrollKeep = null; }, 2500);
+}
 /**
  * On phones and iPads HA's sidebar is a drawer behind its own ☰: after Menu shows the header,
  * open the drawer too, so Settings, the integrations' panels and the profile are one tap away.
@@ -2205,9 +2228,20 @@ const PILLS = {
     const low = m.batteries.filter((id) => { const v = num(h.states[id]?.state); return v !== null && v < lowAt; });
     const off = m.batteries.filter((id) => UNAVAILABLE.includes(h.states[id]?.state));
     const parts = [low.length ? `${low.length} low` : null, off.length ? `${off.length} offline` : null].filter(Boolean);
-    const sorted = [...m.batteries].sort((a, b) => (num(h.states[a]?.state) ?? -1) - (num(h.states[b]?.state) ?? -1));
+    const lvl = (id) => num(h.states[id]?.state);
+    const sorted = [...m.batteries].sort((a, b) => (lvl(a) ?? -1) - (lvl(b) ?? -1));
+    // the popup in groups, worst first: low (red), offline (faded), getting low (amber), OK
+    const soonAt = Math.min(50, lowAt * 2);
+    const soon = sorted.filter((id) => { const v = lvl(id); return v !== null && v >= lowAt && v < soonAt; });
+    const ok = sorted.filter((id) => !low.includes(id) && !off.includes(id) && !soon.includes(id));
+    const groups = [
+      { title: `Low · below ${lowAt}%`, ids: sorted.filter((id) => low.includes(id)), tone: 'red' },
+      { title: 'Offline', ids: off, tone: 'off' },
+      { title: `Getting low · below ${soonAt}%`, ids: soon, tone: 'amber' },
+      { title: 'OK', ids: ok },
+    ].filter((g) => g.ids.length);
     return { icon: low.length ? 'mdi:battery-alert-variant-outline' : 'mdi:battery-high', text: parts.join(' · ') || 'Batteries OK',
-      alert: low.length > 0, popup: { title: 'Batteries', ids: sorted, showRoom: true } };
+      alert: low.length > 0, popup: { title: 'Batteries', ids: sorted, groups, showRoom: true } };
   },
   media(h, m) {
     const players = m.byDomain.media_player || [];
@@ -2818,6 +2852,9 @@ img.lt { object-fit:cover; background:var(--hv-pill); }
 @media (min-width:700px) { .sheet { border-radius:26px; } }
 .sheet-h { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:14px; font-size:21px; font-weight:750; position:sticky; top:-18px; background:inherit; padding:6px 0; z-index:3; }
 .sheet-b { display:flex; gap:8px; align-items:center; }
+.pop-sec { display:flex; align-items:baseline; gap:8px; margin:16px 2px 8px; font-size:15px; font-weight:700; color:var(--hv-fg); }
+.pop-sec:first-of-type { margin-top:4px; }
+.pop-sec span { font-size:13px; font-weight:600; opacity:.7; }
 .pen { width:32px; height:32px; margin-left:4px; --mdc-icon-size:18px; color:var(--hv-fg2); }
 .txt { all:unset; cursor:pointer; display:inline-flex; align-items:center; gap:6px; padding:8px 14px; border-radius:999px; background:var(--hv-pill);
   font-size:14px; font-weight:650; color:var(--hv-fg); --mdc-icon-size:17px; font-family:${FONT}; }
@@ -2881,7 +2918,7 @@ class HomeViewPage extends HTMLElement {
   set hass(h) {
     this._hass = h;
     hvHass = h;
-    if (this.isConnected && Date.now() - (this._kAt || 0) > 2500) { this._kAt = Date.now(); applyKiosk(kioskWanted(this._config?.options)); hvScreensaver.update(this); }
+    if (this.isConnected && Date.now() - (this._kAt || 0) > 2500) { this._kAt = Date.now(); applyKiosk(kioskMode(this._config?.options)); hvScreensaver.update(this); }
     const sig = this._signature(h);
     if (sig !== this._sig) { this._sig = sig; this.rebuild(); return; }
     this._tiles.forEach((t) => { t.hass = h; });
@@ -2909,10 +2946,10 @@ class HomeViewPage extends HTMLElement {
 
   _kiosk() {
     if (!this._config) return;
-    const on = kioskWanted(this._config.options);
+    const on = kioskMode(this._config.options);
     applyKiosk(on);
     // HA renders its header after the first card on a fresh load: apply once more then
-    if (on && !this._kioskRetry) { this._kioskRetry = setTimeout(() => { this._kioskRetry = null; if (this.isConnected) applyKiosk(kioskWanted(this._config.options)); }, 1200); }
+    if (on && !this._kioskRetry) { this._kioskRetry = setTimeout(() => { this._kioskRetry = null; if (this.isConnected) applyKiosk(kioskMode(this._config.options)); }, 1200); }
   }
 
   // rebuild the page when entities / areas / devices change (not on every state change)
@@ -2931,9 +2968,30 @@ class HomeViewPage extends HTMLElement {
     if (!h) return;
     const cfg = this._config.options || {};
     hvAvatarMode = cfg.avatars ?? 'samples';
-    this._model = buildModel(h, cfg);
+    // edit mode: hidden entities and rooms stay in place, faded, with an eye to show them again;
+    // they only leave the page when editing is done
+    const editing = this._editing;
+    const hiddenEnts = new Set([...asList(cfg.exclude_entities),
+      ...Object.entries(cfg.customize || {}).filter(([, c]) => c?.hidden).map(([id]) => id)]);
+    const hiddenRooms = new Set([...asList(cfg.hide_rooms),
+      ...Object.entries(cfg.rooms || {}).filter(([, c]) => c?.hidden).map(([id]) => id)]);
+    let mcfg = cfg;
+    if (editing && (hiddenEnts.size || hiddenRooms.size)) {
+      const customize = Object.fromEntries(Object.entries(cfg.customize || {}).map(([id, c]) => [id, c?.hidden ? { ...c, hidden: false } : c]));
+      const rooms = Object.fromEntries(Object.entries(cfg.rooms || {}).map(([id, c]) => [id, c?.hidden ? { ...c, hidden: false } : c]));
+      mcfg = { ...cfg, exclude_entities: [], hide_rooms: [], customize, rooms };
+    }
+    this._model = buildModel(h, mcfg);
     const builder = PAGES[this._config.page];
-    const page = builder ? builder(h, this._model, cfg, this._config, this) : { title: '?', sections: [] };
+    const page = builder ? builder(h, this._model, mcfg, this._config, this) : { title: '?', sections: [] };
+    if (editing) {
+      for (const sec of page.sections || []) {
+        for (const t of sec.tiles || []) {
+          if (t.entity && hiddenEnts.has(t.entity)) t.hiddenEnt = true;
+          if (t.room && t.kind === 'room' && hiddenRooms.has(t.room.id)) t.hiddenRoom = true;
+        }
+      }
+    }
     this._page = page;
     const pd = PAGE_DEFS[this._config.page] || {};
     const titleCfg = (cfg.pages_config?.[this._config.page] || (this._config.page === 'living' ? cfg.pages_config?.family || cfg.pages_config?.shared : null))?.title;
@@ -2950,8 +3008,7 @@ class HomeViewPage extends HTMLElement {
     for (const sec of userSections(extra, h, this._model)) {
       if (sec.position === 'top') page.sections.unshift(sec); else page.sections.push(sec);
     }
-    const editing = this._editing;
-    if (editing) page.sections.push(...this._hiddenSections());
+    // (hidden entities / rooms are marked in place above while editing)
     // phones: the layout of a hand-made iPhone HomeView (see PHONE_SPAN)
     this._phone = this._isPhone();
     if (this._phone) this._phonePage(h, cfg, page);
@@ -3014,7 +3071,7 @@ class HomeViewPage extends HTMLElement {
     this._root.replaceChildren(frag);
     this._root.querySelectorAll('[data-nav]').forEach((el) => el.addEventListener('click', () => navigate(el.dataset.nav)));
     this._renderHead();
-    this._layout();
+    this._layout();    restoreScroll();   // after an edit: back where you were
   }
 
   _isPhone() { return (this.clientWidth || window.innerWidth) < 600; }
@@ -3055,6 +3112,7 @@ class HomeViewPage extends HTMLElement {
 
   _setEditing(on) {
     try { if (on) sessionStorage.setItem('homeview-edit', '1'); else sessionStorage.removeItem('homeview-edit'); } catch (e) { window.__homeviewEdit = on; }
+    keepScroll();
     this.rebuild();
     hvScreensaver.update(this);
   }
@@ -3071,27 +3129,12 @@ class HomeViewPage extends HTMLElement {
     if (spec.hiddenRoom) return { actions: ['unhide-room'], onEdit };
     if (spec.hiddenEnt) return { actions: ['unhide'], onEdit };
     if (spec.kind === 'room') return { actions: ['color', 'hide-room'], onEdit };
+    // a person's page: their room summary changes the room's colour, which tints their page too
+    if (spec.kind === 'member_hero' && spec.room) return { actions: ['color'], onEdit };
     if (spec.kind === 'entity' && !spec.user) {
       return { actions: [this._favorites().includes(spec.entity) ? 'unfav' : 'fav', 'size', 'name', 'hide'], onEdit };
     }
     return null;
-  }
-
-  // hidden entities / rooms, shown faded at the bottom in edit mode so they can come back
-  _hiddenSections() {
-    const h = this._hass, cfg = this._config.options || {}, m = this._model;
-    const page = this._config.page;
-    if (!['home', 'rooms', 'room'].includes(page)) return [];
-    let ents = [...new Set([...asList(cfg.exclude_entities),
-      ...Object.entries(cfg.customize || {}).filter(([, c]) => c?.hidden).map(([id]) => id)])].filter((id) => h.states[id]);
-    if (page === 'room') ents = ents.filter((id) => entityArea(h, id) === this._config.area);
-    const rooms = page === 'room' ? [] : asList(cfg.hide_rooms).map((id) => h.areas?.[id]).filter(Boolean)
-      .map((a) => ({ id: a.area_id, name: a.name, icon: a.icon || 'mdi:floor-plan', hue: 220, groups: {}, alerts: [], entities: [] }));
-    if (!ents.length && !rooms.length) return [];
-    return [{ title: 'Hidden', sub: 'tap the eye to show again', hidden: true, tiles: [
-      ...rooms.map((r) => ({ ...roomTile(r), hiddenRoom: true })),
-      ...ents.map((id) => entTile(id, { hiddenEnt: true, showRoom: true, areaName: m.areaById[entityArea(h, id)]?.name })),
-    ] }];
   }
 
   async _onEdit(a, spec) {
@@ -3121,8 +3164,9 @@ class HomeViewPage extends HTMLElement {
         }
         case 'name': if (name.trim()) cz.name = name.trim(); else delete cz.name; break;
         case 'hide':
+          // stays in the favourites: hidden things are left out anyway, and showing it again puts it
+          // back where it was
           o.exclude_entities = [...new Set([...asList(o.exclude_entities), id])];
-          if (o.home.favorites) o.home.favorites = asList(o.home.favorites).filter((x) => x !== id);
           break;
         case 'unhide': o.exclude_entities = asList(o.exclude_entities).filter((x) => x !== id); delete cz.hidden; break;
         case 'color': {
@@ -3140,6 +3184,7 @@ class HomeViewPage extends HTMLElement {
 
   // save, then show the result right away (HA also reloads the dashboard after a save)
   async _save(mutate) {
+    keepScroll();
     this._toast('Saving…');
     const r = await saveStrategy(this._hass, this._config.options, mutate);
     if (r.ok) {
@@ -3218,6 +3263,7 @@ class HomeViewPage extends HTMLElement {
       spec = { ...spec, name: cz.name ?? spec.name, icon: cz.icon ?? spec.icon, tap: cz.tap ?? spec.tap, size: parseSize(cz.size, spec.size) };
     }
     const t = document.createElement('homeview-tile');
+    if (spec.hiddenEnt || spec.hiddenRoom) t.title = 'Hidden — tap the eye to show it again';
     t.spec = spec;
     t.hass = this._hass;
     const edit = this._editFor(spec);
@@ -3314,7 +3360,9 @@ class HomeViewPage extends HTMLElement {
     const instV = cleanVer(upd?.attributes?.installed_version);
     const stale = upd && /^\d+\.\d+\.\d+$/.test(instV) && newerVer(instV, HV_VERSION) ? instV : null;
     const kiosk = kioskWanted(cfg);
-    const chip = cfg.kiosk !== false && cfg.kiosk_chip !== false;
+    // the Menu / Full screen and update icons live on the Home page only (a clean look elsewhere)
+    const onHome = this._config.page === 'home';
+    const chip = onHome && cfg.kiosk !== false && cfg.kiosk_chip !== false;
     // the page bar shows with HA's sidebar (Menu); in full screen: swipe or ← / → keys
     const nav = !kiosk && !page.back ? asList(this._config.nav) : [];
     const here = this._config.path || this._config.page;
@@ -3333,13 +3381,13 @@ class HomeViewPage extends HTMLElement {
     // title — Widgets — top right). Update: ⬆ a new release (tap: what's new / update), ↻ HACS has
     // installed it but this screen still runs the old copy (tap: reload).
     const menuBtn = chip ? `<button class="back hb" data-kiosk title="${kiosk ? 'Menu: show Home Assistant\'s sidebar and header' : 'Full screen: hide Home Assistant\'s sidebar and header'}" aria-label="${kiosk ? 'Menu' : 'Full screen'}"><ha-icon icon="${kiosk ? 'mdi:menu' : 'mdi:fullscreen'}"></ha-icon></button>` : '';
-    const updBtn = stale ? `<button class="back hb updi" data-upd="fresh" title="HomeView ${esc(stale)} is installed, but this screen still runs ${esc(HV_VERSION)}" aria-label="Reload HomeView"><ha-icon icon="mdi:refresh"></ha-icon></button>`
+    const updBtn = !onHome ? '' : stale ? `<button class="back hb updi" data-upd="fresh" title="HomeView ${esc(stale)} is installed, but this screen still runs ${esc(HV_VERSION)}" aria-label="Reload HomeView"><ha-icon icon="mdi:refresh"></ha-icon></button>`
       : updOn ? `<button class="back hb updi" data-upd="new" title="HomeView ${esc(updOn)} is available" aria-label="Update HomeView"><ha-icon icon="mdi:arrow-up"></ha-icon></button>` : '';
     const solo = !(nav.length > 1) && !!page.minimalHead;   // a page without a title: the icons float top right
     const barBtns = page.minimalHead ? `${updBtn}${menuBtn}` : '';
     head.classList.toggle('padr', !!(solo && barBtns));
     const topbar = nav.length > 1 || barBtns ? `<div class="topbar${solo ? ' solo' : ''}">
-        <div class="nav">${nav.length > 1 ? nav.map((v) => `<button class="nv${v.path === here ? ' on' : ''}" data-nav-to="${esc(v.path)}" title="${esc(v.title)}">${v.avatar ? `<img class="lt" src="${esc(v.avatar)}" alt="">` : v.letter ? `<span class="lt">${esc(v.letter)}</span>` : `<ha-icon icon="${esc(v.icon)}"></ha-icon>`}<span>${esc(v.title)}</span></button>`).join('') : ''}</div>
+        <div class="nav">${nav.length > 1 && window.innerWidth < 870 ? '<button class="nv" data-sidebar title="Home Assistant menu" aria-label="Home Assistant menu"><ha-icon icon="mdi:dock-left"></ha-icon></button>' : ''}${nav.length > 1 ? nav.map((v) => `<button class="nv${v.path === here ? ' on' : ''}" data-nav-to="${esc(v.path)}" title="${esc(v.title)}">${v.avatar ? `<img class="lt" src="${esc(v.avatar)}" alt="">` : v.letter ? `<span class="lt">${esc(v.letter)}</span>` : `<ha-icon icon="${esc(v.icon)}"></ha-icon>`}<span>${esc(v.title)}</span></button>`).join('') : ''}</div>
         ${barBtns ? `<span class="tbb">${barBtns}</span>` : ''}</div>` : '';
     head.innerHTML = page.minimalHead ? `${topbar}` : `${topbar}<div>
         <div class="date">${esc(today)}</div>
@@ -3369,8 +3417,13 @@ class HomeViewPage extends HTMLElement {
     head.querySelector('[data-edit-on]')?.addEventListener('click', () => this._setEditing(true));
     head.querySelector('[data-upd]')?.addEventListener('click', (ev) => this._updSheet(ev.currentTarget.dataset.upd, updOn, stale));
     head.querySelectorAll('[data-nav-to]').forEach((el) => el.addEventListener('click', () => navigate(el.dataset.navTo)));
+    // menu mode on a phone / iPad: HA's header (and its ☰) is hidden, so the page bar opens the sidebar
+    head.querySelector('[data-sidebar]')?.addEventListener('click', () => {
+      const main = document.querySelector('home-assistant')?.shadowRoot?.querySelector('home-assistant-main');
+      main?.dispatchEvent(new CustomEvent('hass-toggle-menu', { bubbles: true, composed: true }));
+    });
     head.querySelector('[data-kiosk]')?.addEventListener('click', () => {
-      setKioskWanted(!kiosk); applyKiosk(!kiosk); this._headKey = null; this._renderHead();
+      setKioskWanted(!kiosk); applyKiosk(kioskMode(cfg)); this._headKey = null; this._renderHead();
       if (kiosk) openHaSidebar();   // Menu: on phones / iPads also open the sidebar, in the same tap
     });
     head.querySelector('[data-edit-off]')?.addEventListener('click', () => this._setEditing(false));
@@ -3407,20 +3460,39 @@ class HomeViewPage extends HTMLElement {
     this._root.appendChild(pop);
   }
 
-  _popup({ title, ids, showRoom }) {
+  /** A sheet of entity tiles. groups: [{ title, ids, tone: 'red' | 'amber' | 'off' }] puts them
+   *  under headings, tinted (the batteries: low in red, offline faded …); else one grid of ids. */
+  _popup({ title, ids, showRoom, groups }) {
     const h = this._hass;
     const pop = document.createElement('div'); pop.className = 'pop';
     const sheet = document.createElement('div'); sheet.className = 'sheet';
     sheet.innerHTML = `<div class="sheet-h">${esc(title)}<button class="back" data-close><ha-icon icon="mdi:close"></ha-icon></button></div>`;
-    const g = document.createElement('div'); g.className = 'grid rows';
-    const tiles = ids.map((id) => {
-      const room = this._model.areaById[entityArea(h, id)];
-      const t = this._tile(rowTile(id, { showRoom, areaName: room?.name }), this._dark);
-      t._hvFree = true;
-      return t;
-    });
-    tiles.forEach((t) => g.appendChild(t));
-    sheet.appendChild(g); pop.appendChild(sheet);
+    const TONE = {
+      red: { bg: 'rgba(255,59,48,0.16)', border: 'rgba(255,59,48,0.6)', head: '#FF3B30' },
+      amber: { bg: 'rgba(255,149,0,0.14)', border: 'rgba(255,149,0,0.55)', head: '#FF9500' },
+      off: { opacity: '0.55' },
+    };
+    const tiles = [];
+    for (const grp of groups || [{ ids }]) {
+      const tone = TONE[grp.tone] || {};
+      if (grp.title) {
+        const hd = document.createElement('div'); hd.className = 'pop-sec';
+        hd.innerHTML = `${esc(grp.title)}<span>${grp.ids.length}</span>`;
+        if (tone.head) hd.style.color = tone.head;
+        sheet.appendChild(hd);
+      }
+      const g = document.createElement('div'); g.className = 'grid rows';
+      for (const id of grp.ids) {
+        const room = this._model.areaById[entityArea(h, id)];
+        const t = this._tile(rowTile(id, { showRoom, areaName: room?.name }), this._dark);
+        t._hvFree = true;
+        if (tone.bg) { t.style.setProperty('--hv-tile', tone.bg); t.style.setProperty('--hv-tile-border', tone.border); }
+        if (tone.opacity) t.style.opacity = tone.opacity;
+        tiles.push(t); g.appendChild(t);
+      }
+      sheet.appendChild(g);
+    }
+    pop.appendChild(sheet);
     const close = () => { pop.remove(); this._tiles = this._tiles.filter((t) => !tiles.includes(t)); };
     pop.addEventListener('click', (e) => { if (e.target === pop) close(); });
     sheet.querySelector('[data-close]').addEventListener('click', close);
@@ -3516,6 +3588,73 @@ const PILL_NAMES = { alarm: 'Alarm', climate: 'Climate', lights: 'Lights on', lo
 // What HomeView does when an option is not set: shown in the editor, left out when saving
 const EDITOR_DEFAULTS = { theme: 'auto', pages: DEFAULT_PAGES, swipe: true, edit_button: true, update_notice: true, kiosk: true, kiosk_chip: true, avatars: 'samples', people_chips: true, battery_low: 20,
   home: { rooms: false, scenes: true, max_scenes: 8 } };
+
+/**
+ * What HomeView picks by itself right now, for the editor to show instead of blank fields (and to
+ * leave out again when saving, so an untouched field stays automatic and keeps following the home).
+ * onReady: called when data that loads in the background (energy settings, photo folder) arrives.
+ */
+function editorAuto(h, config, onReady) {
+  const { type, ...o } = config || {};
+  const auto = {};
+  let m;
+  try { m = buildModel(h, o); } catch (e) { return auto; }
+  if (h.config?.location_name) auto.title = h.config.location_name;
+  if (m.persons.length) auto.people = [...m.persons];
+  if (m.calendars.length) auto.calendars = [...m.calendars];
+  if (m.weather) auto.weather = m.weather;
+  if (m.cameras.length) auto.cameras = [...m.cameras];
+  auto.pills = [...DEFAULT_PILLS];
+  // Home: the automatic favourites (doors first, as the Home page picks them) and chips
+  const pc = o.home || {};
+  const live = favoritesAuto(h, m).filter((id) => !UNAVAILABLE.includes(h.states[id]?.state));
+  const doorish = (id) => ['lock', 'cover'].includes(domainOf(id));
+  auto.home = {
+    favorites: [...live.filter(doorish), ...live.filter((id) => !doorish(id))].slice(0, pc.max_favorites ?? 2),
+    chips: chipsAuto(h, m).map((c) => c.entity),
+  };
+  // rooms: the order, the Living page's pick, each room's icon and sensors
+  auto.room_order = m.areas.map((r) => r.id);
+  const memberRooms = new Set(m.members.map((x) => x.room?.id).filter(Boolean));
+  auto.living_rooms = m.rooms.filter((r) => !memberRooms.has(r.id) && !PRIVATE_ROOM.test(r.name) && !OUTDOOR_ROOM.test(r.name))
+    .map((r, i) => ({ r, k: (MAIN_ROOM.test(r.name) ? 0 : 1) * 1000 + i })).sort((a, b) => a.k - b.k).map((x) => x.r.id);
+  auto.rooms = {};
+  for (const r of m.areas) {
+    const e = {};
+    if (r.icon) e.icon = r.icon;
+    if (r.temp) e.temperature = r.temp;
+    if (r.hum) e.humidity = r.hum;
+    if (Object.keys(e).length) auto.rooms[r.id] = e;
+  }
+  // Widgets: the photo folder it found (or the samples)
+  const folder = findPhotoFolder(h, onReady);
+  auto.widgets = { slideshow_interval: 60, ...(folder !== undefined ? { slideshow: folder || 'samples' } : {}) };
+  // Energy: the power sensors the Energy page picked (once the Energy settings have loaded)
+  if (getEnergyPrefs(h, onReady) !== undefined) {
+    try {
+      const stub = { rebuild() {}, scheduleRebuild() {}, rebuilder: () => {} };
+      const page = PAGES.energy(h, m, o, {}, stub);
+      const p = (page.sections || []).flatMap((x) => x.tiles || []).find((t) => t.power)?.power || {};
+      const en = {};
+      if (p.solar) en.solar_power = p.solar;
+      if (p.grid) en.grid_power = p.grid;
+      if (p.battery) en.battery_power = p.battery;
+      if (p.battery_level) en.battery_level = p.battery_level;
+      if (p.home) en.home_power = p.home;
+      if (Object.keys(en).length) auto.energy = en;
+    } catch (e) { /* the Energy page shows its own note */ }
+  }
+  return auto;
+}
+/** The editor's defaults: HomeView's fixed defaults plus what it picks by itself in this home. */
+function mergeDefaults(a, b) {
+  const out = { ...a };
+  for (const [k, v] of Object.entries(b || {})) {
+    out[k] = v && typeof v === 'object' && !Array.isArray(v) && a[k] && typeof a[k] === 'object' && !Array.isArray(a[k])
+      ? mergeDefaults(a[k], v) : v;
+  }
+  return out;
+}
 
 function withDefaults(o, d = EDITOR_DEFAULTS) {
   const out = { ...o };
@@ -3627,9 +3766,21 @@ class HomeViewStrategyEditor extends HTMLElement {
     if (this._form) this._form.data = this._data(); else this._render();
   }
 
+  // the fixed defaults plus what HomeView picks by itself here (shown, left out again when saving)
+  _defaults() {
+    if (!this._defs) {
+      this._defs = mergeDefaults(EDITOR_DEFAULTS, editorAuto(this._hass, this._config, () => {
+        // energy settings / photo folder arrived: show them too
+        this._defs = null;
+        if (this._form) this._form.data = this._data();
+      }));
+    }
+    return this._defs;
+  }
+
   _data() {
     const { type, ...o } = this._config;
-    return withDefaults(o);
+    return withDefaults(o, this._defaults());
   }
 
   async _render() {
@@ -3643,7 +3794,9 @@ class HomeViewStrategyEditor extends HTMLElement {
       return;
     }
     this.innerHTML = `<p style="margin:0 0 12px;color:var(--secondary-text-color);font-size:14px;line-height:1.45">
-      HomeView builds every page from your areas and devices. Everything here is optional.
+      HomeView builds every page from your areas and devices. Everything here is optional — the
+      fields show what HomeView uses right now. Change one to set it yourself; leave it (or clear it)
+      and it stays automatic, following your home.
       To rename, resize, hide or pin a single tile, use the pencil on the dashboard itself.
       Your own tiles, cards and pages go in YAML (README → Your own tiles and pages).</p>`;
     const f = document.createElement('ha-form');
@@ -3655,7 +3808,7 @@ class HomeViewStrategyEditor extends HTMLElement {
     f.addEventListener('value-changed', (e) => {
       e.stopPropagation();
       const keep = Object.fromEntries(Object.entries(this._config).filter(([k]) => !(k in e.detail.value) && !this._formKeys().has(k)));
-      const config = cleanConfig(withoutDefaults({ type: this._config.type || 'custom:homeview', ...keep, ...e.detail.value }));
+      const config = cleanConfig(withoutDefaults({ type: this._config.type || 'custom:homeview', ...keep, ...e.detail.value }, this._defaults()));
       this._config = config;
       this.dispatchEvent(new CustomEvent('config-changed', { detail: { config }, bubbles: true, composed: true }));
     });
