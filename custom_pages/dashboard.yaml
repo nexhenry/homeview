@@ -29,7 +29,7 @@ strategy:
     - safety
     - batteries
     - media
-    - { entity: sensor.pond_water_temperature, name: Pond, icon: mdi:fish, hold: pond }   # → pond.yaml
+    # pages with a pill: in their file (pond.yaml) add theirs here by themselves
 
   customize:
     media_player.living_room_tv: { hold: media }      # hold the TV tile → media.yaml (the entity your TV tile

@@ -2,7 +2,7 @@
 #
 # Copy it to /config/homeview/custom_pages/<path>.yaml, rename it, and change the vars: block.
 # Keep the file name, path: and the hold: / tap: that opens it the same word (here: sample),
-# so it's always clear which file a hold opens. Then, in HomeView: pencil → Reload pages.
+# so it's always clear which file a hold opens. Then, in HomeView: double-tap the page title → Reload pages.
 # The full guide: custom_pages/README.md in the HomeView repo.
 
 path: sample                      # the page's address: /<dashboard>/sample — also what hold: / tap: names
@@ -11,8 +11,10 @@ icon: mdi:view-grid-outline       # the icon in the page bar
 color: teal                       # page colour: a name (orange, green, blue, teal, purple …) or a hue 0–360
 subview: true                     # true = not in the page bar or the swipe order: opened by a hold
                                   #        (or tap) that names it, with a back arrow; false = a page in the bar
-admin_only: false                 # true = only Home Assistant admins get this page
+admin_only: false                 # true = only viewers who see every page (admins, or access: all)
 pills: false                      # true = the status pills (alarm, energy, lights …) at the top, as on Home
+# pill: { entity: $outdoor_temp, name: Sample, icon: mdi:star }   # a pill on Home that opens this page
+#                                   (tap = this page, hold = the entity's details; pill: true = title + icon)
 # hold: another-page              # hold this page's title to open another page
 
 # vars: the entities this page uses. Change these, nothing else. "$name" anywhere below is

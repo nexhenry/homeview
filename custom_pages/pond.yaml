@@ -1,12 +1,13 @@
 # pond.yaml — pumps, filter and water for a pond (or a pool, a fish tank, a garden: rename it).
-# Opened by holding the Pond pill:
-#   pills: [..., { entity: sensor.pond_water_temperature, name: Pond, icon: mdi:fish, hold: pond }]
-# Change the vars: block to your own entities, then pencil → Reload pages.
+# Its own pill on Home (pill: below) opens it: tap = this page, hold = the water temperature's
+# details. Nothing to add in dashboard.yaml.
+# Change the vars: block to your own entities, then double-tap the page title → Reload pages.
 path: pond
 title: Pond
 icon: mdi:fish
 color: teal
 subview: true
+pill: { entity: $water_temp, name: Pond, icon: mdi:fish }   # a pill on Home while this page exists
 
 vars:
   pumps: [switch.pond_pump, switch.pond_air_pump]

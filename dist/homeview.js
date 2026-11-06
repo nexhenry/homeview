@@ -11,7 +11,7 @@
  * Home, Widgets, Family, Rooms (plus one page per room), Energy and Cameras. Everything is
  * optional and can be tuned in the strategy config — see README.md.
  */
-const HV_VERSION = '0.8.8';
+const HV_VERSION = '0.8.9';
 // where this file was loaded from (to re-download it after an update)
 const HV_URL = (() => { try { return import.meta.url; } catch (e) { return null; } })();
 
@@ -1000,11 +1000,13 @@ const TILE_CSS = `
 .t.card { align-items:flex-start; justify-content:center; text-align:left; padding:0 7%; gap:0; }
 .t.card .hd { display:flex; align-items:center; gap:6px; }
 .t.card .big { font-weight:700; font-size:clamp(18px, 19cqh, 30px); margin:3px 0 1px; }
+@container (max-width:300px) {
 .t.card.cw { padding:10px 12px; }
 .t.card.cw .hd { align-items:flex-start; line-height:1.2; font-size:11.5px; letter-spacing:.03em; }
 .t.card.cw .hd .ic { --mdc-icon-size:16px !important; }
 .t.card.cw .big { font-size:26px; line-height:1.1; margin:4px 0 2px; }
 .t.card.cw .sb { font-size:12.5px; line-height:1.3; margin:0; }
+}
 .sq { flex:none; width:min(44cqh, 64px); height:min(44cqh, 64px); border-radius:22%; display:flex; align-items:center; justify-content:center;
   color:#fff; --mdc-icon-size:60%; }
 .ecg { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:10px; flex:1; }
@@ -1868,8 +1870,8 @@ R.member_hero = {
       <div class="hh"><span>${esc(s.title)}</span><span class="sb">${esc(new Date().toLocaleDateString(h.locale?.language, { weekday: 'long', month: 'short', day: 'numeric' }))}</span></div>
       <div class="hbig">${t !== null ? `${fmt(t, 0)}°` : '—'}</div>
       <div class="ops">${ops}</div>
-      <div class="hf">${t !== null ? `<span><span class="ic" style="--mdc-icon-size:1.2em;color:#30B0C7"><i data-i="mdi:thermometer"></i></span>${fmt(t, 1)}° <em>${feel}</em></span>` : ''}
-        ${hu !== null ? `<span><span class="ic" style="--mdc-icon-size:1.2em;color:#30B0C7"><i data-i="mdi:water-percent"></i></span>${fmt(hu, 0)}% <em>${hfeel}</em></span>` : ''}</div></div>`;
+      <div class="hf">${t !== null ? `<span><span class="ic" style="--mdc-icon-size:1.2em;color:#30B0C7"><i data-i="mdi:thermometer"></i></span>${fmt(t, 1)}° <em style="color:${cf.t?.color || 'inherit'}">${feel}</em></span>` : ''}
+        ${hu !== null ? `<span><span class="ic" style="--mdc-icon-size:1.2em;color:#30B0C7"><i data-i="mdi:water-percent"></i></span>${fmt(hu, 0)}% <em style="color:${cf.h?.color || 'inherit'}">${hfeel}</em></span>` : ''}</div></div>`;
   },
   // like every room tile: tap = the room's lights (none: the room's page), hold = the room's
   // page — on that page itself, hold = the temperature's details
@@ -2179,7 +2181,7 @@ class HomeViewTile extends HTMLElement {
       const el = helpers.createCardElement(this._spec.card);
       el.hass = this._hass;
       const box = document.createElement('div');
-      box.style.cssText = 'height:100%;overflow:auto;border-radius:var(--hv-radius,22px);display:flex;flex-direction:column;justify-content:center;background:var(--hv-tile)';
+      box.style.cssText = 'height:100%;overflow:auto;border-radius:var(--hv-radius,22px);display:flex;flex-direction:column;justify-content:safe center;background:var(--hv-tile)';
       el.style.setProperty('--ha-card-background', 'transparent');
       el.style.setProperty('--ha-card-box-shadow', 'none');
       el.style.setProperty('--ha-card-border-width', '0');
@@ -2331,7 +2333,7 @@ const PILLS = {
     if (P.home === null && P.grid === null) return null;
     const exporting = P.grid !== null && P.grid < -20;
     const text = exporting ? `${kwFmt(P.home)} · ${kwFmt(P.grid)} out` : kwFmt(P.home ?? P.grid);
-    const hasPage = asList(el?._config?.nav).some((v) => v.path === 'energy');
+    const hasPage = asList(el?._config?.nav).some((v) => v.path === 'energy') || asList(el?._config?.popups).includes('energy');
     // sending power to the grid: green; drawing power: orange (in use)
     return { icon: exporting ? 'mdi:transmission-tower-export' : 'mdi:home-lightning-bolt-outline', text,
       tone: exporting ? 'ok' : (P.home ?? P.grid) > 100 ? 'on' : null,
@@ -2347,6 +2349,7 @@ const PILLS = {
 const DEFAULT_PILLS = ['alarm', 'climate', 'energy', 'lights', 'locks', 'openings', 'safety', 'batteries', 'media'];
 /** A pill of your own: { entity, name?, icon?, alert?: [states], tap?, hold? } — its state, tap = more-info. */
 function entityPill(h, d) {
+  if (!d.entity && d.page) return { icon: d.icon || 'mdi:view-grid-outline', text: d.name || d.page };   // a page's pill without an entity
   const st = h.states[d.entity];
   if (!st) return null;
   const alert = asList(d.alert).map(String).includes(st.state);
@@ -2504,6 +2507,12 @@ const TYPE_SIZES = { clock: [1, 1], weather: [2, 2], forecast: [2, 2], agenda: [
 function userTile(def, h, m) {
   if (typeof def === 'string') def = { entity: def };
   if (!def || typeof def !== 'object') return null;
+  const t0 = userTileBase(def, h, m);
+  // phone_size: 2x3 — columns (of 2) x rows (64 px) on phones, instead of the size worked out
+  const ps = t0 && parseSize(def.phone_size);
+  return ps ? { ...t0, phoneSpan: [Math.min(2, ps[0] === 'full' || ps[0] === 'half' ? 2 : ps[0]), ps[1]] } : t0;
+}
+function userTileBase(def, h, m) {
   const size = parseSize(def.size);
   if (def.card) return { kind: 'card', card: def.card, size: size || [2, 2] };
   const t = def.type;
@@ -2951,7 +2960,7 @@ const PAGES = {
   // custom_pages: [{ path, title, icon, color, pills, sections: [{ title, tiles: [...] }] }]
   custom(h, m, cfg, opts) {
     const d = customPages(cfg)[opts.custom] || {};
-    return { title: d.title || 'Page', hue: hueOf(d.color, 200), pills: !!d.pills, back: !!d.subview, hold: d.hold, sections: [] };
+    return { title: d.title || 'Page', hue: hueOf(d.color, 200), pills: !!d.pills, close: !!d.subview, hold: d.hold, sections: [] };
   },
 };
 
@@ -2968,12 +2977,22 @@ const PAGE_CSS = `
 .date { font-size:13px; font-weight:650; letter-spacing:.06em; text-transform:uppercase; color:var(--hv-fg2); }
 .title { font-size:clamp(30px, 4vw, 34px); font-weight:750; letter-spacing:-.02em; line-height:1.15; display:flex; align-items:center; gap:10px; }
 .title .sub { font-size:15px; font-weight:500; color:var(--hv-fg2); letter-spacing:0; }
-.title .tt[data-title-hold] { cursor:pointer; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
+.title .tt[data-title] { user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; touch-action:manipulation; }
+.title .tt[data-title-hold] { cursor:pointer; }
 .txt.busy { animation:hv-pulse 1.1s ease-in-out infinite; }
 .back { all:unset; cursor:pointer; width:36px; height:36px; border-radius:50%; background:var(--hv-pill); display:inline-flex;
   align-items:center; justify-content:center; --mdc-icon-size:22px; }
 .pills { display:flex; flex-wrap:wrap; gap:8px; justify-content:flex-end; max-width:100%; }
 @media (max-width:600px) { .pills { justify-content:flex-start; } }
+/* tablets / browsers: the pills stay top right beside the title block (several lines if need be),
+   never pushed under the chips */
+@media (min-width:601px) {
+  .head { flex-wrap:nowrap; }
+  .head > div:first-child { flex:0 1 auto; }
+  .head > .pills { flex:1 1 0; min-width:220px; align-content:flex-start; align-self:flex-start; padding-top:4px; }
+}
+.head > .xclose { flex:none; margin-left:auto; align-self:flex-start; width:40px; height:40px; --mdc-icon-size:22px; }
+.head > .xclose ha-icon { display:flex; }
 .pill { all:unset; cursor:pointer; display:inline-flex; align-items:center; gap:6px; padding:7px 12px; border-radius:999px;
   background:var(--hv-pill); font-size:13.5px; font-weight:650; color:var(--hv-fg); --mdc-icon-size:17px; white-space:nowrap; }
 .pill ha-icon { color:var(--hv-icon); }
@@ -2986,8 +3005,8 @@ const PAGE_CSS = `
 .pill.alert ha-icon { color:#fff; }
 .people { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
 .chips { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
-.chp { all:unset; box-sizing:border-box; cursor:pointer; height:38px; min-width:38px; padding:0 9px; border-radius:999px; background:var(--hv-pill);
-  display:inline-flex; align-items:center; justify-content:center; gap:6px; color:var(--hv-icon); --mdc-icon-size:20px;
+.chp { all:unset; box-sizing:border-box; cursor:pointer; height:40px; min-width:40px; padding:0 9px; border-radius:999px; background:var(--hv-pill);
+  display:inline-flex; align-items:center; justify-content:center; gap:6px; color:var(--hv-icon); --mdc-icon-size:22px;
   -webkit-tap-highlight-color:transparent; user-select:none; -webkit-user-select:none; transition:background .2s, color .2s; }
 .chp b { font:700 13px ${FONT}; }
 .chp.on, .chp.ok, .chp.warn, .chp.armed { background:var(--hv-tile-on); }
@@ -3022,6 +3041,10 @@ const PAGE_CSS = `
   grid-template-areas:"date clock clock" "date clock clock" "cam next weather"; box-sizing:border-box; overflow:hidden;
   height:var(--hv-board-h, calc(100vh - 140px)); min-height:420px; }
 .board > homeview-tile { min-height:0; min-width:0; }
+/* Widgets fills the screen: a thin edge instead of the page padding, no empty header above it */
+.page.boardpage { padding:clamp(8px, 1.2vw, 14px); }
+.page.boardpage .head:empty { display:none; }
+.page.boardpage .board { border-radius:28px; }
 /* phones: one screen, like a hand-made iPhone HomeView — date | clock, the photo, up next
    (the weather is on Home) */
 .board.narrow { min-height:360px; gap:12px; padding:14px; border-radius:32px;
@@ -3042,7 +3065,7 @@ img.lt { object-fit:cover; background:var(--hv-pill); }
 .pop-sec { display:flex; align-items:baseline; gap:8px; margin:16px 2px 8px; font-size:15px; font-weight:700; color:var(--hv-fg); }
 .pop-sec:first-of-type { margin-top:4px; }
 .pop-sec span { font-size:13px; font-weight:600; opacity:.7; }
-.pen { width:32px; height:32px; margin-left:4px; --mdc-icon-size:18px; color:var(--hv-fg2); }
+.pen { margin-left:4px; color:var(--hv-fg2); }
 .txt { all:unset; cursor:pointer; display:inline-flex; align-items:center; gap:6px; padding:8px 14px; border-radius:999px; background:var(--hv-pill);
   font-size:14px; font-weight:650; color:var(--hv-fg); --mdc-icon-size:17px; font-family:${FONT}; }
 .txt.primary { background:var(--hv-accent); color:#fff; }
@@ -3070,6 +3093,11 @@ img.lt { object-fit:cover; background:var(--hv-pill); }
 .upd b { font-weight:700; }
 .title .hb { flex:none; color:var(--hv-fg2); }
 .title .hb + .hb, .title .hb + .back { margin-left:-2px; }
+/* the round buttons by the title (Menu, update, back, pencil) and the control chips under it:
+   one size (40 px, 22 px icons), icons centred as boxes (not on the text baseline) */
+.title .back { flex:none; width:40px; height:40px; --mdc-icon-size:22px; }
+.title .back ha-icon, .chp ha-icon { display:flex; }
+.chp i { display:flex; }
 .hb.updi { background:var(--hv-accent); color:#fff; }
 .tbb { display:inline-flex; gap:8px; }
 .sheet.narrow { width:min(460px, 100%); }
@@ -3180,6 +3208,7 @@ class HomeViewPage extends HTMLElement {
       }
     }
     this._page = page;
+    if (this._config.popup) page.close = true;
     const pd = PAGE_DEFS[this._config.page] || {};
     const titleCfg = (cfg.pages_config?.[this._config.page] || (this._config.page === 'living' ? cfg.pages_config?.family || cfg.pages_config?.shared : null))?.title;
     if (titleCfg && this._config.page !== 'room' && this._config.page !== 'member') page.title = titleCfg;
@@ -3222,6 +3251,7 @@ class HomeViewPage extends HTMLElement {
       n.textContent = this._config.page === 'custom' ? 'This page has no tiles yet. Add some under custom_pages → sections → tiles.' : 'Nothing to show here yet.';
       frag.appendChild(n);
     }
+    this._root.classList.toggle('boardpage', !!page.board);
     if (page.board) {
       const b = document.createElement('div'); b.className = 'board';
       const bh = page.hue ?? pd.hue ?? 200;
@@ -3254,7 +3284,8 @@ class HomeViewPage extends HTMLElement {
       for (const spec of sec.tiles) {
         const t = this._tile(sec.layout === 'rows' ? { ...spec, row: true } : spec, dark);
         if (sec.layout) t._hvFree = true;
-        if (spec.full) { t.style.gridColumn = '1 / -1'; if (this._phone && spec.kind === 'energy_outage') t.style.gridRow = 'span 3'; }
+        // the outage header: its text wraps on phones and narrow tablets (iPad portrait)
+        if (spec.full) { t.style.gridColumn = '1 / -1'; if (spec.kind === 'energy_outage' && (this._phone || window.innerWidth < 1000)) t.style.gridRow = `span ${this._phone ? 3 : 2}`; }
         g.appendChild(t);
       }
       s.appendChild(g);
@@ -3500,7 +3531,9 @@ class HomeViewPage extends HTMLElement {
     if (cfg.max_columns) cols = Math.min(cols, cfg.max_columns);
     cols = Math.max(2, cols);
     const colW = (w - 2 * pad - gap * (cols - 1)) / cols;
-    const row = phone ? 64 : Math.round(colW / aspect);
+    // Energy's tiles size their text from their height: keep its rows 176–210 px on every
+    // tablet / browser (narrow iPad columns clipped them, wide screens stretched them)
+    const row = phone ? 64 : this._config.page === 'energy' ? clamp(Math.round(colW / aspect), 176, 210) : Math.round(colW / aspect);
     this._root.style.setProperty('--hv-cols', cols);
     this._root.style.setProperty('--hv-row', `${row}px`);
     this._root.style.setProperty('--hv-gap', `${gap}px`);
@@ -3511,7 +3544,8 @@ class HomeViewPage extends HTMLElement {
       // fill the screen below the page bar: measured once laid out (and again after a resize)
       requestAnimationFrame(() => {
         const top = board.getBoundingClientRect().top + (window.scrollY || 0);
-        if (top > 0) board.style.setProperty('--hv-board-h', `${Math.max(420, Math.round(window.innerHeight - top - pad))}px`);
+        const below = parseFloat(getComputedStyle(this._root).paddingBottom) || pad;
+        if (top > 0) board.style.setProperty('--hv-board-h', `${Math.max(420, Math.round(window.innerHeight - top - below))}px`);
       });
     }
     for (const t of this._tiles) {
@@ -3541,10 +3575,15 @@ class HomeViewPage extends HTMLElement {
     const chipAlarm = asList(page.chips).some((c) => domainOf(c.entity) === 'alarm_control_panel');
     // phones: the status pills on Home only (as on a hand-made iPhone HomeView)
     // pills: [lights, { pill: energy, hold: energy-history }, { entity: sensor.pond_temp, name: Pond, hold: pond }]
-    const pills = page.pills && cfg.pills !== false && (!this._phone || this._config.page === 'home')
+    // status pills: Home only (custom pages with pills: true too), top right beside the title
+    const pills = page.pills && cfg.pills !== false && ['home', 'custom'].includes(this._config.page)
       ? asList(cfg.pills && cfg.pills !== true ? cfg.pills : DEFAULT_PILLS)
         .map((x) => (typeof x === 'string' ? { pill: x } : x)).filter((d) => d && typeof d === 'object' && !(d.pill === 'alarm' && chipAlarm))
-        .map((d, i) => [i, d.pill ? PILLS[d.pill]?.(h, m, cfg, this) : d.entity ? entityPill(h, d) : null, d]).filter(([, p]) => p)
+        // pills from custom pages (unless a listed pill already opens that page)
+        .concat(this._config.page !== 'home' ? [] : asList(this._config.pagePills)
+          .filter((pp) => !asList(cfg.pills).some((d) => d && typeof d === 'object' && (d.hold === pp.page || d.tap === pp.page)))
+          .map((pp) => ({ ...pp, tap: pp.tap || pp.page })))
+        .map((d, i) => [i, d.pill ? PILLS[d.pill]?.(h, m, cfg, this) : d.entity || d.page ? entityPill(h, d) : null, d]).filter(([, p]) => p)
       : [];
     this._pills = pills;
     const people = page.people && cfg.people_chips !== false ? m.persons : [];
@@ -3562,14 +3601,16 @@ class HomeViewPage extends HTMLElement {
     const onHome = this._config.page === 'home';
     const chip = onHome && cfg.kiosk !== false && cfg.kiosk_chip !== false;
     // the page bar shows with HA's sidebar (Menu); in full screen: swipe or ← / → keys
-    const nav = !kiosk && !page.back ? asList(this._config.nav) : [];
+    const nav = !kiosk && !page.back && !page.close ? asList(this._config.nav) : [];
     const here = this._config.path || this._config.page;
     const chips = asList(page.chips);
     const looks = chips.map((c) => chipLook(h, c));
     // hold the title: the page pages_config.<page>.hold (or a custom page's hold:) names — e.g. Home → settings
     const titleHold = editing ? null : pageLink(page.hold || cfg.pages_config?.[this._config.page]?.hold);
-    // Reload pages: a YAML dashboard re-reads its files (custom_pages from homeview/custom_pages/)
-    const yamlDash = h.user?.is_admin && h.panels?.[dashboardPath() || 'lovelace']?.config?.mode === 'yaml';
+    // Reload pages (edit mode, admins, every dashboard): a YAML dashboard re-reads its files
+    // (homeview/custom_pages/), a UI dashboard its saved config
+    const yamlDash = h.panels?.[dashboardPath() || 'lovelace']?.config?.mode === 'yaml';
+    const canReload = !!h.user?.is_admin;
     const key = JSON.stringify([today, page.title, titleHold, yamlDash, editing, canEdit, updOn, stale, kiosk, here, looks, chips.map((c) => h.states[c.entity]?.state), pills.map(([id, p]) => [id, p.text, p.alert, p.active, p.tone]), people.map((id) => h.states[id]?.state)]);
     if (key === this._headKey) return;
     this._headKey = key;
@@ -3593,9 +3634,9 @@ class HomeViewPage extends HTMLElement {
         ${barBtns ? `<span class="tbb">${barBtns}</span>` : ''}</div>` : '';
     head.innerHTML = page.minimalHead ? `${topbar}` : `${topbar}<div>
         <div class="date">${esc(today)}</div>
-        <div class="title">${menuBtn}${updBtn}${page.back ? '<button class="back" data-back><ha-icon icon="mdi:chevron-left"></ha-icon></button>' : ''}<span class="tt"${titleHold ? ' data-title-hold' : ''}>${esc(this._phone && page.greet && h.user?.name ? `Hi ${h.user.name.split(' ')[0]}` : page.title)}</span>${roomSub ? `<span class="sub">${esc(roomSub)}</span>` : ''}${canEdit && !editing ? '<button class="back pen" data-edit-on title="Edit HomeView"><ha-icon icon="mdi:pencil-outline"></ha-icon></button>' : ''}</div>
+        <div class="title">${menuBtn}${updBtn}${page.back ? '<button class="back" data-back><ha-icon icon="mdi:chevron-left"></ha-icon></button>' : ''}<span class="tt"${titleHold || (canEdit && !editing) ? ' data-title' : ''}${titleHold ? ' data-title-hold' : ''}${canEdit && !editing ? ' title="Double-tap to edit"' : ''}>${esc(this._phone && page.greet && h.user?.name ? `Hi ${h.user.name.split(' ')[0]}` : page.title)}</span>${roomSub ? `<span class="sub">${esc(roomSub)}</span>` : ''}</div>
         ${editing ? `<div class="editbar"><span><b>Editing</b> · <ha-icon icon="mdi:star-outline"></ha-icon> on Home · <ha-icon icon="mdi:resize"></ha-icon> size · <ha-icon icon="mdi:rename-outline"></ha-icon> name · <ha-icon icon="mdi:eye-off-outline"></ha-icon> hide · <ha-icon icon="mdi:palette-outline"></ha-icon> room colour</span>
-          <span class="eb">${yamlDash ? '<button class="txt" data-reload-pages title="Read the dashboard\'s YAML files again — after adding or editing a page in homeview/custom_pages/"><ha-icon icon="mdi:file-refresh-outline"></ha-icon> Reload pages</button>' : ''}<button class="txt" data-settings><ha-icon icon="mdi:cog-outline"></ha-icon> Settings</button><button class="txt primary" data-edit-off>Done</button></span></div>` : ''}
+          <span class="eb">${canReload ? `<button class="txt" data-reload-pages title="${yamlDash ? 'Read the dashboard\'s files again — after adding or editing a page in homeview/custom_pages/' : 'Read this dashboard\'s saved config again — after editing it in the raw configuration editor'}"><ha-icon icon="mdi:file-refresh-outline"></ha-icon> Reload pages</button>` : ''}<button class="txt" data-settings><ha-icon icon="mdi:cog-outline"></ha-icon> Settings</button><button class="txt primary" data-edit-off>Done</button></span></div>` : ''}
         ${chips.length ? `<div class="chips">${chips.map((c, i) => {
           const L = looks[i], st = h.states[c.entity];
           const icon = (isActive(st) ? c.icon_on : c.icon_off) || c.icon || L.icon;
@@ -3608,15 +3649,16 @@ class HomeViewPage extends HTMLElement {
           return `<div class="avatar${st.state === 'home' ? ' home' : ''}" data-more="${esc(id)}" title="${esc(nm)} · ${esc(hassState(h, st))}">${pic ? `<img src="${esc(pic)}">` : esc(nm.slice(0, 1).toUpperCase())}</div>`;
         }).join('')}</div>` : ''}
       </div>
+      ${page.close ? '<button class="back xclose" data-close-page title="Close" aria-label="Close"><ha-icon icon="mdi:close"></ha-icon></button>' : ''}
       ${pills.length ? `<div class="pills">${pills.map(([id, p]) => `<button class="pill${p.alert ? ' alert' : p.tone ? ` t-${p.tone}` : p.active ? ' t-on' : ''}" data-pill="${id}"><ha-icon icon="${p.icon}"></ha-icon>${esc(p.text)}${p.popup ? '<ha-icon icon="mdi:chevron-right" style="--mdc-icon-size:15px;opacity:.6"></ha-icon>' : ''}</button>`).join('')}</div>` : ''}`;
     head.querySelector('[data-back]')?.addEventListener('click', () => (history.length > 1 ? history.back() : navigate('living')));
+    head.querySelector('[data-close-page]')?.addEventListener('click', () => (history.length > 1 ? history.back() : navigate('home')));
     fillIcons(head, h);
     head.querySelectorAll('[data-chip]').forEach((el) => {
       const c = chips[Number(el.dataset.chip)];
       bindPress(el, () => { const p = chipTap(this._hass, c, this); if (p?.catch) p.catch((e) => console.warn('HomeView chip', e)); },
         () => moreInfo(this, c.entity));
     });
-    head.querySelector('[data-edit-on]')?.addEventListener('click', () => this._setEditing(true));
     head.querySelector('[data-upd]')?.addEventListener('click', (ev) => this._updSheet(ev.currentTarget.dataset.upd, updOn, stale));
     head.querySelectorAll('[data-nav-to]').forEach((el) => el.addEventListener('click', () => navigate(el.dataset.navTo)));
     // menu mode on a phone / iPad: HA's header (and its ☰) is hidden, so the page bar opens the sidebar
@@ -3636,8 +3678,17 @@ class HomeViewPage extends HTMLElement {
       ev.currentTarget.classList.add('busy');
       this.dispatchEvent(new CustomEvent('config-refresh', { bubbles: true, composed: true }));
     });
-    const th = head.querySelector('[data-title-hold]');
-    if (th) bindPress(th, () => {}, () => { if (navigator.vibrate) navigator.vibrate(10); navigate(titleHold); });
+    // the page title: double tap = edit mode (admins; no pencil button, a clean header),
+    // hold = the page its hold: names (pages_config.<page>.hold)
+    const th = head.querySelector('[data-title]');
+    if (th) {
+      let last = 0;
+      bindPress(th, () => {
+        const now = Date.now();
+        if (canEdit && !editing && now - last < 400) { last = 0; this._setEditing(true); return; }
+        last = now;
+      }, () => { if (!titleHold) return; if (navigator.vibrate) navigator.vibrate(10); navigate(titleHold); });
+    }
     head.querySelectorAll('[data-more]').forEach((el) => el.addEventListener('click', () => moreInfo(this, el.dataset.more)));
     // pill tap: its sheet / details / page; hold: the page its hold: names (else the same as a tap)
     head.querySelectorAll('[data-pill]').forEach((el) => {
@@ -4054,8 +4105,9 @@ class HomeViewStrategy extends HTMLElement {
     hvAvatarMode = options.avatars ?? 'samples';
     const m = buildModel(hass, options);
     // custom_pages (see custom_pages/README.md): subview: true = no place in the page bar, opened by
-    // a hold (or tap) that names it, with a back arrow; admin_only: true = admins only
-    const customs = customPages(options).filter((c) => !c.bad && (!c.admin_only || hass.user?.is_admin));
+    // a hold (or tap) that names it, with a back arrow; admin_only: true = only viewers who see
+    // every page (admins without an access rule, or access: all) — see allowed() below
+    const customs = customPages(options).filter((c) => !c.bad);
     const wanted = [...new Set(asList(options.pages || DEFAULT_PAGES).map((p) => PAGE_ALIASES[p] || p))]
       .filter((p) => PAGE_DEFS[p] || customs.some((c) => c.path === p));
     let hasEnergy = false;
@@ -4089,6 +4141,7 @@ class HomeViewStrategy extends HTMLElement {
     const memberOf = (path) => m.members.find((x) => `member-${x.slug}` === path);
     const own = (mem) => mine.includes(mem.person);
     const allowed = (path) => {
+      if (customs.some((c) => c.admin_only && c.path === path)) return rule === 'all';
       if (rule === 'all') return true;
       const mem = memberOf(path);
       if (rule === null) return mem ? own(mem) : true;                     // default for non-admins
@@ -4096,7 +4149,11 @@ class HomeViewStrategy extends HTMLElement {
       if (mem) return set.has(path) || set.has('all_members') || (set.has('rooms') && own(mem));
       return set.has(path) || (path === 'all_rooms' && set.has('rooms'));
     };
-    const paths = allPaths.filter(allowed);
+    // pages_config.<page>.popup: true (e.g. energy) — opened from its pill, not in the page bar or
+    // the swipe order; a ✕ top right goes back to the page it was opened from
+    const isPopup = (p) => !!(PAGE_DEFS[p] && pc[p]?.popup);
+    const popups = allPaths.filter(allowed).filter(isPopup);
+    const paths = allPaths.filter(allowed).filter((p) => !isPopup(p));
     const views = paths.map((p) => {
       const mem = m.members.find((x) => `member-${x.slug}` === p);
       if (mem) {
@@ -4113,7 +4170,17 @@ class HomeViewStrategy extends HTMLElement {
         cards: [{ type: 'custom:homeview-page', page: p, path: p, order: paths, options }] };
     });
     const nav = views.map((v) => ({ path: v.path, title: v.title, icon: v.icon, letter: v.letter, avatar: v.avatar }));
-    views.forEach((v) => { v.cards[0].nav = nav; delete v.letter; delete v.avatar; });
+    // a custom page's own pill (pill: { entity, name, icon, alert } or pill: true) joins Home's
+    // pills for everyone the page is made for: tap = the page, hold = the entity's details
+    const pagePills = customs.filter((c) => c.pill && allowed(c.path)).map((c) => ({
+      ...(typeof c.pill === 'object' ? c.pill : {}), page: c.path,
+      icon: (typeof c.pill === 'object' && c.pill.icon) || c.icon || 'mdi:view-grid-outline',
+      name: typeof c.pill === 'object' && 'name' in c.pill ? c.pill.name : (c.title || c.path) }));
+    views.forEach((v) => { v.cards[0].nav = nav; v.cards[0].popups = popups; v.cards[0].pagePills = pagePills; delete v.letter; delete v.avatar; });
+    for (const p of popups) {
+      views.push({ title: pc[p].title || PAGE_DEFS[p].title, path: p, icon: pc[p].icon || PAGE_DEFS[p].icon, subview: true, type: 'panel',
+        cards: [{ type: 'custom:homeview-page', page: p, path: p, order: [], popup: true, nav, popups, options }] });
+    }
     for (const c of customs.filter((x) => x.subview && allowed(x.path))) {
       views.push({ title: c.title || 'Page', path: c.path, icon: c.icon || 'mdi:view-grid-outline', subview: true, type: 'panel',
         cards: [{ type: 'custom:homeview-page', page: 'custom', custom: c.idx, path: c.path, order: [], options }] });

@@ -1,7 +1,7 @@
 # media.yaml — TV, soundbar and speakers. Opened by holding the TV tile:
 #   customize:
 #     media_player.living_room_tv: { hold: media }
-# Change the vars: block to your own entities (Developer tools → States), then pencil → Reload pages.
+# Change the vars: block to your own entities (Developer tools → States), then double-tap the page title → Reload pages.
 path: media
 title: Media
 icon: mdi:television

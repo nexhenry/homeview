@@ -2,7 +2,7 @@
 # Opened by holding the Home title:
 #   pages_config:
 #     home: { hold: admin }
-# Change the vars: block to your own entities, then pencil → Reload pages.
+# Change the vars: block to your own entities, then double-tap the page title → Reload pages.
 path: admin
 title: Admin
 icon: mdi:shield-account-outline

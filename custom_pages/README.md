@@ -9,7 +9,7 @@ has a fully annotated starter and four ready-made pages:
 | [`sample.yaml`](sample.yaml) | Sample | — (a starter: every option, explained) | everything |
 | [`media.yaml`](media.yaml) | Media | **hold the TV tile** | `vars:` (TV, remote, soundbar, speakers) |
 | [`energy-history.yaml`](energy-history.yaml) | Energy History | **hold the Energy pill** | nothing: it uses your Energy settings |
-| [`pond.yaml`](pond.yaml) | Pond | **hold the Pond pill** | `vars:` (pumps, filter, UV, light, water) |
+| [`pond.yaml`](pond.yaml) | Pond | **tap its own Pond pill** (`pill:` in the file) | `vars:` (pumps, filter, UV, light, water) |
 | [`admin.yaml`](admin.yaml) | Admin (admins only) | **hold the Home title** | `vars:` (modes, actions, automations) |
 | [`dashboard.yaml`](dashboard.yaml) | — | — | the dashboard that loads them, with those holds |
 
@@ -80,7 +80,7 @@ block to your own entity ids (**Developer tools → States** lists them). Then r
 ## Add, edit or share a page — no restart
 
 1. Save the file in `/config/homeview/custom_pages/`.
-2. In HomeView, tap the **pencil** → **Reload pages**. Admins only; it shows on YAML dashboards.
+2. In HomeView, **double-tap the page title** (edit mode, admins) → **Reload pages**, next to Settings.
 
 Home Assistant reads the dashboard's files again. Every screen showing this dashboard, such as a
 wall tablet or a phone, updates by itself within a second or two.
@@ -109,8 +109,9 @@ title: Media                 # the title at the top
 icon: mdi:television         # its icon in the page bar
 color: indigo                # a colour name (orange, green, blue, teal, purple, pink, amber …) or a hue 0–360
 subview: true                # not in the page bar: opened by a hold, with a back arrow
-admin_only: false            # true: only admins get the page
+admin_only: false            # true: only viewers who see every page (admins, or access: all)
 pills: false                 # true: the status pills, as on Home
+pill: { entity: media_player.living_room_tv, name: TV }   # optional: this page's own pill on Home
 hold: another-page           # hold this page's title to open another page (optional)
 
 vars:                        # the entities the page uses: the only part to change
@@ -143,6 +144,10 @@ entity. That makes a page easy to share: everything house-specific is at the top
 `size` is *columns* x *rows*: `1x1`, `2x1`, `3x2`. `full` is the page's width and `half` is half
 of it, so `full x 3` is the full width and 3 rows tall. Sizes shrink to fit on phones.
 
+`phone_size` sets a tile's size on phones yourself: 2 columns, rows of 64 px. For example,
+`phone_size: 2x5` gives a graph the full width and 320 px. Without it, HomeView works the size
+out from `size`, which can leave a short card with a lot of empty space.
+
 ## Taps and holds
 
 `tap:` and `hold:` take a **page path** (open that page), `more-info` (the details), `toggle`,
@@ -154,7 +159,8 @@ or `none`. Leave them out for HomeView's usual tap and hold (see *Taps* in the m
 | …a TV that's a switch (an IR or smart-plug TV) | `customize: { switch.living_room_tv: { hold: media } }`. Use whatever entity your TV tile shows |
 | One tile on a custom page | `{ entity: media_player.living_room_tv, hold: media }` |
 | A status pill (Energy) | `pills: [..., { pill: energy, hold: energy-history }, ...]` |
-| A pill of your own (Pond) | `pills: [..., { entity: sensor.pond_water_temperature, name: Pond, icon: mdi:fish, hold: pond }]` |
+| A page's own pill (Pond) | In the page file: `pill: { entity: sensor.pond_water_temperature, name: Pond, icon: mdi:fish }`. It shows on Home for everyone who gets the page: tap = the page, hold = the entity's details. `pill: true` = a plain pill with the page's title and icon |
+| A pill of your own | `pills: [..., { entity: sensor.x, name: X, icon: mdi:x, hold: some-page }]` |
 | A page's title (Home) | `pages_config: { home: { hold: admin } }` (a custom page: `hold:` in its file) |
 
 A pill of your own shows the entity's state, plus `name` in front if you set one. A tap opens
@@ -181,5 +187,6 @@ strategy:
         - tiles: [$tv]
 ```
 
-Holds, `vars:` and everything else work the same. Only the files and **Reload pages** need the
-YAML dashboard. Saving in the editor updates the dashboard right away.
+Holds, `vars:` and everything else work the same. Only the page files need the YAML dashboard.
+Saving in the editor updates the dashboard right away; **Reload pages** brings other open screens up
+to date.

@@ -9,7 +9,7 @@ no YAML per tile.
 
 - **Zero setup:** one line of config. Rooms, people (and a page for each, from their
   `person` entities), calendars, weather, cameras and energy are found automatically.
-- **Easy to make your own:** tap the pencil to rename, resize, hide or pin tiles right on the
+- **Easy to make your own:** double-tap a page's title to rename, resize, hide or pin tiles right on the
   dashboard, use the settings editor for everything else, or YAML if you prefer.
 - **No other cards needed:** HomeView draws its own tiles. You don't need button-card,
   card-mod, layout-card or anything else from HACS.
@@ -28,7 +28,7 @@ no YAML per tile.
 ## Contents
 
 - [Pages](#pages) · [A real home, fine-tuned](#a-real-home-fine-tuned) · [What you need](#what-you-need) · [Install](#install) · [Create the dashboard](#create-the-dashboard) · [Full screen](#full-screen-kiosk-mode)
-- [Make it yours](#make-it-yours): [on the dashboard](#1-on-the-dashboard-the-pencil) ·
+- [Make it yours](#make-it-yours): [on the dashboard](#1-on-the-dashboard-double-tap-the-title) ·
   [settings editor](#2-the-settings-editor) · [YAML](#3-yaml)
 - [Your own tiles, cards and pages](#your-own-tiles-cards-and-pages) · [All options](#all-options)
 - [Taps](#taps) · [Report a problem](#report-a-problem) · [Credits](#credits) · [Disclaimer](#disclaimer)
@@ -38,11 +38,11 @@ no YAML per tile.
 | Page | What's on it |
 |---|---|
 | **Widgets** | One tinted panel that fills the screen: a big date with sunrise / sunset, a big analog clock, the forecast, the week's agenda and a **photo slideshow** from a media folder (sample photos until you add your own). On a phone: date and clock side by side, the photo, then up next |
-| **Home** | One screen, like a hand-made dashboard: date, title, **control chips** (alarm, garage, locks, water valve — red with a word when something needs attention), people and status pills (alarm, climate, lights on, locks, doors & windows, leaks / smoke, batteries, now playing); weather (2×2), air quality (2×1), two doors (front lock, garage), a camera (2×1), *Lights* for the two main rooms (tap = all on / off, hold = the room); your scenes; then a clock and the next event (2×1) |
+| **Home** | One screen, like a hand-made dashboard: date, title, **control chips** (alarm, garage, locks, water valve — red with a word when something needs attention), people, and the **status pills** top right (alarm, climate, power now, lights on, locks, doors & windows, leaks / smoke, batteries, now playing, plus your pages' own pills); weather (2×2), air quality (2×1), two doors (front lock, garage), a camera (2×1), *Lights* for the two main rooms (tap = all on / off, hold = the room); your scenes; then a clock and the next event (2×1) |
 | **Living** | The living spaces everyone shares — living room, kitchen, dining, family room, garage … — each in its own colour with its lights, climate, locks, covers, fans and media. Bedrooms, bathrooms and outdoor areas are left out (they have their own pages). Choose the rooms with `living_rooms` |
 | **Rooms** — a page per person | One page for each family member (Alex, Zoe, Mia …), found from your `person` entities: their room's temperature, comfort, humidity, doors and windows, its devices, their next event and where they are. Automatic for everyone with a room named after them ("Bedroom Zoe"); `members` sets who and in what order. Each person sees only their own page unless `access` says otherwise (admins see all) |
 | **Room pages** | A room's details — hold a room's tile or title: *Right now* (temperature, comfort, humidity, its doors and locks), quick tiles (all its lights on / off, presence, power now), 24-hour charts (temperature, humidity, light level), then everything in the room: lights, climate, doors & security, media, devices, scenes, cameras, sensors |
-| **Energy** | A live flow diagram; *right now* (solar, home with amps · volts, grid importing / exporting, battery charging / discharging); **backup time** on battery; **off-grid share in your peak hours** (optional time windows); **solar self-sufficiency**; today's totals; and a **power-outage list** of every device with W · A · kWh today and an on / off button — tick what to turn off when the grid goes down. The flow is [Power Flow Card Plus](https://github.com/flixlix/power-flow-card-plus) when it's installed (HomeView's own otherwise); the numbers are live between meter readings |
+| **Energy** | Opened from the Energy pill (or in the page bar). A live flow diagram; *right now* (solar, home with amps · volts, grid importing / exporting, battery charging / discharging); **backup time** on battery; **off-grid share in your peak hours** (optional time windows); **solar self-sufficiency**; today's totals; and a **power-outage list** of every device with W · A · kWh today and an on / off button — tick what to turn off when the grid goes down. The flow is [Power Flow Card Plus](https://github.com/flixlix/power-flow-card-plus) when it's installed (HomeView's own otherwise); the numbers are live between meter readings |
 | **Cameras** | Every camera in a 16:9 grid, refreshed every 10 s while on screen. Tap for the live stream |
 | **All rooms** *(optional)* | A directory of every room (by floor). Add `all_rooms` to `pages`. It's also what `rooms` shows in a home without member rooms |
 | **People** *(optional)* | Everyone with home / away, since when and phone battery, plus the family calendar. Add `people` to `pages` to use it |
@@ -52,14 +52,21 @@ The pages come in this order, and swiping past the last one wraps back to Widget
 **On a phone** every page follows a hand-made iPhone HomeView: a big title (*Hi <your name>* on
 Living and each person's page, with a strip of six favourites), compact one-line tiles two
 across, each room starting with a slim bar (name, comfort, temperature · humidity), wide tiles
-(weather, air, camera, next event) across the full width, no clock, status pills on Home only.
+(weather, air, camera, next event) across the full width, no clock. Status pills are on Home only, under the chips
+(top right on tablets and in a browser).
 Favourites: `phone_favorites: [light.kitchen, …]` or per person
 `{ alex: [...], zoe: [...] }` (default: the main rooms' lights, then the locks).
 
 Pages that have nothing to show (no cameras, no energy set up …) are left out.
 
 The pills open a sheet with the matching devices, for example every light that's on or every
-open door, and you can control them right there.
+open door, and you can control them right there. Energy opens the Energy page; a page's own pill
+(Pond, …) opens that page.
+
+**Tile shapes** follow a hand-made HomeView: square on phones and iPads, 1.28 : 1 on screens wider
+than 3 : 2 (1.1 : 1 on 6-column pages, so a Pixel Tablet shows four rows of six). The Energy page's
+rows stay 176–210 px tall on every tablet and browser, so its text-heavy tiles neither clip on a
+portrait iPad nor stretch on a wide screen. Widgets fills the screen edge to edge.
 
 ## A real home, fine-tuned
 
@@ -204,10 +211,11 @@ already, set `kiosk: false` so the two don't fight.)
 
 There are three ways to change HomeView. They all edit the same settings, so you can mix them.
 
-### 1. On the dashboard (the pencil)
+### 1. On the dashboard (double-tap the title)
 
-The quickest way, for the tiles you see. Admins see a **pencil** next to the page title.
-Tap it and every tile shows its buttons:
+The quickest way, for the tiles you see. Admins **double-tap the page title** (on Home: "Home" or
+your home's name). There's no button for it, so the header stays clean. Every tile then shows its
+buttons:
 
 | Button | What it does |
 |---|---|
@@ -218,13 +226,13 @@ Tap it and every tile shows its buttons:
 | 🎨 | Rooms and a person's room summary: change the room's colour (it tints that person's page too) |
 
 Each change is saved straight away, and the page stays where you scrolled to. **Settings** opens the settings editor, **Done** leaves
-edit mode. Turn the pencil off with `edit_button: false`.
+edit mode. Turn the double tap off with `edit_button: false`.
 
 ### 2. The settings editor
 
 Everything else, without YAML: page order, theme, favourites, people, calendars, rooms
 (order, names, icons, colours, what to show first), entities to hide, status pills, energy
-sensors and the tile size. Open it from the pencil → **Settings**, or from Home Assistant's own
+sensors and the tile size. Open it from edit mode → **Settings**, or from Home Assistant's own
 ⋮ → **Edit dashboard**. The **YAML** button shows the configuration it writes.
 
 ### 3. YAML
@@ -249,7 +257,7 @@ strategy:
 ```
 
 If the dashboard itself is a YAML dashboard (`mode: yaml` in `configuration.yaml`),
-HomeView can't save changes from the pencil or the editor. It shows you the YAML to paste
+HomeView can't save changes from edit mode or the editor. It shows you the YAML to paste
 into the file instead.
 
 Admins see a note on the page when the config has an option HomeView doesn't know — usually
@@ -304,7 +312,9 @@ A **tile** is one of:
 | A HomeView widget | `{ type: clock }` · `weather` · `forecast` · `date` · `next_event` · `agenda` (`calendars`, `days`) · `camera` (`entity`) · `person` (`entity`) |
 | **Any Home Assistant card** | `{ card: { type: thermostat, entity: climate.hallway }, size: 2x2 }` — anything you'd put in a normal dashboard, including HACS cards |
 
-`size` is `WxH` in grid cells (`1x1`, `2x1`, `2x2`, `4x2` …); it shrinks on narrow screens.
+`size` is `WxH` in grid cells (`1x1`, `2x1`, `2x2`, `4x2` …), or `full` / `half` the page's width
+with a height (`full x 3`); it shrinks on narrow screens. `phone_size: 2x5` sets the size on phones
+(2 columns, rows of 64 px) for a card that would otherwise be too tall or too short there.
 `tap: more-info` makes a tap open the details instead of toggling.
 
 Custom pages come after HomeView's pages unless you list their `path` in `pages:`.
@@ -314,7 +324,7 @@ Custom pages come after HomeView's pages unless you list their `path` in `pages:
 *Pond* and *Admin*. Each opens by a hold: the TV tile, the Energy pill, a Pond pill, the Home
 title. Each has a `vars:` block at the top, so a shared page works after you change only that.
 They live in `/config/homeview/custom_pages/`, one file per page, loaded with
-`!include_dir_list`. Pencil → **Reload pages** picks up a new or edited file with no restart.
+`!include_dir_list`. Edit mode → **Reload pages** picks up a new or edited file with no restart.
 The guide, [`custom_pages/README.md`](custom_pages/README.md), covers writing a page and setting
 up Home Assistant for it.
 
@@ -324,13 +334,15 @@ up Home Assistant for it.
   pages_config:
     home: { hold: admin }                             # hold the Home title
   pills: [alarm, climate, { pill: energy, hold: energy-history }, lights, locks, openings, safety, batteries, media,
-          { entity: sensor.pond_water_temperature, name: Pond, icon: mdi:fish, hold: pond }]   # a pill of your own
+          { entity: sensor.water_heater_temp, name: Hot water, hold: water }]   # a pill of your own
   customize:
     media_player.living_room_tv: { hold: media }      # the TV tile, wherever it appears
 ```
 
-A custom page with `subview: true` stays out of the page bar and gets a back arrow.
-`admin_only: true` limits it to admins.
+A custom page with `subview: true` stays out of the page bar and gets a ✕ that goes back. The
+same for a built-in page with `pages_config: { energy: { popup: true } }`: the Energy pill opens it.
+A page file with `pill: { entity, name, icon }` adds its own pill to Home.
+`admin_only: true` limits it to viewers who see every page: admins, unless `access` gives them a list, and logins with `access: all`.
 
 ## All options
 
@@ -345,8 +357,9 @@ strategy:
                                   # rooms = a page per family member's room
                                   # optional: all_rooms, people, custom page paths
                                   # old names: family = living, members = rooms
-  pages_config:                   # per page: title, icon, color, sections
-    home: { color: orange }
+  pages_config:                   # per page: title, icon, color, sections, hold, popup
+    home: { color: orange, hold: admin }   # hold: hold the page title to open that page
+    energy: { popup: true }       # popup: not in the page bar / swipe order, opened from its pill, ✕ goes back
     rooms: { title: House, icon: mdi:floor-plan }
 
   # rooms (areas)
@@ -465,7 +478,7 @@ strategy:
   max_columns: 8
   swipe: true                     # swipe between pages (turns the swipe-navigation plugin off on this
                                   # dashboard so one swipe is one page; false = leave swiping to it)
-  edit_button: true               # the pencil (admins only)
+  edit_button: true               # double-tap a page title for edit mode (admins only)
   kiosk: true                     # full screen: hide HA's header and sidebar
   kiosk_chip: true                # the Menu / Full screen chip
   update_notice: true             # an update icon for admins when HACS has a newer HomeView
@@ -500,8 +513,8 @@ strategy:
 - **Rooms** are your Home Assistant **areas**. An entity belongs to a room through its own
   area or its device's area. Floors (if you use them) set the room order.
 - An entity is **left out** when it is hidden, disabled, or a configuration / diagnostic entity
-  (battery sensors are still counted for the Batteries pill). Hide anything else with the
-  pencil or `exclude_entities`.
+  (battery sensors are still counted for the Batteries pill). Hide anything else in
+  edit mode or with `exclude_entities`.
 - A room's **temperature / humidity** is the area's own setting (Settings → Areas), else the
   first temperature / humidity sensor in it.
 - **Energy** uses Settings → Dashboards → Energy: grid, solar, battery and individual devices.

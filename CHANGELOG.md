@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.8.9 — 2026-11-05
+
+- **No pencil button:** double-tap a page's title to start edit mode (admins), for a cleaner
+  header. Holding the title still opens its `hold:` page. `edit_button: false` turns the double tap
+  off.
+- **Status pills on Home only, top right:** they're no longer on Living or Rooms. On tablets and
+  in a browser they sit beside the title (in several lines if needed) instead of under the chips;
+  on phones they stay under the chips.
+- **A page's own pill:** a custom page with `pill: { entity, name, icon, alert }` (or
+  `pill: true`) adds its pill to Home for everyone who gets the page. Tap opens the page; hold
+  shows the entity's details. The Pond template now uses it, so `dashboard.yaml` needs no Pond entry.
+- **Energy as a popup page:** `pages_config.energy.popup: true` (any built-in page) takes it out of
+  the page bar and the swipe order. The Energy pill opens it, and a ✕ top right goes back. Custom
+  pages with `subview: true` (opened by a hold) also get the ✕ now, instead of a back arrow.
+- **Energy fits every screen:** its rows stay between 176 and 210 px on tablets and in a
+  browser. On a portrait iPad the flow, Right now and Today tiles were clipped, and on wide screens
+  they were stretched. The off-grid tiles use their compact look only when they're narrow (two to a
+  row on a phone), and the outage header gets two rows when its text wraps.
+- **Widgets fills the screen:** a thin edge instead of the page padding, and no empty header above
+  the board.
+- **Comfort colours on a person's page** match the room tiles (Warm in amber, not cyan).
+- **Reload pages** is in edit mode on every dashboard (admins). On a UI dashboard it re-reads the
+  saved config, so other open screens pick up a raw-editor change.
+- **`phone_size`** for tiles and cards on your own pages: their size on phones (2 columns, rows of
+  64 px), e.g. `phone_size: 2x5`. Before, a card always got three phone rows per tablet row.
+- **A card taller than its tile** now starts at its top and scrolls. Before, it was centred, so
+  its first lines were cut off.
+- **`admin_only` follows `access`:** an admin-only page is for viewers who see every page: admins
+  without an `access` list, and logins with `access: all`. An admin limited by `access` (a child
+  with an admin login) no longer gets it.
+
+- **One size for the round buttons on Home:** the Menu / Full screen, update, back and pencil
+  buttons by the title and the control chips under it are all 40 px, with 22 px icons. Before,
+  they were 36, 32 and 38 px with 18–22 px icons. The icons are now centred in their circles,
+  instead of sitting a little low on the text baseline.
+
 ## 0.8.8 — 2026-11-05
 
 - **Page files, ready to share:** a new [`custom_pages/`](custom_pages/README.md) folder in the
