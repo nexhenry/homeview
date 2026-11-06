@@ -63,10 +63,17 @@ The pills open a sheet with the matching devices, for example every light that's
 open door, and you can control them right there. Energy opens the Energy page; a page's own pill
 (Pond, …) opens that page.
 
-**Tile shapes** follow a hand-made HomeView: square on phones and iPads, 1.28 : 1 on screens wider
-than 3 : 2 (1.1 : 1 on 6-column pages, so a Pixel Tablet shows four rows of six). The Energy page's
-rows stay 176–210 px tall on every tablet and browser, so its text-heavy tiles neither clip on a
-portrait iPad nor stretch on a wide screen. Widgets fills the screen edge to edge.
+**Tile shapes fit the screen.** Phones get two columns of 64 px rows. On tablets and in a browser:
+- **Columns:** a page's own count (5 or 6), but tiles stay between 110 and 300 px wide.
+- **Row height:** 4 rows fit on one screen, keeping each tile between square and 1.35 : 1. A tall
+  screen (a portrait iPad) gets square tiles and scrolls. A wide one (Pixel Tablet, landscape iPad,
+  laptop) gets wider tiles, so the 4 rows fit. A row is never under 88 px, two touch targets.
+- **Inside a tile,** text and icons scale with its size.
+- **Energy** keeps rows of 176–210 px for its text-heavy tiles.
+- **Widgets** fills the screen edge to edge.
+
+`rows_on_screen: 5` (or `{ home: 4, living: 5 }`) changes how many rows should fit;
+`tile_size` / `max_columns` still override the columns.
 
 ## A real home, fine-tuned
 

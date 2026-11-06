@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+- **Edit mode is one state for the whole dashboard.** Start it on one page and every page is in
+  edit mode, with the edit bar. Widgets has the bar too. Tap Done anywhere and it ends everywhere.
+- **"On" is amber/orange on every page:** switches, fans and other devices that are on use the
+  shared "on" colour instead of the page's tint.
+- **`icon_on` / `icon_off`** for tiles on your own pages and in `customize`, e.g. a valve that shows
+  open or closed.
+- **Water valves:** a switch named like a shut-off (`…shut…`) means on = water off. Any other water
+  valve switch (e.g. a template "Water Valve" over a normally-open shut-off) means on = water
+  flowing.
+- **Home Assistant's cards on your pages** (glance, tile, button …) use HomeView's icon and text
+  colours, font and header size.
+- **The ✕ on a page opened from a pill or a hold floats** top right, so you don't have to scroll
+  up to close it.
+- **No person tile on person pages:** the room summary at the top already says who's home.
+- Developer: `scripts/check.sh` also checks the file as an ES module (how browsers load it).
+- **Tiles fit the screen on every tablet and browser.**
+  - **Columns:** the page's own count, kept between 110 and 300 px wide.
+  - **Rows:** sized so 4 rows fit on one screen, each tile between square and 1.35 : 1. Before, the
+    shapes were fixed per screen shape, so a landscape iPad showed about 3.6 rows and a Pixel Tablet
+    3.4. Portrait screens keep square tiles.
+  - **New option** `rows_on_screen`.
+  - **Phones and the Energy page** are unchanged.
 - **Widgets fills the screen, edge to edge**, in a hand-made HomeView's proportions: the date
   top-left (a big numeral, sunrise / sunset), the clock filling its area, the photo, Up next and the
   weather (a large temperature) sized to their space. The sizes scale with the screen. On a portrait

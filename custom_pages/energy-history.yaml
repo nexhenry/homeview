@@ -12,18 +12,24 @@ subview: true
 sections:
   - tiles:
       - card: { type: energy-date-selection }
-        size: full x 1
+        size: full x auto
+        phone_size: 2xauto
   - title: Usage
     tiles:
       - card: { type: energy-usage-graph }
-        size: full x 3
+        size: full x auto
+        phone_size: 2xauto
       - card: { type: energy-distribution, link_dashboard: false }
-        size: 2x3
+        size: 2xauto
+        phone_size: 2xauto
       - card: { type: energy-sources-table }
-        size: 3x3
+        size: 3xauto
+        phone_size: 2xauto
   - title: Solar & devices
     tiles:
       - card: { type: energy-solar-graph }      # empty if you have no solar
-        size: full x 3
+        size: full x auto
+        phone_size: 2xauto
       - card: { type: energy-devices-graph }
-        size: full x 3
+        size: full x auto
+        phone_size: 2xauto

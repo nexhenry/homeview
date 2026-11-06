@@ -43,6 +43,10 @@ const PHONE_SPAN = { weather: [2, 5], forecast: [2, 5], air: [2, 2], next_event:
   person: [2, 2], chart: [2, 3], energy_flow: [2, 6], energy_today: [2, 5], slideshow: [2, 4], date: [2, 3], room: [2, 1],
   energy_now: [2, 4], energy_backup: [2, 2], energy_window: [2, 2], energy_stat: [2, 2] };
 // tablet / browser columns per page (phones always get 2)
+// rows a page should fit on one tablet / browser screen (the tile formula in _layout; default 4,
+// as a hand-made HomeView's "4 rows of 6 fill the Pixel"). Option rows_on_screen: a number for
+// every page, or { page: n }
+const ROWS_ON_SCREEN = {};
 const PAGE_COLUMNS = { home: 5, member: 5, custom: 5, people: 5, living: 6, all_rooms: 6, room: 6, energy: 6, cameras: 6 };
 
 // Room tints, assigned in order to rooms without their own colour
@@ -62,7 +66,7 @@ const KNOWN_OPTIONS = ['type', 'title', 'theme', 'pages', 'pages_config', 'room_
   'exclude_entities', 'customize', 'people', 'calendars', 'weather', 'cameras', 'home', 'pills', 'battery_low',
   'people_chips', 'energy', 'tile_size', 'max_columns', 'swipe', 'custom_pages', 'edit_button', 'update_notice',
   'kiosk', 'kiosk_chip', 'members', 'living_rooms', 'widgets', 'avatars', 'phone_favorites', 'access',
-  'comfort', 'comfort_thermostat', 'comfort_margin', 'comfort_limits', 'screensaver'];   // energy.* : see the energy page
+  'comfort', 'comfort_thermostat', 'comfort_margin', 'comfort_limits', 'screensaver', 'rows_on_screen'];   // energy.* : see the energy page
 
 // What a room page / room row shows, in this order
 const ROOM_GROUPS = [
@@ -122,8 +126,10 @@ function parseSize(v, fallback = null) {
   if (typeof v === 'number') return [v, 1];
   if (typeof v === 'string') {
     // 2x1, or full / half (the width of the grid / half of it) with an optional height: full x 3
-    const m = v.trim().match(/^(\d+|full|half)\s*(?:[x×*]\s*(\d+))?$/i);
-    if (m && (m[2] || isNaN(m[1]))) return [isNaN(m[1]) ? m[1].toLowerCase() : +m[1], m[2] ? +m[2] : (isNaN(m[1]) ? 2 : 1)];
+    // a height of "auto" (cards): as many rows as the card needs, measured
+    const m = v.trim().match(/^(\d+|full|half)\s*(?:[x×*]\s*(\d+|auto))?$/i);
+    const hgt = (x) => (x && x.toLowerCase() === 'auto' ? 'auto' : x ? +x : null);
+    if (m && (m[2] || isNaN(m[1]))) return [isNaN(m[1]) ? m[1].toLowerCase() : +m[1], hgt(m[2]) ?? (isNaN(m[1]) ? 2 : 1)];
   }
   return fallback;
 }
@@ -680,7 +686,7 @@ function secureTone(st) {
   if (kind === 'alarm') return s === 'triggered' ? 'alert' : ['arming', 'pending', 'disarming'].includes(s) ? 'warn' : s.startsWith('armed') ? 'armed' : null;
   if (kind === 'lock') return s === 'locked' ? 'ok' : ['locking', 'unlocking'].includes(s) ? 'warn' : 'alert';
   if (kind === 'cover') return s === 'closed' ? 'ok' : ['opening', 'closing'].includes(s) ? 'warn' : 'alert';
-  if (kind === 'valve') return (d === 'valve' ? s === 'closed' : s === 'on') ? 'alert' : 'ok';
+  if (kind === 'valve') return waterOff(st) ? 'alert' : 'ok';
   return s === 'on' ? 'alert' : 'ok';
 }
 
@@ -733,7 +739,7 @@ function activeColor(st) {
   if (d === 'media_player') return '#AF52DE';
   if (d === 'fan' || d === 'humidifier') return HV_TONES.cool;
   if (d === 'person') return HV_TONES.ok;
-  return 'var(--hv-accent)';
+  return HV_TONES.on;   // switches, fans … on: the one "on" colour on every page
 }
 
 /** Default tap action per domain. */
@@ -951,6 +957,7 @@ async function saveStrategy(hass, fallbackOptions, mutate) {
  * ========================================================================================== */
 
 const TILE_CSS = `
+@keyframes hv-alert-pulse { 0%, 100% { box-shadow:0 0 0 0 rgba(255,59,48,.55); } 50% { box-shadow:0 0 0 8px rgba(255,59,48,0); } }
 :host { display:block; height:100%; min-width:0; container-type:size; -webkit-tap-highlight-color:transparent;
   user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
 * { box-sizing:border-box; }
@@ -1141,6 +1148,14 @@ R.entity = {
         <div class="tx"><div class="nm">${esc(stateText(h, st))}</div><div class="sb">${esc(name)}</div></div></div>`;
     }
     const tone = secureTone(st);
+    if (s.icon_on || s.icon_off) s = { ...s, icon: (on || st.state === 'open' ? s.icon_on : s.icon_off) || s.icon };   // icon_on / icon_off
+    // color_on / color_off: the icon's colour by state — green / amber / red / orange / blue (the colour code) or any CSS colour
+    const named = { green: HV_TONES.ok, amber: HV_TONES.warn, red: HV_TONES.alert, orange: HV_TONES.on, blue: HV_TONES.cool };
+    const pick = on || st.state === 'open' ? s.color_on : s.color_off;
+    const own = pick ? named[pick] || HV_TONES[pick] || pick : null;
+    if (own) return `<div class="t flex${on ? ' on' : ''}${na ? ' na' : ''}" style="--hv-ic-on:${esc(own)}">
+      <div class="ic" style="color:${esc(own)}"><i data-e="${esc(s.entity)}"${s.icon ? ` data-i="${esc(s.icon)}"` : ''}></i></div>
+      <div class="tx"><div class="nm">${esc(name)}</div><div class="sb">${esc(sub)}</div></div></div>`;
     const color = tone ? `style="--hv-ic-on:${HV_TONES[tone]}"` : on || alert ? `style="--hv-ic-on:${activeColor(st)}"` : '';
     let ctl = '';
     if (d === 'climate' && !na && st.state !== 'off' && st.attributes.temperature != null && s.size?.[0] >= 2) {
@@ -2190,6 +2205,12 @@ class HomeViewTile extends HTMLElement {
   _renderCard() {
     if (this._card && this._card !== 'loading') {
       this._card.hass = this._hass;
+      // a card showing an error alert (e.g. a markdown card's <ha-alert alert-type="error">) pulses red
+      clearTimeout(this._pulseT);
+      this._pulseT = setTimeout(() => {
+        const err = !!deepFind(this._card, 'ha-alert[alert-type="error"]', 6);
+        if (this._cardBox) this._cardBox.style.animation = err ? 'hv-alert-pulse 1.6s ease-in-out infinite' : '';
+      }, 600);
       if (this._edit && !this._wrap.querySelector('.edit')) this._wrap.insertAdjacentHTML('beforeend', this._editHtml());
       if (!this._edit) this._wrap.querySelector('.edit')?.remove();
       return;
@@ -2203,12 +2224,24 @@ class HomeViewTile extends HTMLElement {
       const box = document.createElement('div');
       box.style.cssText = 'height:100%;overflow:auto;border-radius:var(--hv-radius,22px);display:flex;flex-direction:column;justify-content:safe center;background:var(--hv-tile)';
       el.style.setProperty('--ha-card-background', 'transparent');
+      // Home Assistant's cards in HomeView's look: its icon / text colours, font and header size
+      for (const [k, v] of [['--state-icon-color', 'var(--hv-icon)'], ['--paper-item-icon-color', 'var(--hv-icon)'],
+        ['--primary-text-color', 'var(--hv-fg)'], ['--secondary-text-color', 'var(--hv-fg2)'], ['--ha-card-header-color', 'var(--hv-fg)'],
+        ['--ha-card-header-font-size', '17px'], ['--mdc-typography-font-family', FONT], ['--ha-font-family-body', FONT],
+        ['--tile-color', HV_TONES.on], ['font-family', FONT]]) el.style.setProperty(k, v);
       el.style.setProperty('--ha-card-box-shadow', 'none');
       el.style.setProperty('--ha-card-border-width', '0');
       box.appendChild(el);
       this._wrap.replaceChildren(box);
       this._wrap.style.position = 'relative';
       this._card = el;
+      this._cardBox = box;
+      // size: … x auto — natural height, measured: the page gives the tile that many rows
+      if ((this._spec.size || [])[1] === 'auto' || (this._spec.phoneSpan || [])[1] === 'auto') {
+        const inner = document.createElement('div'); inner.style.cssText = 'flex:none';
+        box.replaceChildren(inner); inner.appendChild(el);
+        new ResizeObserver(() => { const hh = Math.ceil(inner.getBoundingClientRect().height); if (hh && hh !== this._hvAutoH) { this._hvAutoH = hh; this._hvAuto?.(); } }).observe(inner);
+      }
       this._renderCard();
     })().catch((e) => { this._card = null; this._wrap.innerHTML = `<div class="t na"><div class="sb">Card error: ${esc(e.message)}</div></div>`; });
   }
@@ -2384,6 +2417,13 @@ function entityPill(h, d) {
  * home.chips: [entity | { entity, icon_on, icon_off, name, confirm, off_warn }] or false
  * ========================================================================================== */
 
+/** Water off? valve: closed; a switch named "shut…" (a shut-off): on; any other water valve switch
+ *  (e.g. a template "Water Valve" over a normally-open shut-off): off. */
+function waterOff(st) {
+  const id = st.entity_id, d = domainOf(id), s = st.state;
+  if (d === 'valve') return s === 'closed';
+  return /shut/i.test(id) ? s === 'on' : s === 'off';
+}
 const isWaterValve = (id) => domainOf(id) === 'valve' || (domainOf(id) === 'switch' && /water.*(valve|shut)|(valve|shut).*water|main_water/i.test(id));
 
 function chipsAuto(h, m) {
@@ -2422,8 +2462,8 @@ function chipLook(h, c) {
     return s === 'locked' ? { cls: 'ok', word: '' } : { cls: 'alert', word: 'Unlocked' };
   }
   if (isWaterValve(c.entity)) {
-    // valve: closed = water off; a shut-off switch: on = water off
-    const off = d === 'valve' ? s === 'closed' : s === 'on';
+    // valve: closed = water off; a shut-off switch: on = water off; any other valve switch: on = open
+    const off = waterOff(st);
     return off ? { cls: 'alert', word: 'Water off', icon: 'mdi:water-off' } : { cls: 'ok', word: '', icon: 'mdi:water' };
   }
   const on = isActive(st);
@@ -2445,6 +2485,18 @@ async function chipTap(h, c, node) {
   }
   if (d === 'cover' || d === 'valve' || d === 'lock') return runToggle(h, st);
   return h.callService('homeassistant', 'toggle', {}, { entity_id: c.entity });
+}
+
+/** The first element matching sel inside root, through open shadow roots, up to depth levels. */
+function deepFind(root, sel, depth = 5) {
+  if (!root || depth < 0) return null;
+  const scope = root.shadowRoot || root;
+  const hit = scope.querySelector?.(sel);
+  if (hit) return hit;
+  for (const el of scope.querySelectorAll?.('*') || []) {
+    if (el.shadowRoot) { const x = deepFind(el, sel, depth - 1); if (x) return x; }
+  }
+  return null;
 }
 
 /** tap / hold on a plain element (pointer events: iOS-safe, hold doesn't also tap) */
@@ -2530,7 +2582,7 @@ function userTile(def, h, m) {
   const t0 = userTileBase(def, h, m);
   // phone_size: 2x3 — columns (of 2) x rows (64 px) on phones, instead of the size worked out
   const ps = t0 && parseSize(def.phone_size);
-  return ps ? { ...t0, phoneSpan: [Math.min(2, ps[0] === 'full' || ps[0] === 'half' ? 2 : ps[0]), ps[1]] } : t0;
+  return ps ? { ...t0, phoneSpan: [Math.min(2, ps[0] === 'full' || ps[0] === 'half' ? 2 : ps[0]), ps[1]] } : t0;   // ps[1] may be 'auto'
 }
 function userTileBase(def, h, m) {
   const size = parseSize(def.size);
@@ -2551,7 +2603,7 @@ function userTileBase(def, h, m) {
   }
   if (def.entity) {
     const room = m.areaById[entityArea(h, def.entity)];
-    return entTile(def.entity, { name: def.name, icon: def.icon, tap: def.tap, hold: def.hold, size: size || [1, 1], showRoom: true, areaName: room?.name, user: true });
+    return entTile(def.entity, { name: def.name, icon: def.icon, icon_on: def.icon_on, icon_off: def.icon_off, color_on: def.color_on, color_off: def.color_off, tap: def.tap, hold: def.hold, size: size || [1, 1], showRoom: true, areaName: room?.name, user: true });
   }
   return null;
 }
@@ -2830,7 +2882,6 @@ const PAGES = {
     }
     const cals = mem.calendars.length ? mem.calendars : m.calendars;
     if (cals.length) tiles.push({ kind: 'next_event', calendars: cals, size: [3, 1] });
-    tiles.push({ kind: 'person', entity: mem.person, battery: personBattery(h, mem.person), size: [2, 1] });
     return { title: mem.name, hue: mem.hue, greet: true, member: mem, openings, sections: [{ tiles }] };
   },
 
@@ -3014,7 +3065,9 @@ const PAGE_CSS = `
   /* Home: the pills stay above the tiles right of the weather tile (2 columns wide), never over it */
   .head.home > .pills { max-width:calc(100% - 2 * ((100% - (var(--hv-cols) - 1) * var(--hv-gap)) / var(--hv-cols)) - 2 * var(--hv-gap)); }
 }
-.head > .xclose { flex:none; margin-left:auto; align-self:flex-start; width:40px; height:40px; --mdc-icon-size:22px; }
+.head > .xclose { flex:none; margin-left:auto; align-self:flex-start; width:40px; height:40px; --mdc-icon-size:22px;
+  position:fixed; z-index:5; top:calc(env(safe-area-inset-top, 0px) + 14px); right:calc(env(safe-area-inset-right, 0px) + 14px);
+  box-shadow:0 2px 10px rgba(0,0,0,.18); }
 .head > .xclose ha-icon { display:flex; }
 .pill { all:unset; cursor:pointer; display:inline-flex; align-items:center; gap:6px; padding:7px 12px; border-radius:999px;
   background:var(--hv-pill); font-size:13.5px; font-weight:650; color:var(--hv-fg); --mdc-icon-size:17px; white-space:nowrap; }
@@ -3068,7 +3121,8 @@ const PAGE_CSS = `
    (the page bar, when shown, stays above the board) */
 .page.boardpage { padding:0; }
 .page.boardpage .head:empty { display:none; }
-/* Slopeview's widgets board: 28 px padding, 20 px gaps, 44 px corners on a tablet (scaled down on phones) */
+.page.boardpage .head:not(:empty) { margin:0; padding:10px clamp(14px, 2.2vw, 28px); }
+/* the Widgets board: 28 px padding, 20 px gaps on a tablet (scaled down on phones) */
 .page.boardpage .board { border-radius:0; padding:clamp(14px, 2.2vw, 28px); gap:clamp(12px, 1.6vw, 20px);
   height:var(--hv-board-h, 100vh); }
 /* phones: one screen, like a hand-made iPhone HomeView — date | clock, the photo, up next
@@ -3183,6 +3237,12 @@ class HomeViewPage extends HTMLElement {
     this._kiosk();
     hvScreensaver.update(this);
     if (!this._onWinResize) { this._onWinResize = () => this._layout(); window.addEventListener('resize', this._onWinResize); }
+    // edit mode is one state for the whole dashboard: follow a change made on another page
+    if (!this._onEditing) {
+      this._onEditing = (e) => { if (e.detail?.from !== this && this._builtEditing !== undefined && this._builtEditing !== this._editing) this.rebuild(); };
+      window.addEventListener('homeview-editing', this._onEditing);
+    }
+    if (this._builtEditing !== undefined && this._builtEditing !== this._editing) this.rebuild();
   }
   disconnectedCallback() {
     this._ro?.disconnect(); this._ro = null;
@@ -3214,6 +3274,7 @@ class HomeViewPage extends HTMLElement {
   rebuild() {
     const h = this._hass;
     if (!h) return;
+    this._builtEditing = this._editing;
     const cfg = this._config.options || {};
     hvAvatarMode = cfg.avatars ?? 'samples';
     // edit mode: hidden entities and rooms stay in place, faded, with an eye to show them again;
@@ -3371,6 +3432,8 @@ class HomeViewPage extends HTMLElement {
     keepScroll();
     this.rebuild();
     hvScreensaver.update(this);
+    // every other HomeView page (HA keeps them alive off screen) follows at once
+    window.dispatchEvent(new CustomEvent('homeview-editing', { detail: { from: this } }));
   }
 
   _favorites() {
@@ -3517,7 +3580,7 @@ class HomeViewPage extends HTMLElement {
     // customize: per-entity name / icon / size / tap from the config
     const cz = spec.entity && this._config.options?.customize?.[spec.entity];
     if (cz && ['entity', 'camera', 'person'].includes(spec.kind)) {
-      spec = { ...spec, name: cz.name ?? spec.name, icon: cz.icon ?? spec.icon, tap: cz.tap ?? spec.tap, size: parseSize(cz.size, spec.size) };
+      spec = { ...spec, name: cz.name ?? spec.name, icon: cz.icon ?? spec.icon, icon_on: cz.icon_on ?? spec.icon_on, icon_off: cz.icon_off ?? spec.icon_off, color_on: cz.color_on ?? spec.color_on, color_off: cz.color_off ?? spec.color_off, tap: cz.tap ?? spec.tap, size: parseSize(cz.size, spec.size) };
     }
     // customize.<entity>.hold / tap: a page to open, wherever the entity's tile is
     if (cz && (cz.hold || cz.tap) && spec.kind !== 'room') spec = { ...spec, hold: spec.hold ?? cz.hold, tap: spec.tap ?? cz.tap };
@@ -3542,6 +3605,7 @@ class HomeViewPage extends HTMLElement {
   //                          1.1 : 1 (6 columns) so the rows fit the screen; on big screens
   //                          more columns, so a tile is never wider than ~300 px
   // row height = (grid width - gaps) / columns / tile shape. tile_size / max_columns override.
+  _layoutSoon() { cancelAnimationFrame(this._lsRaf); this._lsRaf = requestAnimationFrame(() => this._layout()); }
   _layout() {
     const w = this.clientWidth || window.innerWidth;
     const cfg = this._config.options || {};
@@ -3552,11 +3616,16 @@ class HomeViewPage extends HTMLElement {
     if (phone) {
       cols = 2; pad = 14; gap = 10; aspect = 1;
     } else {
+      // Tile formula (README → Tile shapes): columns from the page's own count, but tiles between 110 and
+      // 300 px wide (110: a portrait iPad keeps Living's six-wide room rows, as a hand-made HomeView); row height fits ROWS_ON_SCREEN rows on the screen, the shape kept between
+      // square and 1.35 : 1 (tall screens: square tiles and scroll; wide ones: wider tiles, so the
+      // rows fit), never under 88 px (two 44 pt touch targets)
       pad = Math.round(clamp(w * 0.025, 16, 48)); gap = 16;
-      cols = w < 800 ? Math.min(pageCols, 4) : pageCols;
-      while ((w - 2 * pad - gap * (cols - 1)) / cols > 300 && cols < 12) cols++;
-      const wide = window.innerWidth / Math.max(1, window.innerHeight) >= 1.5;
-      aspect = wide ? (cols >= 6 ? 1.1 : 1.28) : 1;
+      const tw = (c) => (w - 2 * pad - gap * (c - 1)) / c;
+      cols = pageCols;
+      while (cols > 2 && tw(cols) < 110) cols--;
+      while (tw(cols) > 300 && cols < 12) cols++;
+      aspect = 1;
     }
     if (cfg.tile_size) {   // the old rule: as many columns as fit tiles at least this wide
       cols = clamp(Math.floor((w - 2 * pad + gap) / (cfg.tile_size + gap)), 2, 12);
@@ -3564,9 +3633,26 @@ class HomeViewPage extends HTMLElement {
     if (cfg.max_columns) cols = Math.min(cols, cfg.max_columns);
     cols = Math.max(2, cols);
     const colW = (w - 2 * pad - gap * (cols - 1)) / cols;
-    // Energy's tiles size their text from their height: keep its rows 176–210 px on every
-    // tablet / browser (narrow iPad columns clipped them, wide screens stretched them)
-    const row = phone ? 64 : this._config.page === 'energy' ? clamp(Math.round(colW / aspect), 176, 210) : Math.round(colW / aspect);
+    let row;
+    if (phone) row = 64;
+    // Energy's tiles size their text from their height: rows 176–210 px on every tablet / browser
+    else if (this._config.page === 'energy') row = clamp(Math.round(colW), 176, 210);
+    else {
+      const ro = cfg.rows_on_screen;
+      const R0 = typeof ro === 'number' ? ro : (ro && typeof ro === 'object' ? ro[this._config.page] : undefined) ?? ROWS_ON_SCREEN[this._config.page] ?? 4;
+      row = colW;
+      if (R0 > 0) {
+        // the space below the header (and HA's own header, when it shows) down to the screen's edge
+        const hb = this._head ? this._head.getBoundingClientRect() : null;
+        const headMargin = hb ? parseFloat(getComputedStyle(this._head).marginBottom) || 0 : 0;
+        const top = hb ? hb.bottom + (window.scrollY || 0) - (this.getBoundingClientRect().top + (window.scrollY || 0)) + headMargin : 110;
+        const offset = Math.max(0, this.getBoundingClientRect().top + (window.scrollY || 0));
+        const avail = window.innerHeight - offset - top - pad;
+        const fit = (avail - (R0 - 1) * gap) / R0;
+        row = clamp(fit, colW / 1.35, colW);
+      }
+      row = Math.max(88, Math.round(row));
+    }
     this._root.style.setProperty('--hv-cols', cols);
     this._root.style.setProperty('--hv-row', `${row}px`);
     this._root.style.setProperty('--hv-gap', `${gap}px`);
@@ -3590,11 +3676,14 @@ class HomeViewPage extends HTMLElement {
         const span = t.spec?.phoneSpan || PHONE_SPAN[k];
         if (span) [sw, sh] = span;
         else if (t.spec?.row) { sh = 1; sw = sw >= 2 ? 2 : 1; }
-        else if (k === 'card') { sw = 2; sh = Math.max(2, (sh || 2) * 3); }
+        else if (k === 'card') { sw = 2; sh = sh === 'auto' ? 'auto' : Math.max(2, (sh || 2) * 3); }
         else { sw = Math.min(2, sw === 'half' || sw === 'full' ? 2 : sw); sh = Math.max(1, sh * 2); }
       }
       if (sw === 'half') sw = cols >= 4 ? Math.ceil(cols / 2) : cols;
       if (sw === 'full') sw = cols;
+      // height "auto": the rows the card needs (measured by the tile; 2 until it is)
+      const auto = phone && t.spec?.phoneSpan ? t.spec.phoneSpan[1] === 'auto' : t._hvSize[1] === 'auto';
+      if (auto) { t._hvAuto = () => this._layoutSoon(); sh = t._hvAutoH ? Math.max(1, Math.ceil((t._hvAutoH + gap) / (row + gap))) : 2; }
       t.style.gridColumn = `span ${Math.min(sw, cols)}`;
       t.style.gridRow = `span ${sh}`;
     }
@@ -3666,11 +3755,13 @@ class HomeViewPage extends HTMLElement {
     const topbar = nav.length > 1 || barBtns ? `<div class="topbar${solo ? ' solo' : ''}">
         <div class="nav">${nav.length > 1 && window.innerWidth < 870 ? '<button class="nv" data-sidebar title="Home Assistant menu" aria-label="Home Assistant menu"><ha-icon icon="mdi:dock-left"></ha-icon></button>' : ''}${nav.length > 1 ? nav.map((v) => `<button class="nv${v.path === here ? ' on' : ''}" data-nav-to="${esc(v.path)}" title="${esc(v.title)}">${v.avatar ? `<img class="lt" src="${esc(v.avatar)}" alt="">` : v.letter ? `<span class="lt">${esc(v.letter)}</span>` : `<ha-icon icon="${esc(v.icon)}"></ha-icon>`}<span>${esc(v.title)}</span></button>`).join('') : ''}</div>
         ${barBtns ? `<span class="tbb">${barBtns}</span>` : ''}</div>` : '';
-    head.innerHTML = page.minimalHead ? `${topbar}` : `${topbar}<div>
+    // edit mode's bar: on every page while editing (Widgets too, which has no title)
+    const editbar = editing ? `<div class="editbar"><span><b>Editing</b> · <ha-icon icon="mdi:star-outline"></ha-icon> on Home · <ha-icon icon="mdi:resize"></ha-icon> size · <ha-icon icon="mdi:rename-outline"></ha-icon> name · <ha-icon icon="mdi:eye-off-outline"></ha-icon> hide · <ha-icon icon="mdi:palette-outline"></ha-icon> room colour</span>
+          <span class="eb">${canReload ? `<button class="txt" data-reload-pages title="${yamlDash ? 'Read the dashboard\'s files again — after adding or editing a page in homeview/custom_pages/' : 'Read this dashboard\'s saved config again — after editing it in the raw configuration editor'}"><ha-icon icon="mdi:file-refresh-outline"></ha-icon> Reload pages</button>` : ''}<button class="txt" data-settings><ha-icon icon="mdi:cog-outline"></ha-icon> Settings</button><button class="txt primary" data-edit-off>Done</button></span></div>` : '';
+    head.innerHTML = page.minimalHead ? `${topbar}${editbar}` : `${topbar}<div>
         <div class="date">${esc(today)}</div>
         <div class="title">${menuBtn}${updBtn}${page.back ? '<button class="back" data-back><ha-icon icon="mdi:chevron-left"></ha-icon></button>' : ''}<span class="tt"${titleHold || (canEdit && !editing) ? ' data-title' : ''}${titleHold ? ' data-title-hold' : ''}${canEdit && !editing ? ' title="Double-tap to edit"' : ''}>${esc(this._phone && page.greet && h.user?.name ? `Hi ${h.user.name.split(' ')[0]}` : page.title)}</span>${roomSub ? `<span class="sub">${esc(roomSub)}</span>` : ''}</div>
-        ${editing ? `<div class="editbar"><span><b>Editing</b> · <ha-icon icon="mdi:star-outline"></ha-icon> on Home · <ha-icon icon="mdi:resize"></ha-icon> size · <ha-icon icon="mdi:rename-outline"></ha-icon> name · <ha-icon icon="mdi:eye-off-outline"></ha-icon> hide · <ha-icon icon="mdi:palette-outline"></ha-icon> room colour</span>
-          <span class="eb">${canReload ? `<button class="txt" data-reload-pages title="${yamlDash ? 'Read the dashboard\'s files again — after adding or editing a page in homeview/custom_pages/' : 'Read this dashboard\'s saved config again — after editing it in the raw configuration editor'}"><ha-icon icon="mdi:file-refresh-outline"></ha-icon> Reload pages</button>` : ''}<button class="txt" data-settings><ha-icon icon="mdi:cog-outline"></ha-icon> Settings</button><button class="txt primary" data-edit-off>Done</button></span></div>` : ''}
+        ${editbar}
         ${chips.length ? `<div class="chips">${chips.map((c, i) => {
           const L = looks[i], st = h.states[c.entity];
           const icon = (isActive(st) ? c.icon_on : c.icon_off) || c.icon || L.icon;
