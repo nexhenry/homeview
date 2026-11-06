@@ -1,0 +1,31 @@
+# admin.yaml — the house's modes, quick actions and automations, for admins.
+# Opened by holding the Home title:
+#   pages_config:
+#     home: { hold: admin }
+# Change the vars: block to your own entities, then pencil → Reload pages.
+path: admin
+title: Admin
+icon: mdi:shield-account-outline
+color: blue-grey
+subview: true
+admin_only: true
+
+vars:
+  modes: [input_boolean.guest_mode, input_boolean.vacation_mode, input_boolean.away_mode]
+  quick_actions: [script.all_lights_off, script.goodnight]
+  automations: [automation.porch_light_at_sunset, automation.hallway_motion_light]
+  updates: [update.home_assistant_core_update]
+
+sections:
+  - title: Modes
+    tiles:
+      - $modes
+  - title: Quick actions
+    tiles:
+      - $quick_actions
+  - title: Automations
+    tiles:
+      - $automations
+  - title: Updates
+    tiles:
+      - $updates

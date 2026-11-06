@@ -1,0 +1,26 @@
+# media.yaml — TV, soundbar and speakers. Opened by holding the TV tile:
+#   customize:
+#     media_player.living_room_tv: { hold: media }
+# Change the vars: block to your own entities (Developer tools → States), then pencil → Reload pages.
+path: media
+title: Media
+icon: mdi:television
+color: indigo
+subview: true
+
+vars:
+  tv: media_player.living_room_tv
+  tv_remote: remote.living_room_tv
+  soundbar: media_player.soundbar
+  speakers: [media_player.kitchen_speaker, media_player.bedroom_speaker]
+
+sections:
+  - title: TV
+    tiles:
+      - card: { type: media-control, entity: $tv }
+        size: 3x2
+      - { entity: $tv_remote, name: Power, icon: mdi:power }
+      - { entity: $soundbar, name: Soundbar, size: 2x1 }
+  - title: Speakers
+    tiles:
+      - $speakers

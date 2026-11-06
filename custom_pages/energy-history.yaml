@@ -1,0 +1,29 @@
+# energy-history.yaml — the history from Home Assistant's Energy dashboard, as a HomeView page.
+# Opened by holding the Energy pill:
+#   pills: [alarm, climate, { pill: energy, hold: energy-history }, lights, locks, openings, safety, batteries, media]
+# Nothing to change: it uses your Energy settings (Settings → Dashboards → Energy).
+# Pick the day / week / month with the date bar at the top.
+path: energy-history
+title: Energy History
+icon: mdi:chart-bar
+color: amber
+subview: true
+
+sections:
+  - tiles:
+      - card: { type: energy-date-selection }
+        size: full x 1
+  - title: Usage
+    tiles:
+      - card: { type: energy-usage-graph }
+        size: full x 3
+      - card: { type: energy-distribution, link_dashboard: false }
+        size: 2x3
+      - card: { type: energy-sources-table }
+        size: 3x3
+  - title: Solar & devices
+    tiles:
+      - card: { type: energy-solar-graph }      # empty if you have no solar
+        size: full x 3
+      - card: { type: energy-devices-graph }
+        size: full x 3

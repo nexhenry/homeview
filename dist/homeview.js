@@ -62,7 +62,7 @@ const KNOWN_OPTIONS = ['type', 'title', 'theme', 'pages', 'pages_config', 'room_
   'exclude_entities', 'customize', 'people', 'calendars', 'weather', 'cameras', 'home', 'pills', 'battery_low',
   'people_chips', 'energy', 'tile_size', 'max_columns', 'swipe', 'custom_pages', 'edit_button', 'update_notice',
   'kiosk', 'kiosk_chip', 'members', 'living_rooms', 'widgets', 'avatars', 'phone_favorites', 'access',
-  'comfort', 'comfort_thermostat', 'comfort_margin', 'screensaver'];   // energy.* : see the energy page
+  'comfort', 'comfort_thermostat', 'comfort_margin', 'comfort_limits', 'screensaver'];   // energy.* : see the energy page
 
 // What a room page / room row shows, in this order
 const ROOM_GROUPS = [
@@ -120,7 +120,11 @@ const asList = (v) => (v === undefined || v === null ? [] : Array.isArray(v) ? v
 function parseSize(v, fallback = null) {
   if (Array.isArray(v)) return [Number(v[0]) || 1, Number(v[1]) || 1];
   if (typeof v === 'number') return [v, 1];
-  if (typeof v === 'string') { const m = v.trim().match(/^(\d+)\s*[x×*]\s*(\d+)$/i); if (m) return [+m[1], +m[2]]; }
+  if (typeof v === 'string') {
+    // 2x1, or full / half (the width of the grid / half of it) with an optional height: full x 3
+    const m = v.trim().match(/^(\d+|full|half)\s*(?:[x×*]\s*(\d+))?$/i);
+    if (m && (m[2] || isNaN(m[1]))) return [isNaN(m[1]) ? m[1].toLowerCase() : +m[1], m[2] ? +m[2] : (isNaN(m[1]) ? 2 : 1)];
+  }
   return fallback;
 }
 
@@ -627,7 +631,7 @@ function buildModel(hass, cfg) {
   const hasSet = (id) => { const a = hass.states[id]?.attributes || {}; return a.target_temp_low != null || a.temperature != null; };
   const house = cfg.comfort_thermostat || climates.find(hasSet) || null;
   for (const r of model.areas) r.thermostat = r.entities.find((id) => domainOf(id) === 'climate' && hasSet(id)) || house;
-  HV_COMFORT = { mode: cfg.comfort ?? 'thermostat', margin: cfg.comfort_margin };
+  HV_COMFORT = { mode: cfg.comfort ?? 'thermostat', margin: cfg.comfort_margin, limits: cfg.comfort_limits || {} };
   return model;
 }
 
@@ -652,6 +656,34 @@ function isActive(st) {
 }
 
 /** True when the state needs attention (red): unlocked lock, open door, leak, triggered alarm. */
+/**
+ * One colour code everywhere (chips, pills, tiles, popups), as on a hand-made HomeView:
+ *   green  ok      secured / safe: locked, closed, water on, no leak, batteries fine
+ *   amber  warn    needs a look: offline (never shown as fine), arming, moving, getting low, heating
+ *   red    alert   act now: unlocked, open, leak, water off, triggered (chips / pills: filled red)
+ *   red    armed   the alarm is live (a red icon, not a filled chip)
+ *   orange on      on / in use: lights, power drawn, media playing
+ *   blue   cool    climate: cooling, fans
+ */
+const HV_TONES = { ok: '#34C759', warn: '#FF9500', alert: '#FF3B30', armed: '#FF3B30', on: '#FF9F0A', cool: '#56BDE1', heat: '#FF9500' };
+
+/** The tone of a security-type entity (lock, garage / door / gate, water valve, door / window / leak
+ *  sensor, alarm), or null for anything else. */
+function secureTone(st) {
+  if (!st) return null;
+  const id = st.entity_id, d = domainOf(id), dc = st.attributes.device_class, s = st.state;
+  const kind = d === 'lock' ? 'lock' : d === 'alarm_control_panel' ? 'alarm'
+    : d === 'cover' && ['garage', 'door', 'gate'].includes(dc) ? 'cover' : isWaterValve(id) ? 'valve'
+      : d === 'binary_sensor' && (OPENING_CLASSES.includes(dc) || SAFETY_CLASSES.includes(dc)) ? 'sensor' : null;
+  if (!kind) return null;
+  if (UNAVAILABLE.includes(s)) return 'warn';
+  if (kind === 'alarm') return s === 'triggered' ? 'alert' : ['arming', 'pending', 'disarming'].includes(s) ? 'warn' : s.startsWith('armed') ? 'armed' : null;
+  if (kind === 'lock') return s === 'locked' ? 'ok' : ['locking', 'unlocking'].includes(s) ? 'warn' : 'alert';
+  if (kind === 'cover') return s === 'closed' ? 'ok' : ['opening', 'closing'].includes(s) ? 'warn' : 'alert';
+  if (kind === 'valve') return (d === 'valve' ? s === 'closed' : s === 'on') ? 'alert' : 'ok';
+  return s === 'on' ? 'alert' : 'ok';
+}
+
 function isAlert(st) {
   if (!st) return false;
   const d = domainOf(st.entity_id), dc = st.attributes.device_class, s = st.state;
@@ -685,7 +717,7 @@ function stateText(hass, st) {
 /** Icon colour for an active entity (light colour, heating orange, cooling blue ...). */
 function activeColor(st) {
   const d = domainOf(st.entity_id), a = st.attributes;
-  if (isAlert(st)) return '#FF3B30';
+  if (isAlert(st)) return HV_TONES.alert;
   if (d === 'light') {
     if (Array.isArray(a.rgb_color)) {
       const [r, g, b] = a.rgb_color;
@@ -694,13 +726,13 @@ function activeColor(st) {
     return '#FF9F0A';
   }
   if (d === 'climate') {
-    if (a.hvac_action === 'cooling' || st.state === 'cool') return '#0A84FF';
-    if (a.hvac_action === 'heating' || st.state === 'heat') return '#FF7A1A';
-    return '#30B0C7';
+    if (a.hvac_action === 'cooling' || st.state === 'cool') return HV_TONES.cool;
+    if (a.hvac_action === 'heating' || st.state === 'heat') return HV_TONES.heat;
+    return HV_TONES.cool;
   }
   if (d === 'media_player') return '#AF52DE';
-  if (d === 'fan' || d === 'humidifier') return '#30B0C7';
-  if (d === 'person') return '#34C759';
+  if (d === 'fan' || d === 'humidifier') return HV_TONES.cool;
+  if (d === 'person') return HV_TONES.ok;
   return 'var(--hv-accent)';
 }
 
@@ -1018,7 +1050,7 @@ const TILE_CSS = `
 .t.flex.sect .rt { font-size:15px; font-weight:600; color:var(--hv-fg2); white-space:nowrap; }
 .live { margin-left:auto; display:inline-flex; align-items:center; gap:6px; text-transform:none; letter-spacing:0; font-weight:600; color:#34C759; }
 .live i { width:7px; height:7px; border-radius:50%; background:#34C759; animation:hv-pulse 1.6s ease-in-out infinite; }
-.live.stale { color:#FF9F0A; }
+.live.stale { color:${HV_TONES.warn}; }
 .t.load { gap:10px; }
 .t.load .kwh { font-size:13px; font-weight:700; white-space:nowrap; }
 .lt-b, .onoff { all:unset; cursor:pointer; flex:none; display:inline-flex; align-items:center; justify-content:center; font:700 12.5px ${FONT}; }
@@ -1103,13 +1135,14 @@ R.entity = {
       return `<div class="t flex${na ? ' na' : ''}"><div class="ic"><i data-e="${esc(s.entity)}"></i></div>
         <div class="tx"><div class="nm">${esc(stateText(h, st))}</div><div class="sb">${esc(name)}</div></div></div>`;
     }
-    const color = on || alert ? `style="--hv-ic-on:${activeColor(st)}"` : '';
+    const tone = secureTone(st);
+    const color = tone ? `style="--hv-ic-on:${HV_TONES[tone]}"` : on || alert ? `style="--hv-ic-on:${activeColor(st)}"` : '';
     let ctl = '';
     if (d === 'climate' && !na && st.state !== 'off' && st.attributes.temperature != null && s.size?.[0] >= 2) {
       ctl = `<div class="ctl"><button data-act="down"><ha-icon icon="mdi:minus"></ha-icon></button><button data-act="up"><ha-icon icon="mdi:plus"></ha-icon></button></div>`;
     }
     return `<div class="t flex${on || alert ? ' on' : ''}${na ? ' na' : ''}" ${color}>
-      <div class="ic${alert ? ' alert' : ''}" ${alert ? 'style="color:#FF3B30"' : ''}><i data-e="${esc(s.entity)}"${s.icon ? ` data-i="${esc(s.icon)}"` : ''}></i></div>
+      <div class="ic${alert ? ' alert' : ''}" ${tone ? `style="color:${HV_TONES[tone]}"` : alert ? `style="color:${HV_TONES.alert}"` : ''}><i data-e="${esc(s.entity)}"${s.icon ? ` data-i="${esc(s.icon)}"` : ''}></i></div>
       <div class="tx"><div class="nm">${esc(name)}</div><div class="sb">${esc(sub)}</div></div>${ctl}</div>`;
   },
   async action(h, s, tile, kind, ev) {
@@ -1144,8 +1177,8 @@ function roomSummary(h, room) {
   return { lights, t, hu, unit, alerts, band };
 }
 /**
- * Comfort words for a room's temperature / humidity, the same on every tile:
- * Cold < 66 °F (19 °C) ≤ Comfy ≤ 77 °F (25 °C) < Warm; Dry < 30 % / Humid > 55 %.
+ * Comfort words for a room's temperature / humidity, the same on every tile (see comfortOf):
+ * Too cold · Cold · Comfy · Warm · Hot, and Too dry · Dry · Comfy · Humid · Too humid.
  * -> { t: {word, color}, h: {word, color}, html } (html = coloured "Comfy · Humid")
  */
 let HV_COMFORT = { mode: 'thermostat' };
@@ -1156,15 +1189,19 @@ let HV_COMFORT = { mode: 'thermostat' };
  * margin; off / none = fixed. comfort: fixed, or { cold, warm }, sets it by hand. Fixed: 66–77 °F
  * (19–25 °C); margin 1 °F (0.5 °C), comfort_margin to change it.
  */
+// a comfort setting: a number, or an entity whose state is one (an input_number / a sensor)
+const comfortNum = (h, v) => (typeof v === 'string' && v.includes('.') ? num(h.states[v]?.state) : num(v));
+
 function comfortBand(h, room) {
   const f = /F/.test(h.states[room?.temp]?.attributes?.unit_of_measurement || h.config.unit_system?.temperature || '');
   const C = HV_COMFORT || {};
   const fixed = { lo: f ? 66 : 19, hi: f ? 77 : 25 };
-  if (C.mode && typeof C.mode === 'object') return { lo: num(C.mode.cold) ?? fixed.lo, hi: num(C.mode.warm) ?? fixed.hi };
+  // comfort: { cold, warm } — numbers or entities (e.g. your own schedule's sensors)
+  if (C.mode && typeof C.mode === 'object') return { lo: comfortNum(h, C.mode.cold) ?? fixed.lo, hi: comfortNum(h, C.mode.warm ?? C.mode.hot) ?? fixed.hi };
   if (C.mode === 'fixed') return fixed;
   const st = h.states[room?.thermostat];
   if (!st || UNAVAILABLE.includes(st.state) || st.state === 'off') return fixed;
-  const a = st.attributes || {}, m = num(C.margin) ?? (f ? 1 : 0.5);
+  const a = st.attributes || {}, m = comfortNum(h, C.margin) ?? (f ? 1 : 0.5);
   const lo = num(a.target_temp_low), hi = num(a.target_temp_high), one = num(a.temperature);
   if (lo !== null && hi !== null) return { lo: lo - m, hi: hi + m };
   if (one !== null && st.state === 'heat') return { lo: one - m, hi: Math.max(fixed.hi, one + m) };
@@ -1172,10 +1209,36 @@ function comfortBand(h, room) {
   if (one !== null) return { lo: one - m, hi: one + m };
   return fixed;
 }
+
+/**
+ * Comfort grades, as on a hand-made HomeView (one scale, the same words and colours everywhere):
+ *   temperature  Too cold · Cold · Comfy · Warm · Hot
+ *     Cold below / Warm above: the band above (the thermostat's settings ± margin, or comfort:
+ *     { cold, warm }); Too cold below / Hot above: comfort_limits.too_cold / hot (65 / 83 °F,
+ *     18 / 28 °C), never closer than 3 °F (1.5 °C) to the band
+ *   humidity     Too dry · Dry · Comfy · Humid · Too humid — below 30 / 40 %, above 55 / 65 %
+ *     "Comfy" only when both are (shown once); otherwise only what's off: "Warm", "Dry", "Warm · Dry"
+ *   comfort_limits: { too_cold, hot, too_dry, dry, humid, too_humid } — numbers or entities
+ */
+const COMFORT_T = { '-2': ['Too cold', '#007AFF'], '-1': ['Cold', '#32ADE6'], 0: ['Comfy', HV_TONES.ok], 1: ['Warm', HV_TONES.warn], 2: ['Hot', HV_TONES.alert] };
+const COMFORT_H = { '-2': ['Too dry', '#A0612B'], '-1': ['Dry', '#C69C3E'], 0: ['Comfy', HV_TONES.ok], 1: ['Humid', '#30B0C7'], 2: ['Too humid', '#5856D6'] };
+const comfortGrade = (x, tooLo, lo, hi, tooHi) => (x < tooLo ? -2 : x < lo ? -1 : x > tooHi ? 2 : x > hi ? 1 : 0);
+function comfortLimits(h, room) {
+  const f = /F/.test(h.states[room?.temp]?.attributes?.unit_of_measurement || h.config.unit_system?.temperature || '');
+  const L = HV_COMFORT?.limits || {}, b = comfortBand(h, room), gap = f ? 3 : 1.5;
+  const v = (k, d) => comfortNum(h, L[k]) ?? d;
+  return { tooCold: Math.min(v('too_cold', f ? 65 : 18), b.lo - gap), lo: b.lo, hi: b.hi, tooHot: Math.max(comfortNum(h, L.hot) ?? v('too_hot', f ? 83 : 28), b.hi + gap),
+    tooDry: v('too_dry', 30), dry: v('dry', 40), humid: v('humid', 55), tooHumid: v('too_humid', 65) };
+}
 function comfortOf(h, room, t, hu) {
-  const b = comfortBand(h, room);
-  const tw = t === null ? null : t < b.lo ? ['Cold', '#32ADE6'] : t > b.hi ? ['Warm', '#FF9500'] : ['Comfy', '#34C759'];
-  const hw = hu === null ? null : hu < 30 ? ['Dry', '#C69C3E'] : hu > 55 ? ['Humid', '#30B0C7'] : null;
+  const L = comfortLimits(h, room);
+  const tg = t === null ? null : comfortGrade(t, L.tooCold, L.lo, L.hi, L.tooHot);
+  const hg = hu === null ? null : comfortGrade(hu, L.tooDry, L.dry, L.humid, L.tooHumid);
+  // "Comfy" only when temperature and humidity both are — once (on the temperature); otherwise
+  // only the words that are off: "Warm", "Dry", "Warm · Dry"
+  const ok = !tg && !hg && (tg !== null || hg !== null);
+  const tw = tg ? COMFORT_T[tg] : ok ? COMFORT_T[0] : null;
+  const hw = hg ? COMFORT_H[hg] : null;
   const parts = [tw, hw].filter(Boolean);
   return { t: tw ? { word: tw[0], color: tw[1] } : null, h: hw ? { word: hw[0], color: hw[1] } : null,
     text: parts.map((x) => x[0]).join(' · '),
@@ -1191,10 +1254,11 @@ R.room = {
     const badge = alertSt ? `<div class="badge"><i data-e="${esc(alertSt.entity_id)}"></i></div>` : '';
     if (s.section) {   // phones: a 56 px bar that starts the room's tiles (name, comfort, temp · hum)
       const cf = comfortOf(h, r, sum.t, sum.hu);
-      const comfort = [cf.text, lightTxt].filter(Boolean).join(' · ');
+      // the comfort words in their colours (as on the room tiles), then the lights
+      const comfort = [cf.html ? `<span style="font-weight:600">${cf.html}</span>` : '', esc(lightTxt)].filter(Boolean).join(' · ');
       return `<div class="t flex sect${sum.lights ? ' on' : ''}" style="--hv-ic-on:#FF9F0A">
         <div class="circ"><div class="ic" style="--mdc-icon-size:inherit;color:${sum.lights ? '#FF9F0A' : 'var(--hv-accent)'}"><i data-i="${esc(r.icon)}"></i></div>${badge}</div>
-        <div class="tx" style="flex:1"><div class="nm">${esc(s.name || r.name)}</div>${comfort ? `<div class="sb">${esc(comfort)}</div>` : ''}</div>
+        <div class="tx" style="flex:1"><div class="nm">${esc(s.name || r.name)}</div>${comfort ? `<div class="sb">${comfort}</div>` : ''}</div>
         ${climate ? `<div class="rt">${esc(climate)}</div>` : ''}</div>`;
     }
     return `<div class="t${sum.lights ? ' on' : ''}" style="--hv-ic-on:#FF9F0A">
@@ -1720,7 +1784,7 @@ const AIR_KINDS = [
   ['volatile_organic_compounds', (v) => (v <= 300 ? 0 : v <= 1000 ? 1 : 2), 'VOC', 'µg/m³'],
   ['volatile_organic_compounds_parts', (v) => (v <= 250 ? 0 : v <= 2000 ? 1 : 2), 'VOC', 'ppb'],
 ];
-const AIR_LEVELS = [['Excellent', '#30D158'], ['Fair', '#FFB800'], ['Poor', '#FF3B30']];
+const AIR_LEVELS = [['Excellent', HV_TONES.ok], ['Fair', HV_TONES.warn], ['Poor', HV_TONES.alert]];
 function findAir(h, m) {
   const sensors = m.byDomain.sensor || [];
   for (const [dc] of AIR_KINDS) {
@@ -1796,9 +1860,9 @@ R.member_hero = {
     const cf = comfortOf(h, r, t, hu), feel = cf.t?.word || '', hfeel = cf.h?.word || '';
     const ops = (s.openings || []).map((id) => {
       const st = h.states[id];
-      const open = isAlert(st);
+      const open = isAlert(st), tone = secureTone(st);
       const nm = shortName(h, id, r?.name).replace(/\b(sensor|contact)\b/ig, '').trim();
-      return `<div class="op"><span class="ic" style="--mdc-icon-size:1.25em;color:${open ? '#30B0C7' : 'inherit'}"><i data-e="${esc(id)}"></i></span>${esc(nm)} ${open ? (domainOf(id) === 'lock' ? 'unlocked' : 'open') : (domainOf(id) === 'lock' ? 'locked' : 'closed')}</div>`;
+      return `<div class="op"><span class="ic" style="--mdc-icon-size:1.25em;color:${tone ? HV_TONES[tone] : 'inherit'}"><i data-e="${esc(id)}"></i></span>${esc(nm)} ${open ? (domainOf(id) === 'lock' ? 'unlocked' : 'open') : (domainOf(id) === 'lock' ? 'locked' : 'closed')}</div>`;
     }).join('');
     return `<div class="t hero">
       <div class="hh"><span>${esc(s.title)}</span><span class="sb">${esc(new Date().toLocaleDateString(h.locale?.language, { weekday: 'long', month: 'short', day: 'numeric' }))}</span></div>
@@ -2169,6 +2233,10 @@ class HomeViewTile extends HTMLElement {
     if (!r?.action || !this._hass) return;
     // a link tile opens its page on tap (room tiles are their own: tap = lights, hold = the room)
     if (this._spec.navigate && kind === 'tap' && this._spec.kind !== 'room') { navigate(this._spec.navigate); return; }
+    // tap: / hold: <page path> (custom_pages, customize): open that page; none: do nothing
+    if (this._spec.kind !== 'room' && this._spec[kind] === 'none') return;
+    const link = this._spec.kind !== 'room' && pageLink(this._spec[kind]);
+    if (link) { if (navigator.vibrate && kind === 'hold') navigator.vibrate(10); navigate(link); return; }
     try {
       const p = r.action(this._hass, this._spec, this, kind, { target });
       if (p?.catch) p.catch((e) => console.warn('HomeView action failed', e));
@@ -2189,38 +2257,47 @@ const PILLS = {
     if (!st) return null;
     const armed = st.state.startsWith('armed');
     return { icon: armed ? 'mdi:shield-lock' : st.state === 'triggered' ? 'mdi:bell-ring' : 'mdi:shield-off-outline',
-      text: hassState(h, st), alert: st.state === 'triggered', active: armed, more: id };
+      text: hassState(h, st), alert: st.state === 'triggered', tone: secureTone(st), more: id };
   },
   climate(h, m) {
     const id = (m.byDomain.climate || [])[0];
     const st = h.states[id];
     if (!st) return null;
-    return { icon: 'mdi:thermostat', text: stateText(h, st), active: isActive(st), more: id };
+    // heating amber, cooling / fan blue, idle / off grey
+    const act = st.attributes.hvac_action;
+    const tone = UNAVAILABLE.includes(st.state) ? 'warn' : act === 'heating' ? 'heat' : act === 'cooling' || act === 'fan' ? 'cool'
+      : !act && st.state === 'heat' ? 'heat' : !act && st.state === 'cool' ? 'cool' : null;
+    return { icon: 'mdi:thermostat', text: stateText(h, st), tone, more: id };
   },
   lights(h, m) {
     if (!m.lights.length) return null;
     const on = m.lights.filter((id) => h.states[id]?.state === 'on');
     return { icon: on.length ? 'mdi:lightbulb-group' : 'mdi:lightbulb-group-off-outline', text: on.length ? `${on.length} on` : 'Lights off',
-      active: on.length > 0, popup: { title: 'Lights', ids: [...on, ...m.lights.filter((id) => !on.includes(id))], showRoom: true } };
+      tone: on.length ? 'on' : null, popup: { title: 'Lights', ids: [...on, ...m.lights.filter((id) => !on.includes(id))], showRoom: true } };
   },
   locks(h, m) {
     const locks = m.byDomain.lock || [];
     if (!locks.length) return null;
     const open = locks.filter((id) => isAlert(h.states[id]));
-    return { icon: open.length ? 'mdi:lock-open-variant' : 'mdi:lock', text: open.length ? `${open.length} unlocked` : 'Locked',
-      alert: open.length > 0, popup: { title: 'Locks', ids: locks, showRoom: true } };
+    const off = locks.filter((id) => UNAVAILABLE.includes(h.states[id]?.state));
+    return { icon: open.length ? 'mdi:lock-open-variant' : off.length ? 'mdi:lock-question' : 'mdi:lock',
+      text: open.length ? `${open.length} unlocked` : off.length ? `${off.length} offline` : 'Locked',
+      alert: open.length > 0, tone: off.length ? 'warn' : 'ok', popup: { title: 'Locks', ids: locks, showRoom: true } };
   },
   openings(h, m) {
     if (!m.openings.length) return null;
     const open = m.openings.filter((id) => isAlert(h.states[id]));
-    return { icon: open.length ? 'mdi:door-open' : 'mdi:door-closed', text: open.length ? `${open.length} open` : 'All closed',
-      alert: open.length > 0, popup: { title: 'Doors & Windows', ids: [...open, ...m.openings.filter((id) => !open.includes(id))], showRoom: true } };
+    const off = m.openings.filter((id) => UNAVAILABLE.includes(h.states[id]?.state));
+    return { icon: open.length ? 'mdi:door-open' : 'mdi:door-closed', text: open.length ? `${open.length} open` : off.length ? `${off.length} offline` : 'All closed',
+      alert: open.length > 0, tone: off.length ? 'warn' : 'ok', popup: { title: 'Doors & Windows', ids: [...open, ...m.openings.filter((id) => !open.includes(id))], showRoom: true } };
   },
   safety(h, m) {
     if (!m.safety.length) return null;
     const bad = m.safety.filter((id) => h.states[id]?.state === 'on');
-    return { icon: bad.length ? 'mdi:water-alert' : 'mdi:shield-check-outline', text: bad.length ? `${bad.length} alert${bad.length > 1 ? 's' : ''}` : 'All clear',
-      alert: bad.length > 0, popup: { title: 'Leaks, smoke & gas', ids: [...bad, ...m.safety.filter((id) => !bad.includes(id))], showRoom: true } };
+    const off = m.safety.filter((id) => UNAVAILABLE.includes(h.states[id]?.state));
+    return { icon: bad.length ? 'mdi:water-alert' : 'mdi:shield-check-outline',
+      text: bad.length ? `${bad.length} alert${bad.length > 1 ? 's' : ''}` : off.length ? `${off.length} offline` : 'All clear',
+      alert: bad.length > 0, tone: off.length ? 'warn' : 'ok', popup: { title: 'Leaks, smoke & gas', ids: [...bad, ...m.safety.filter((id) => !bad.includes(id))], showRoom: true } };
   },
   batteries(h, m, cfg) {
     if (!m.batteries.length) return null;
@@ -2241,16 +2318,41 @@ const PILLS = {
       { title: 'OK', ids: ok },
     ].filter((g) => g.ids.length);
     return { icon: low.length ? 'mdi:battery-alert-variant-outline' : 'mdi:battery-high', text: parts.join(' · ') || 'Batteries OK',
-      alert: low.length > 0, popup: { title: 'Batteries', ids: sorted, groups, showRoom: true } };
+      alert: low.length > 0, tone: off.length || soon.length ? 'warn' : 'ok', popup: { title: 'Batteries', ids: sorted, groups, showRoom: true } };
+  },
+  // live power at home (the energy settings' sensors, as on the Energy page); tap = the Energy page
+  energy(h, m, cfg, el) {
+    const prefs = getEnergyPrefs(h, el?.headRefresher);
+    if (prefs === undefined || !el) return null;
+    // the header redraws on every state change: pick the sensors once per model / settings
+    if (el._pillPower?.m !== m || el._pillPower?.prefs !== prefs) el._pillPower = { m, prefs, pw: energyPower(h, m, cfg, prefs) };
+    const pw = el._pillPower.pw;
+    const P = powerValues(h, pw);
+    if (P.home === null && P.grid === null) return null;
+    const exporting = P.grid !== null && P.grid < -20;
+    const text = exporting ? `${kwFmt(P.home)} · ${kwFmt(P.grid)} out` : kwFmt(P.home ?? P.grid);
+    const hasPage = asList(el?._config?.nav).some((v) => v.path === 'energy');
+    // sending power to the grid: green; drawing power: orange (in use)
+    return { icon: exporting ? 'mdi:transmission-tower-export' : 'mdi:home-lightning-bolt-outline', text,
+      tone: exporting ? 'ok' : (P.home ?? P.grid) > 100 ? 'on' : null,
+      ...(hasPage ? { go: 'energy' } : { more: pw.home || pw.grid || pw.grid_in }) };
   },
   media(h, m) {
     const players = m.byDomain.media_player || [];
     const playing = players.filter((id) => h.states[id]?.state === 'playing');
     if (!playing.length) return null;
-    return { icon: 'mdi:play-circle', text: `${playing.length} playing`, active: true, popup: { title: 'Now playing', ids: playing, showRoom: true } };
+    return { icon: 'mdi:play-circle', text: `${playing.length} playing`, tone: 'on', popup: { title: 'Now playing', ids: playing, showRoom: true } };
   },
 };
-const DEFAULT_PILLS = ['alarm', 'climate', 'lights', 'locks', 'openings', 'safety', 'batteries', 'media'];
+const DEFAULT_PILLS = ['alarm', 'climate', 'energy', 'lights', 'locks', 'openings', 'safety', 'batteries', 'media'];
+/** A pill of your own: { entity, name?, icon?, alert?: [states], tap?, hold? } — its state, tap = more-info. */
+function entityPill(h, d) {
+  const st = h.states[d.entity];
+  if (!st) return null;
+  const alert = asList(d.alert).map(String).includes(st.state);
+  return { icon: d.icon || st.attributes.icon || 'mdi:information-outline', text: `${d.name ? `${d.name} ` : ''}${hassState(h, st)}`,
+    alert, tone: secureTone(st) || (UNAVAILABLE.includes(st.state) ? 'warn' : isActive(st) ? 'on' : null), more: d.entity };
+}
 
 /* ============================================================================================
  * Control chips under the Home title: icon only until something needs attention
@@ -2272,32 +2374,39 @@ function chipsAuto(h, m) {
 }
 
 /** How a chip looks right now: { cls: '' | 'on' | 'alert' | 'warn', word, busy, icon? } */
+// chips in the shared colour code (HV_TONES): green = secured, amber = offline / moving, red = alert
+// (filled, with a word), red icon = alarm armed; a switch chip while on: color: security (green,
+// the default), light (orange), climate (blue) or any CSS colour; off_warn: amber while off
+const CHIP_ON = { security: HV_TONES.ok, light: HV_TONES.on, climate: HV_TONES.cool };
 function chipLook(h, c) {
   const st = h.states[c.entity];
   if (!st) return { cls: 'na', word: '' };
   const d = domainOf(c.entity), s = st.state;
+  const cap = (x) => x.charAt(0).toUpperCase() + x.slice(1);
+  if (UNAVAILABLE.includes(s)) return { cls: 'warn', word: 'Offline' };
   if (d === 'alarm_control_panel') {
-    if (s === 'triggered') return { cls: 'alert', word: 'Triggered' };
-    if (['arming', 'pending'].includes(s)) return { cls: 'on', busy: true, word: '' };
-    return { cls: s.startsWith('armed') ? 'on' : '', word: '' };
+    if (s === 'triggered') return { cls: 'alert', word: 'Triggered', busy: true };
+    if (['arming', 'pending', 'disarming'].includes(s)) return { cls: 'warn', busy: true, word: cap(s) };
+    return { cls: s.startsWith('armed') ? 'armed' : '', word: '' };
   }
   if (d === 'cover') {
-    if (['opening', 'closing'].includes(s)) return { cls: 'on', busy: true, word: '' };
-    return s === 'closed' ? { cls: '', word: '' } : { cls: 'alert', word: 'Open' };
+    if (['opening', 'closing'].includes(s)) return { cls: 'warn', busy: true, word: cap(s) };
+    return s === 'closed' ? { cls: 'ok', word: '' } : { cls: 'alert', word: 'Open' };
   }
   if (d === 'lock') {
-    if (['locking', 'unlocking', 'opening'].includes(s)) return { cls: 'on', busy: true, word: '' };
+    if (['locking', 'unlocking', 'opening'].includes(s)) return { cls: 'warn', busy: true, word: cap(s) };
     if (s === 'jammed') return { cls: 'alert', word: 'Jammed' };
-    return s === 'locked' ? { cls: '', word: '' } : { cls: 'alert', word: 'Unlocked' };
+    return s === 'locked' ? { cls: 'ok', word: '' } : { cls: 'alert', word: 'Unlocked' };
   }
   if (isWaterValve(c.entity)) {
     // valve: closed = water off; a shut-off switch: on = water off
     const off = d === 'valve' ? s === 'closed' : s === 'on';
-    return off ? { cls: 'alert', word: 'Water off', icon: 'mdi:water-off' } : { cls: '', word: '', icon: 'mdi:water' };
+    return off ? { cls: 'alert', word: 'Water off', icon: 'mdi:water-off' } : { cls: 'ok', word: '', icon: 'mdi:water' };
   }
   const on = isActive(st);
-  if (!on && c.off_warn) return { cls: 'warn', word: '' };
-  return { cls: on ? 'on' : '', word: '' };
+  if (!on) return { cls: c.off_warn ? 'warn' : '', word: '' };
+  const col = CHIP_ON[c.color] || c.color || (d === 'light' ? HV_TONES.on : d === 'climate' || d === 'fan' ? HV_TONES.cool : HV_TONES.ok);
+  return { cls: 'on', word: '', color: col };
 }
 
 async function chipTap(h, c, node) {
@@ -2413,10 +2522,59 @@ function userTile(def, h, m) {
   }
   if (def.entity) {
     const room = m.areaById[entityArea(h, def.entity)];
-    return entTile(def.entity, { name: def.name, icon: def.icon, tap: def.tap, size: size || [1, 1], showRoom: true, areaName: room?.name, user: true });
+    return entTile(def.entity, { name: def.name, icon: def.icon, tap: def.tap, hold: def.hold, size: size || [1, 1], showRoom: true, areaName: room?.name, user: true });
   }
   return null;
 }
+/**
+ * custom_pages: a page may start with `vars:` — the entities it uses, so a shared page file works
+ * after editing only that block. "$tv" (a whole value) becomes the var as is (a list stays a
+ * list, and a list in a tiles list is spread into it); "$tv" inside longer text is replaced too.
+ */
+const VAR_RE = /\$([A-Za-z_][A-Za-z0-9_]*)/g;
+function expandVars(v, vars) {
+  if (typeof v === 'string') {
+    const whole = v.match(/^\$([A-Za-z_][A-Za-z0-9_]*)$/);
+    if (whole && whole[1] in vars) return vars[whole[1]];
+    return v.replace(VAR_RE, (all, k) => (k in vars && typeof vars[k] !== 'object' ? String(vars[k]) : all));
+  }
+  if (Array.isArray(v)) return v.flatMap((x) => { const e = expandVars(x, vars); return typeof x === 'string' && Array.isArray(e) ? e : [e]; });
+  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, expandVars(x, vars)]));
+  return v;
+}
+const _customCache = new WeakMap();
+/** custom_pages, each with its vars filled in and a path (path: or page-<n>). */
+function customPages(cfg) {
+  const list = asList(cfg?.custom_pages);
+  if (_customCache.has(list)) return _customCache.get(list);
+  const out = list.map((d, i) => {
+    if (!d || typeof d !== 'object') return { idx: i, path: `page-${i + 1}`, bad: true };
+    const { vars, ...rest } = d;
+    const page = vars && typeof vars === 'object' ? expandVars(rest, vars) : rest;
+    return { ...page, idx: i, path: String(page.path || `page-${i + 1}`) };
+  });
+  _customCache.set(list, out);
+  return out;
+}
+/** Entity ids a custom page refers to that this Home Assistant doesn't have (or $vars left unset). */
+function missingEntities(h, page) {
+  const ids = new Set(), unset = new Set();
+  const isId = (x) => typeof x === 'string' && /^[a-z_]+\.[a-z0-9_]+$/.test(x);
+  const walk = (v, key) => {
+    if (typeof v === 'string') {
+      for (const [, k] of v.matchAll(VAR_RE)) unset.add(`$${k}`);
+      if (isId(v) && (key === 'entity' || key === 'entities' || key === 'tile' || key === 'entity_id')) ids.add(v);
+    } else if (Array.isArray(v)) v.forEach((x) => walk(x, key === 'tiles' ? 'tile' : key));
+    else if (v && typeof v === 'object') Object.entries(v).forEach(([k, x]) => walk(x, k));
+  };
+  walk(page.sections, 'sections');
+  asList(page.pills).forEach((p) => walk(p, 'pill'));
+  return [...[...ids].filter((id) => !h.states[id]), ...unset];
+}
+/** tap: / hold: values: more-info, toggle, none — anything else is a page to open (its path). */
+const ACTION_WORDS = ['more-info', 'toggle', 'none', 'default', 'lights', 'room'];
+const pageLink = (v) => (typeof v === 'string' && v && !ACTION_WORDS.includes(v) ? v : null);
+
 const userSections = (list, h, m) => asList(list).map((sec) => ({
   title: sec.title, position: sec.position, hue: sec.color !== undefined ? hueOf(sec.color, undefined) : undefined,
   tiles: asList(sec.tiles).map((t) => userTile(t, h, m)).filter(Boolean),
@@ -2424,6 +2582,68 @@ const userSections = (list, h, m) => asList(list).map((sec) => ({
 
 const rowTile = (id, extra = {}) => entTile(id, { row: true, ...extra });
 const nonGroupLights = (h, ids) => asList(ids).filter((id) => !Array.isArray(h.states[id]?.attributes?.entity_id));
+
+/** The live power sensors (W / kW): energy.* config, else the energy settings' power sensors,
+ *  else a guess by name. Shared by the Energy page and the Energy pill. */
+function energyPower(h, m, cfg, prefs) {
+  const ec = cfg.energy || {};
+  const src = prefs?.energy_sources || [];
+  const grid = src.find((x) => x.type === 'grid') || {};
+  const solar = src.filter((x) => x.type === 'solar');
+  const bat = src.filter((x) => x.type === 'battery');
+  const gridIn = [...asList(grid.flow_from).map((f) => f.stat_energy_from), grid.stat_energy_from].filter(Boolean);
+  const gridOut = [...asList(grid.flow_to).map((f) => f.stat_energy_to), grid.stat_energy_to].filter(Boolean);
+  const solarIds = solar.map((x) => x.stat_energy_from).filter(Boolean);
+  const batOut = bat.map((x) => x.stat_energy_from).filter(Boolean);
+  const batIn = bat.map((x) => x.stat_energy_to).filter(Boolean);
+  // live power: config, else the energy settings' power sensors, else a guess by name
+  const powerSensors = (m.byDomain.sensor || []).filter((id) => h.states[id]?.attributes?.device_class === 'power');
+  // name guessing: never an average / statistic, prefer a sensor on the energy meter's own device,
+  // and a net sensor (grid + import / − export, battery + discharge / − charge) over a split pair
+  // (sorted ids would otherwise pick grid_export_power before grid_power)
+  const devOf = (id) => h.entities?.[id]?.device_id;
+  const notStat = (id) => !/mean|average|avg|_24h|daily|today|_max|_min|peak|forecast|statistic|cost|price/.test(id);
+  const cands = powerSensors.filter(notStat);
+  const pick = (re, near = [], not = null) => {
+    const devs = near.map(devOf).filter(Boolean);
+    const list = cands.filter((id) => re.test(id) && !(not && not.test(id)));
+    return list.find((id) => devs.includes(devOf(id))) || list[0] || null;
+  };
+  const SPLIT_GRID = /import|export|from_grid|to_grid|_in$|_out$|consum|return|feed|production/;
+  const SPLIT_BAT = /charg|_in$|_out$/;
+  const statRate = (x) => x?.stat_rate || x?.power_config?.stat_rate || null;
+  const power = {
+    solar: ec.solar_power || statRate(solar[0]) || (solarIds.length ? pick(/solar|pv/, solarIds) : null),
+    grid: ec.grid_power || statRate(grid) || pick(/grid/, [...gridIn, ...gridOut], SPLIT_GRID),
+    battery: ec.battery_power || statRate(bat[0]) || (bat.length ? pick(/battery|powerwall/, [...batOut, ...batIn], SPLIT_BAT) : null),
+    home: ec.home_power || pick(/home|house|load|consumption/, [...gridIn, ...solarIds], /grid|solar|battery|pv/),
+  };
+  // the home battery's charge %: on the battery meter's device, else named like it
+  // (sensor.tesla_energy_live next to sensor.tesla_energy_battery_…), else by name, never a
+  // gadget's own battery (sensor.door_battery_level)
+  if (ec.battery_level) power.battery_level = ec.battery_level;
+  else if (bat.length) {
+    const pcts = (m.byDomain.sensor || []).filter((id) => h.states[id]?.attributes?.device_class === 'battery');
+    const near = [power.battery, ...batOut, ...batIn].filter(Boolean);
+    const devs = near.map(devOf).filter(Boolean);
+    const stem = (id) => id.split('_').slice(0, 2).join('_');   // sensor.tesla_energy
+    power.battery_level = pcts.find((id) => devs.includes(devOf(id)))
+      || pcts.find((id) => near.some((n) => stem(n) === stem(id) && stem(id).includes('_')))
+      || pcts.find((id) => /powerwall|home_battery|storage|state_of_charge|_soc\b/.test(id)) || null;
+  }
+  // no net sensor: a split pair, both positive (grid_in = import, battery_out = discharge)
+  if (!power.grid && gridIn.length) {
+    power.grid_in = ec.grid_import_power || pick(/grid/, gridIn, /export|to_grid|return|feed|production/);
+    power.grid_out = ec.grid_export_power || pick(/grid/, gridOut, /import|from_grid|consum/);
+    if (power.grid_in && power.grid_out === power.grid_in) delete power.grid_out;
+  }
+  if (!power.battery && bat.length) {
+    power.battery_out = ec.battery_discharge_power || pick(/discharg/, batOut);
+    power.battery_in = ec.battery_charge_power || pick(/charg/, batIn, /discharg/);
+  }
+  Object.keys(power).forEach((k) => { if (!power[k]) delete power[k]; });
+  return power;
+}
 
 const PAGES = {
   // a tinted board: big date, big clock, camera, up next, weather — for a wall tablet
@@ -2598,51 +2818,8 @@ const PAGES = {
     const batOut = bat.map((x) => x.stat_energy_from).filter(Boolean);
     const batIn = bat.map((x) => x.stat_energy_to).filter(Boolean);
 
-    // live power: config, else the energy settings' power sensors, else a guess by name
-    const powerSensors = (m.byDomain.sensor || []).filter((id) => h.states[id]?.attributes?.device_class === 'power');
-    // name guessing: never an average / statistic, prefer a sensor on the energy meter's own device,
-    // and a net sensor (grid + import / − export, battery + discharge / − charge) over a split pair
-    // (sorted ids would otherwise pick grid_export_power before grid_power)
+    const power = energyPower(h, m, cfg, prefs);
     const devOf = (id) => h.entities?.[id]?.device_id;
-    const notStat = (id) => !/mean|average|avg|_24h|daily|today|_max|_min|peak|forecast|statistic|cost|price/.test(id);
-    const cands = powerSensors.filter(notStat);
-    const pick = (re, near = [], not = null) => {
-      const devs = near.map(devOf).filter(Boolean);
-      const list = cands.filter((id) => re.test(id) && !(not && not.test(id)));
-      return list.find((id) => devs.includes(devOf(id))) || list[0] || null;
-    };
-    const SPLIT_GRID = /import|export|from_grid|to_grid|_in$|_out$|consum|return|feed|production/;
-    const SPLIT_BAT = /charg|_in$|_out$/;
-    const statRate = (x) => x?.stat_rate || x?.power_config?.stat_rate || null;
-    const power = {
-      solar: ec.solar_power || statRate(solar[0]) || (solarIds.length ? pick(/solar|pv/, solarIds) : null),
-      grid: ec.grid_power || statRate(grid) || pick(/grid/, [...gridIn, ...gridOut], SPLIT_GRID),
-      battery: ec.battery_power || statRate(bat[0]) || (bat.length ? pick(/battery|powerwall/, [...batOut, ...batIn], SPLIT_BAT) : null),
-      home: ec.home_power || pick(/home|house|load|consumption/, [...gridIn, ...solarIds], /grid|solar|battery|pv/),
-    };
-    // the home battery's charge %: on the battery meter's device, else named like it
-    // (sensor.tesla_energy_live next to sensor.tesla_energy_battery_…), else by name, never a
-    // gadget's own battery (sensor.door_battery_level)
-    if (ec.battery_level) power.battery_level = ec.battery_level;
-    else if (bat.length) {
-      const pcts = (m.byDomain.sensor || []).filter((id) => h.states[id]?.attributes?.device_class === 'battery');
-      const near = [power.battery, ...batOut, ...batIn].filter(Boolean);
-      const devs = near.map(devOf).filter(Boolean);
-      const stem = (id) => id.split('_').slice(0, 2).join('_');   // sensor.tesla_energy
-      power.battery_level = pcts.find((id) => devs.includes(devOf(id)))
-        || pcts.find((id) => near.some((n) => stem(n) === stem(id) && stem(id).includes('_')))
-        || pcts.find((id) => /powerwall|home_battery|storage|state_of_charge|_soc\b/.test(id)) || null;
-    }
-    // no net sensor: a split pair, both positive (grid_in = import, battery_out = discharge)
-    if (!power.grid && gridIn.length) {
-      power.grid_in = ec.grid_import_power || pick(/grid/, gridIn, /export|to_grid|return|feed|production/);
-      power.grid_out = ec.grid_export_power || pick(/grid/, gridOut, /import|from_grid|consum/);
-      if (power.grid_in && power.grid_out === power.grid_in) delete power.grid_out;
-    }
-    if (!power.battery && bat.length) {
-      power.battery_out = ec.battery_discharge_power || pick(/discharg/, batOut);
-      power.battery_in = ec.battery_charge_power || pick(/charg/, batIn, /discharg/);
-    }
     Object.keys(power).forEach((k) => { if (!power[k]) delete power[k]; });
 
     // Home current / voltage (the "15 A at 240 V" line): sensors on the home power sensor's device
@@ -2773,8 +2950,8 @@ const PAGES = {
 
   // custom_pages: [{ path, title, icon, color, pills, sections: [{ title, tiles: [...] }] }]
   custom(h, m, cfg, opts) {
-    const d = asList(cfg.custom_pages)[opts.custom] || {};
-    return { title: d.title || 'Page', hue: hueOf(d.color, 200), pills: !!d.pills, sections: [] };
+    const d = customPages(cfg)[opts.custom] || {};
+    return { title: d.title || 'Page', hue: hueOf(d.color, 200), pills: !!d.pills, back: !!d.subview, hold: d.hold, sections: [] };
   },
 };
 
@@ -2791,6 +2968,8 @@ const PAGE_CSS = `
 .date { font-size:13px; font-weight:650; letter-spacing:.06em; text-transform:uppercase; color:var(--hv-fg2); }
 .title { font-size:clamp(30px, 4vw, 34px); font-weight:750; letter-spacing:-.02em; line-height:1.15; display:flex; align-items:center; gap:10px; }
 .title .sub { font-size:15px; font-weight:500; color:var(--hv-fg2); letter-spacing:0; }
+.title .tt[data-title-hold] { cursor:pointer; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
+.txt.busy { animation:hv-pulse 1.1s ease-in-out infinite; }
 .back { all:unset; cursor:pointer; width:36px; height:36px; border-radius:50%; background:var(--hv-pill); display:inline-flex;
   align-items:center; justify-content:center; --mdc-icon-size:22px; }
 .pills { display:flex; flex-wrap:wrap; gap:8px; justify-content:flex-end; max-width:100%; }
@@ -2798,8 +2977,12 @@ const PAGE_CSS = `
 .pill { all:unset; cursor:pointer; display:inline-flex; align-items:center; gap:6px; padding:7px 12px; border-radius:999px;
   background:var(--hv-pill); font-size:13.5px; font-weight:650; color:var(--hv-fg); --mdc-icon-size:17px; white-space:nowrap; }
 .pill ha-icon { color:var(--hv-icon); }
-.pill.active ha-icon { color:var(--hv-accent); }
-.pill.alert { background:#FF3B30; color:#fff; }
+.pill.active ha-icon, .pill.t-on ha-icon { color:${HV_TONES.on}; }
+.pill.t-ok ha-icon { color:${HV_TONES.ok}; }
+.pill.t-warn ha-icon, .pill.t-heat ha-icon { color:${HV_TONES.warn}; }
+.pill.t-armed ha-icon { color:${HV_TONES.armed}; }
+.pill.t-cool ha-icon { color:${HV_TONES.cool}; }
+.pill.alert { background:${HV_TONES.alert}; color:#fff; }
 .pill.alert ha-icon { color:#fff; }
 .people { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
 .chips { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
@@ -2807,9 +2990,13 @@ const PAGE_CSS = `
   display:inline-flex; align-items:center; justify-content:center; gap:6px; color:var(--hv-icon); --mdc-icon-size:20px;
   -webkit-tap-highlight-color:transparent; user-select:none; -webkit-user-select:none; transition:background .2s, color .2s; }
 .chp b { font:700 13px ${FONT}; }
-.chp.on { background:var(--hv-tile-on); color:var(--hv-accent); }
-.chp.warn { color:#FF9F0A; box-shadow:inset 0 0 0 1.5px #FF9F0A; }
-.chp.alert { background:#FF3B30; color:#fff; }
+.chp.on, .chp.ok, .chp.warn, .chp.armed { background:var(--hv-tile-on); }
+.chp.on { color:${HV_TONES.ok}; }
+.chp.ok { color:${HV_TONES.ok}; }
+.chp.warn { color:${HV_TONES.warn}; }
+.chp.armed { color:${HV_TONES.armed}; }
+.chp.warn b, .chp.ok b { color:var(--hv-fg); }
+.chp.alert { background:${HV_TONES.alert}; color:#fff; }
 .chp.na { opacity:.45; }
 .chp.busy { animation:hv-pulse 1.1s ease-in-out infinite; }
 @keyframes hv-pulse { 50% { opacity:.45; } }
@@ -3003,7 +3190,8 @@ class HomeViewPage extends HTMLElement {
     this._root.setAttribute('style', styleVars(palette(hue, dark, pd.sat ?? 1)));
 
     // the user's own sections (pages_config.<page>.sections, rooms.<area>.sections, custom_pages)
-    const extra = this._config.page === 'custom' ? asList(cfg.custom_pages)[this._config.custom]?.sections
+    const custom = this._config.page === 'custom' ? customPages(cfg)[this._config.custom] : null;
+    const extra = custom ? custom.sections
       : this._config.page === 'room' ? cfg.rooms?.[this._config.area]?.sections : pageCfg.sections;
     for (const sec of userSections(extra, h, this._model)) {
       if (sec.position === 'top') page.sections.unshift(sec); else page.sections.push(sec);
@@ -3020,6 +3208,10 @@ class HomeViewPage extends HTMLElement {
     this._head = head; this._headKey = null;
     const notes = [];
     if (page.note) notes.push(page.note);
+    if (custom && h.user?.is_admin) {
+      const miss = missingEntities(h, custom);
+      if (miss.length) notes.push(`Page “${custom.path}”: ${miss.length > 1 ? 'these entities aren\'t' : 'this entity isn\'t'} in Home Assistant — ${miss.slice(0, 6).join(', ')}${miss.length > 6 ? ` and ${miss.length - 6} more` : ''}. Set them in the vars: block at the top of its file (custom_pages/README.md). Only admins see this.`);
+    }
     if (h.user?.is_admin) {
       const unknown = Object.keys(cfg).filter((k) => !KNOWN_OPTIONS.includes(k));
       if (unknown.length) notes.push(`HomeView: unknown option${unknown.length > 1 ? 's' : ''} ${unknown.join(', ')} — check the spelling (README → Configuration). Only admins see this.`);
@@ -3255,6 +3447,7 @@ class HomeViewPage extends HTMLElement {
   }
   /** Stable callbacks for cached() (one per page, however often the page builds). */
   get rebuilder() { return this._rebuilder || (this._rebuilder = () => this.scheduleRebuild()); }
+  get headRefresher() { return this._headRefresher || (this._headRefresher = () => { this._headKey = null; this._renderHead(); }); }
 
   _tile(spec, dark) {
     // customize: per-entity name / icon / size / tap from the config
@@ -3262,6 +3455,8 @@ class HomeViewPage extends HTMLElement {
     if (cz && ['entity', 'camera', 'person'].includes(spec.kind)) {
       spec = { ...spec, name: cz.name ?? spec.name, icon: cz.icon ?? spec.icon, tap: cz.tap ?? spec.tap, size: parseSize(cz.size, spec.size) };
     }
+    // customize.<entity>.hold / tap: a page to open, wherever the entity's tile is
+    if (cz && (cz.hold || cz.tap) && spec.kind !== 'room') spec = { ...spec, hold: spec.hold ?? cz.hold, tap: spec.tap ?? cz.tap };
     const t = document.createElement('homeview-tile');
     if (spec.hiddenEnt || spec.hiddenRoom) t.title = 'Hidden — tap the eye to show it again';
     t.spec = spec;
@@ -3345,10 +3540,13 @@ class HomeViewPage extends HTMLElement {
     const m = this._model;
     const chipAlarm = asList(page.chips).some((c) => domainOf(c.entity) === 'alarm_control_panel');
     // phones: the status pills on Home only (as on a hand-made iPhone HomeView)
+    // pills: [lights, { pill: energy, hold: energy-history }, { entity: sensor.pond_temp, name: Pond, hold: pond }]
     const pills = page.pills && cfg.pills !== false && (!this._phone || this._config.page === 'home')
-      ? asList(cfg.pills && cfg.pills !== true ? cfg.pills : DEFAULT_PILLS).filter((id) => !(id === 'alarm' && chipAlarm))
-        .map((id) => [id, PILLS[id]?.(h, m, cfg)]).filter(([, p]) => p)
+      ? asList(cfg.pills && cfg.pills !== true ? cfg.pills : DEFAULT_PILLS)
+        .map((x) => (typeof x === 'string' ? { pill: x } : x)).filter((d) => d && typeof d === 'object' && !(d.pill === 'alarm' && chipAlarm))
+        .map((d, i) => [i, d.pill ? PILLS[d.pill]?.(h, m, cfg, this) : d.entity ? entityPill(h, d) : null, d]).filter(([, p]) => p)
       : [];
+    this._pills = pills;
     const people = page.people && cfg.people_chips !== false ? m.persons : [];
     const today = new Date().toLocaleDateString(h.locale?.language, { weekday: 'long', month: 'long', day: 'numeric' });
     const editing = this._editing;
@@ -3368,7 +3566,11 @@ class HomeViewPage extends HTMLElement {
     const here = this._config.path || this._config.page;
     const chips = asList(page.chips);
     const looks = chips.map((c) => chipLook(h, c));
-    const key = JSON.stringify([today, page.title, editing, canEdit, updOn, stale, kiosk, here, looks, chips.map((c) => h.states[c.entity]?.state), pills.map(([id, p]) => [id, p.text, p.alert, p.active]), people.map((id) => h.states[id]?.state)]);
+    // hold the title: the page pages_config.<page>.hold (or a custom page's hold:) names — e.g. Home → settings
+    const titleHold = editing ? null : pageLink(page.hold || cfg.pages_config?.[this._config.page]?.hold);
+    // Reload pages: a YAML dashboard re-reads its files (custom_pages from homeview/custom_pages/)
+    const yamlDash = h.user?.is_admin && h.panels?.[dashboardPath() || 'lovelace']?.config?.mode === 'yaml';
+    const key = JSON.stringify([today, page.title, titleHold, yamlDash, editing, canEdit, updOn, stale, kiosk, here, looks, chips.map((c) => h.states[c.entity]?.state), pills.map(([id, p]) => [id, p.text, p.alert, p.active, p.tone]), people.map((id) => h.states[id]?.state)]);
     if (key === this._headKey) return;
     this._headKey = key;
     const room = page.room;
@@ -3391,13 +3593,13 @@ class HomeViewPage extends HTMLElement {
         ${barBtns ? `<span class="tbb">${barBtns}</span>` : ''}</div>` : '';
     head.innerHTML = page.minimalHead ? `${topbar}` : `${topbar}<div>
         <div class="date">${esc(today)}</div>
-        <div class="title">${menuBtn}${updBtn}${page.back ? '<button class="back" data-back><ha-icon icon="mdi:chevron-left"></ha-icon></button>' : ''}${esc(this._phone && page.greet && h.user?.name ? `Hi ${h.user.name.split(' ')[0]}` : page.title)}${roomSub ? `<span class="sub">${esc(roomSub)}</span>` : ''}${canEdit && !editing ? '<button class="back pen" data-edit-on title="Edit HomeView"><ha-icon icon="mdi:pencil-outline"></ha-icon></button>' : ''}</div>
+        <div class="title">${menuBtn}${updBtn}${page.back ? '<button class="back" data-back><ha-icon icon="mdi:chevron-left"></ha-icon></button>' : ''}<span class="tt"${titleHold ? ' data-title-hold' : ''}>${esc(this._phone && page.greet && h.user?.name ? `Hi ${h.user.name.split(' ')[0]}` : page.title)}</span>${roomSub ? `<span class="sub">${esc(roomSub)}</span>` : ''}${canEdit && !editing ? '<button class="back pen" data-edit-on title="Edit HomeView"><ha-icon icon="mdi:pencil-outline"></ha-icon></button>' : ''}</div>
         ${editing ? `<div class="editbar"><span><b>Editing</b> · <ha-icon icon="mdi:star-outline"></ha-icon> on Home · <ha-icon icon="mdi:resize"></ha-icon> size · <ha-icon icon="mdi:rename-outline"></ha-icon> name · <ha-icon icon="mdi:eye-off-outline"></ha-icon> hide · <ha-icon icon="mdi:palette-outline"></ha-icon> room colour</span>
-          <span class="eb"><button class="txt" data-settings><ha-icon icon="mdi:cog-outline"></ha-icon> Settings</button><button class="txt primary" data-edit-off>Done</button></span></div>` : ''}
+          <span class="eb">${yamlDash ? '<button class="txt" data-reload-pages title="Read the dashboard\'s YAML files again — after adding or editing a page in homeview/custom_pages/"><ha-icon icon="mdi:file-refresh-outline"></ha-icon> Reload pages</button>' : ''}<button class="txt" data-settings><ha-icon icon="mdi:cog-outline"></ha-icon> Settings</button><button class="txt primary" data-edit-off>Done</button></span></div>` : ''}
         ${chips.length ? `<div class="chips">${chips.map((c, i) => {
           const L = looks[i], st = h.states[c.entity];
           const icon = (isActive(st) ? c.icon_on : c.icon_off) || c.icon || L.icon;
-          return `<button class="chp ${L.cls}${L.busy ? ' busy' : ''}" data-chip="${i}" title="${esc(c.name || st?.attributes?.friendly_name || c.entity)}">
+          return `<button class="chp ${L.cls}${L.busy ? ' busy' : ''}" data-chip="${i}"${L.color ? ` style="color:${esc(L.color)}"` : ''} title="${esc(c.name || st?.attributes?.friendly_name || c.entity)}">
             <i data-e="${esc(c.entity)}"${icon ? ` data-i="${esc(icon)}"` : ''}></i>${L.word ? `<b>${esc(L.word)}</b>` : ''}</button>`;
         }).join('')}</div>` : ''}
         ${people.length ? `<div class="people">${people.map((id) => {
@@ -3406,7 +3608,7 @@ class HomeViewPage extends HTMLElement {
           return `<div class="avatar${st.state === 'home' ? ' home' : ''}" data-more="${esc(id)}" title="${esc(nm)} · ${esc(hassState(h, st))}">${pic ? `<img src="${esc(pic)}">` : esc(nm.slice(0, 1).toUpperCase())}</div>`;
         }).join('')}</div>` : ''}
       </div>
-      ${pills.length ? `<div class="pills">${pills.map(([id, p]) => `<button class="pill${p.alert ? ' alert' : p.active ? ' active' : ''}" data-pill="${id}"><ha-icon icon="${p.icon}"></ha-icon>${esc(p.text)}${p.popup ? '<ha-icon icon="mdi:chevron-right" style="--mdc-icon-size:15px;opacity:.6"></ha-icon>' : ''}</button>`).join('')}</div>` : ''}`;
+      ${pills.length ? `<div class="pills">${pills.map(([id, p]) => `<button class="pill${p.alert ? ' alert' : p.tone ? ` t-${p.tone}` : p.active ? ' t-on' : ''}" data-pill="${id}"><ha-icon icon="${p.icon}"></ha-icon>${esc(p.text)}${p.popup ? '<ha-icon icon="mdi:chevron-right" style="--mdc-icon-size:15px;opacity:.6"></ha-icon>' : ''}</button>`).join('')}</div>` : ''}`;
     head.querySelector('[data-back]')?.addEventListener('click', () => (history.length > 1 ? history.back() : navigate('living')));
     fillIcons(head, h);
     head.querySelectorAll('[data-chip]').forEach((el) => {
@@ -3428,11 +3630,27 @@ class HomeViewPage extends HTMLElement {
     });
     head.querySelector('[data-edit-off]')?.addEventListener('click', () => this._setEditing(false));
     head.querySelector('[data-settings]')?.addEventListener('click', () => this._settings());
+    // HA's own ⋮ → Refresh (hidden with its header): the panel reads the YAML files again, and every
+    // open screen of this dashboard follows (HA's lovelace_updated)
+    head.querySelector('[data-reload-pages]')?.addEventListener('click', (ev) => {
+      ev.currentTarget.classList.add('busy');
+      this.dispatchEvent(new CustomEvent('config-refresh', { bubbles: true, composed: true }));
+    });
+    const th = head.querySelector('[data-title-hold]');
+    if (th) bindPress(th, () => {}, () => { if (navigator.vibrate) navigator.vibrate(10); navigate(titleHold); });
     head.querySelectorAll('[data-more]').forEach((el) => el.addEventListener('click', () => moreInfo(this, el.dataset.more)));
-    head.querySelectorAll('[data-pill]').forEach((el) => el.addEventListener('click', () => {
-      const p = PILLS[el.dataset.pill](h, m, cfg);
-      if (p.popup) this._popup(p.popup); else if (p.more) moreInfo(this, p.more);
-    }));
+    // pill tap: its sheet / details / page; hold: the page its hold: names (else the same as a tap)
+    head.querySelectorAll('[data-pill]').forEach((el) => {
+      const act = (kind) => {
+        const [, p, d] = this._pills.find(([i]) => String(i) === el.dataset.pill) || [];
+        if (!p || d[kind] === 'none') return;
+        const link = pageLink(d[kind]) || (kind === 'tap' || !d.hold ? p.go : null);
+        if (link) navigate(link);
+        else if (d[kind] === 'more-info' && (p.more || d.entity)) moreInfo(this, p.more || d.entity);
+        else if (p.popup) this._popup(p.popup); else if (p.more) moreInfo(this, p.more);
+      };
+      bindPress(el, () => act('tap'), () => act('hold'));
+    });
   }
 
   /** The update icon's sheet: a new release (what's new / update via HA's update dialog) or a
@@ -3468,8 +3686,8 @@ class HomeViewPage extends HTMLElement {
     const sheet = document.createElement('div'); sheet.className = 'sheet';
     sheet.innerHTML = `<div class="sheet-h">${esc(title)}<button class="back" data-close><ha-icon icon="mdi:close"></ha-icon></button></div>`;
     const TONE = {
-      red: { bg: 'rgba(255,59,48,0.16)', border: 'rgba(255,59,48,0.6)', head: '#FF3B30' },
-      amber: { bg: 'rgba(255,149,0,0.14)', border: 'rgba(255,149,0,0.55)', head: '#FF9500' },
+      red: { bg: 'rgba(255,59,48,0.16)', border: 'rgba(255,59,48,0.6)', head: HV_TONES.alert },
+      amber: { bg: 'rgba(255,149,0,0.14)', border: 'rgba(255,149,0,0.55)', head: HV_TONES.warn },
       off: { opacity: '0.55' },
     };
     const tiles = [];
@@ -3835,7 +4053,9 @@ class HomeViewStrategy extends HTMLElement {
     const { type, ...options } = config || {};
     hvAvatarMode = options.avatars ?? 'samples';
     const m = buildModel(hass, options);
-    const customs = asList(options.custom_pages).map((d, i) => ({ ...d, idx: i, path: String(d.path || `page-${i + 1}`) }));
+    // custom_pages (see custom_pages/README.md): subview: true = no place in the page bar, opened by
+    // a hold (or tap) that names it, with a back arrow; admin_only: true = admins only
+    const customs = customPages(options).filter((c) => !c.bad && (!c.admin_only || hass.user?.is_admin));
     const wanted = [...new Set(asList(options.pages || DEFAULT_PAGES).map((p) => PAGE_ALIASES[p] || p))]
       .filter((p) => PAGE_DEFS[p] || customs.some((c) => c.path === p));
     let hasEnergy = false;
@@ -3851,7 +4071,8 @@ class HomeViewStrategy extends HTMLElement {
       living: m.rooms.length > 0, people: m.persons.length > 0 || m.calendars.length > 0, cameras: m.cameras.length > 0,
     };
     const pages = [...wanted.filter((p) => !PAGE_DEFS[p] || available[p]),
-      ...customs.map((c) => c.path).filter((p) => !wanted.includes(p))];
+      ...customs.filter((c) => !c.subview).map((c) => c.path).filter((p) => !wanted.includes(p))]
+      .filter((p) => !customs.some((c) => c.subview && c.path === p));
     const pc = options.pages_config || {};
     const allPaths = [...new Set(pages.flatMap((p) => (p !== 'rooms' ? [p]
       : m.members.length ? m.members.map((x) => `member-${x.slug}`) : ['all_rooms'])))];
@@ -3893,6 +4114,10 @@ class HomeViewStrategy extends HTMLElement {
     });
     const nav = views.map((v) => ({ path: v.path, title: v.title, icon: v.icon, letter: v.letter, avatar: v.avatar }));
     views.forEach((v) => { v.cards[0].nav = nav; delete v.letter; delete v.avatar; });
+    for (const c of customs.filter((x) => x.subview && allowed(x.path))) {
+      views.push({ title: c.title || 'Page', path: c.path, icon: c.icon || 'mdi:view-grid-outline', subview: true, type: 'panel',
+        cards: [{ type: 'custom:homeview-page', page: 'custom', custom: c.idx, path: c.path, order: [], options }] });
+    }
     for (const r of m.rooms) {
       views.push({
         title: r.name, path: `room-${r.id}`, icon: r.icon, subview: true,

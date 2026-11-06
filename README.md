@@ -309,6 +309,29 @@ A **tile** is one of:
 
 Custom pages come after HomeView's pages unless you list their `path` in `pages:`.
 
+**Page files you can keep and share.** The [`custom_pages/`](custom_pages/) folder has a starter
+([`sample.yaml`](custom_pages/sample.yaml)) and four ready-made pages: *Media*, *Energy History*,
+*Pond* and *Admin*. Each opens by a hold: the TV tile, the Energy pill, a Pond pill, the Home
+title. Each has a `vars:` block at the top, so a shared page works after you change only that.
+They live in `/config/homeview/custom_pages/`, one file per page, loaded with
+`!include_dir_list`. Pencil → **Reload pages** picks up a new or edited file with no restart.
+The guide, [`custom_pages/README.md`](custom_pages/README.md), covers writing a page and setting
+up Home Assistant for it.
+
+**Hold to open a page.** `tap:` / `hold:` can name a page path:
+
+```yaml
+  pages_config:
+    home: { hold: admin }                             # hold the Home title
+  pills: [alarm, climate, { pill: energy, hold: energy-history }, lights, locks, openings, safety, batteries, media,
+          { entity: sensor.pond_water_temperature, name: Pond, icon: mdi:fish, hold: pond }]   # a pill of your own
+  customize:
+    media_player.living_room_tv: { hold: media }      # the TV tile, wherever it appears
+```
+
+A custom page with `subview: true` stays out of the page bar and gets a back arrow.
+`admin_only: true` limits it to admins.
+
 ## All options
 
 Everything is optional.
@@ -377,7 +400,8 @@ strategy:
                                   # gate, locks, water shutoff valve; false = none)
       - alarm_control_panel.house
       - { entity: cover.garage_door, confirm: true }
-      - { entity: input_boolean.auto_lights, icon_on: mdi:lightbulb-auto, icon_off: mdi:lightbulb-auto-outline }
+      - { entity: input_boolean.auto_lights, color: light, icon_on: mdi:lightbulb-auto, icon_off: mdi:lightbulb-auto-outline }
+                                  # color: the icon while on: security (green, default), light, climate or a CSS colour
       - { entity: automation.night_alert, name: Night alert, off_warn: true, confirm: true }
     camera: camera.front_door     # the camera on Home (default: the first one; false = none)
     air: true                     # the air quality tile, when you have an AQI / PM2.5 / CO2 / VOC sensor
@@ -385,15 +409,25 @@ strategy:
     scenes: true
     max_scenes: 8
 
-  pills: [alarm, climate, lights, locks, openings, safety, batteries, media]   # or false
+  pills: [alarm, climate, energy, lights, locks, openings, safety, batteries, media]   # or false; items can also be
+                                  # { pill: energy, hold: <page> } or { entity, name, icon, alert: [states], hold: <page> }
   battery_low: 20                 # % under which a battery counts as low
   screensaver: auto               # big clock after 2 min idle: auto = touch tablets only; true; false;
                                   # or { idle: 120, color: '#4D7DB8', pages: [home, living] }
-  comfort: thermostat             # Cold / Comfy / Warm on room tiles: thermostat (default) follows the
-                                  # room's thermostat (its own, else the house's): heat setting − margin …
-                                  # cool setting + margin; fixed = 66–77 °F (19–25 °C); or { cold: 68, warm: 76 }
+  comfort: thermostat             # Too cold / Cold / Comfy / Warm / Hot on room tiles. Comfy: thermostat
+                                  # (default) follows the room's thermostat (its own, else the house's):
+                                  # heat setting − margin … cool setting + margin; fixed = 66–77 °F
+                                  # (19–25 °C); or { cold: 68, warm: 76 } — numbers or entities
+                                  # (e.g. { cold: sensor.comfort_low, warm: sensor.comfort_high })
   comfort_thermostat: climate.hallway   # the house thermostat (default: the first one with a setting)
-  comfort_margin: 1               # °F / °C either side of the settings (default 1 °F, 0.5 °C)
+  comfort_margin: 1               # °F / °C either side of the settings (default 1 °F, 0.5 °C); or an entity
+  comfort_limits:                 # the outer grades — numbers or entities (input_number helpers)
+    too_cold: 65                  # Too cold below (°F; 18 °C) — never closer than 3 °F to Comfy
+    hot: 83                       # Hot above (°F; 28 °C); Cold below / Warm above come from comfort
+    too_dry: 30                   # humidity %: Too dry below
+    dry: 40                       #   Dry below (a room is Comfy only when temperature and humidity both are)
+    humid: 55                     #   Humid above
+    too_humid: 65                 #   Too humid above
   people_chips: true              # the avatars under the Home title
   phone_favorites: [light.kitchen, light.living_room, lock.front_door]   # or { alex: [...], zoe: [...] }
   avatars: samples                # people without a picture: samples (anime avatars) | initials
@@ -499,6 +533,23 @@ next reading. *Right now* shows **Live** with the time of the latest reading, or
 the power sensors stop updating. Solar self-sufficiency and the window percentages are worked
 out hour by hour (the current hour from 5-minute statistics), so they are close estimates.
 
+## Colours
+
+One colour code on every page — chips, status pills, tiles and their sheets:
+
+| Colour | Means | For example |
+|---|---|---|
+| 🟢 Green | Secured, safe, fine | Locked, garage closed, water on, all doors closed, no leaks, batteries OK, sending power to the grid |
+| 🟠 Amber | Needs a look | A sensor or lock **offline** (never shown as fine), arming, opening / closing, batteries getting low, heating |
+| 🔴 Red, filled | Act now | Unlocked, open, a leak, water shut off, alarm triggered, a battery low |
+| 🔴 Red icon | The alarm is armed | Armed home / away / night |
+| 🟧 Orange | On, in use | Lights on, power being drawn, media playing |
+| 🔵 Blue | Climate | Cooling, fans |
+
+A chip for a switch (auto-lights, a security automation) is grey while off and coloured while on.
+It's green by default, or `color: light` / `climate` / any CSS colour. `off_warn: true` makes it
+amber while it's off.
+
 ## Taps
 
 **Control chips** (Home): icon only until something needs attention — garage open, door
@@ -518,6 +569,11 @@ alarm opens its panel), hold opens the details.
 | Room (tile, phone bar, a person's room summary, title) | Toggles the room's lights: its "all lights" group, else its main light (no such light: opens the room) | Opens the room's details page |
 | Lights (a room's) | All on / off | The room's details page |
 | Sensor, person, camera, weather | Details | Details |
+| Status pill | Its sheet / details (Energy: the Energy page) | Its `hold:` page, else the same as a tap |
+| Page title | — | Its `hold:` page (`pages_config.<page>.hold`), if set |
+
+Any tile's tap or hold can open a page instead: `hold: <page path>` on the tile, or for every tile
+of an entity, `customize.<entity>.hold`. See [`custom_pages/`](custom_pages/README.md#taps-and-holds).
 
 ## Using a single page as a card
 

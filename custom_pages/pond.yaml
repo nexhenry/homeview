@@ -1,0 +1,34 @@
+# pond.yaml — pumps, filter and water for a pond (or a pool, a fish tank, a garden: rename it).
+# Opened by holding the Pond pill:
+#   pills: [..., { entity: sensor.pond_water_temperature, name: Pond, icon: mdi:fish, hold: pond }]
+# Change the vars: block to your own entities, then pencil → Reload pages.
+path: pond
+title: Pond
+icon: mdi:fish
+color: teal
+subview: true
+
+vars:
+  pumps: [switch.pond_pump, switch.pond_air_pump]
+  filter: switch.pond_filter
+  uv_light: switch.pond_uv_light
+  pond_light: light.pond_light
+  water_temp: sensor.pond_water_temperature
+  pump_power: sensor.pond_pump_power
+
+sections:
+  - title: Pumps & filter
+    tiles:
+      - $pumps
+      - { entity: $filter, name: Filter }
+      - { entity: $uv_light, name: UV light }
+      - { entity: $pond_light, name: Light }
+  - title: Water
+    tiles:
+      - { entity: $water_temp, name: Water }
+      - { entity: $pump_power, name: Pumps }
+      - card:
+          type: history-graph
+          hours_to_show: 48
+          entities: [$water_temp]
+        size: full x 2

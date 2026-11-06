@@ -1,0 +1,39 @@
+# dashboard.yaml — a HomeView dashboard in YAML, that loads every page in custom_pages/.
+# Save it as /config/homeview/dashboard.yaml (the guide: custom_pages/README.md).
+#
+#   /config/
+#   ├── configuration.yaml          lovelace: dashboards: … filename: homeview/dashboard.yaml
+#   └── homeview/
+#       ├── dashboard.yaml          this file
+#       └── custom_pages/
+#           ├── energy-history.yaml
+#           ├── media.yaml
+#           ├── pond.yaml
+#           └── admin.yaml
+strategy:
+  type: custom:homeview
+
+  # Hold → page. Each hold names a page by its path (= its file name), so you always know
+  # which file it opens.
+  pages_config:
+    home:
+      hold: admin                                     # hold the Home title → admin.yaml
+
+  pills:
+    - alarm
+    - climate
+    - { pill: energy, hold: energy-history }          # hold the Energy pill → energy-history.yaml
+    - lights
+    - locks
+    - openings
+    - safety
+    - batteries
+    - media
+    - { entity: sensor.pond_water_temperature, name: Pond, icon: mdi:fish, hold: pond }   # → pond.yaml
+
+  customize:
+    media_player.living_room_tv: { hold: media }      # hold the TV tile → media.yaml (the entity your TV tile
+                                                      # shows: a switch.… for a TV on a smart plug / IR)
+
+  # every .yaml file in custom_pages/ (next to this file), in file-name order
+  custom_pages: !include_dir_list custom_pages

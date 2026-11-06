@@ -1,0 +1,54 @@
+# sample.yaml — a HomeView page of your own, with every option explained.
+#
+# Copy it to /config/homeview/custom_pages/<path>.yaml, rename it, and change the vars: block.
+# Keep the file name, path: and the hold: / tap: that opens it the same word (here: sample),
+# so it's always clear which file a hold opens. Then, in HomeView: pencil → Reload pages.
+# The full guide: custom_pages/README.md in the HomeView repo.
+
+path: sample                      # the page's address: /<dashboard>/sample — also what hold: / tap: names
+title: Sample                     # the big title at the top of the page
+icon: mdi:view-grid-outline       # the icon in the page bar
+color: teal                       # page colour: a name (orange, green, blue, teal, purple …) or a hue 0–360
+subview: true                     # true = not in the page bar or the swipe order: opened by a hold
+                                  #        (or tap) that names it, with a back arrow; false = a page in the bar
+admin_only: false                 # true = only Home Assistant admins get this page
+pills: false                      # true = the status pills (alarm, energy, lights …) at the top, as on Home
+# hold: another-page              # hold this page's title to open another page
+
+# vars: the entities this page uses. Change these, nothing else. "$name" anywhere below is
+# replaced by its value; a list stays a list (and is spread out inside a tiles list).
+vars:
+  main_light: light.living_room
+  speaker: media_player.living_room_speaker
+  thermostat: climate.thermostat
+  outdoor_temp: sensor.outdoor_temperature
+  doors: [binary_sensor.front_door, binary_sensor.back_door]
+
+sections:
+  - title: Entities               # a heading; leave it out for a section without one
+    tiles:
+      - $main_light                                     # an entity: tap = toggle / details, hold = details
+      - { entity: $speaker, name: Speaker, size: 2x1 }  # name, icon, size (columns x rows) …
+      - { entity: $thermostat, hold: none }             # hold: none = do nothing on hold
+      - $doors                                          # a list var: one tile per door
+      - { entity: $outdoor_temp, tap: more-info, hold: sample }   # tap / hold: more-info, toggle, none or a page
+
+  - title: HomeView tiles
+    color: blue                   # a section can have its own colour
+    tiles:
+      - { type: clock }
+      - { type: weather, size: 2x2 }                    # your weather entity is found by itself
+      - { type: next_event, size: 2x1 }
+      - { type: room, area: living_room }               # a room tile: tap = its light, hold = the room page
+      - { type: chart, entity: $outdoor_temp, size: 2x1 }               # a small 24-hour graph
+
+  - title: Any Lovelace card
+    tiles:
+      # card: any card Home Assistant (or HACS) has; size: full = the width of the page
+      - card:
+          type: history-graph
+          hours_to_show: 24
+          entities: [$outdoor_temp]
+        size: full x 2
+      - card: { type: markdown, content: "Hello from **sample.yaml** — edit me." }
+        size: 2x1

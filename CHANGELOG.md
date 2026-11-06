@@ -1,5 +1,52 @@
 # Changelog
 
+## Unreleased
+
+- **Page files, ready to share:** a new [`custom_pages/`](custom_pages/README.md) folder in the
+  repo has a fully explained `sample.yaml`, four ready-made pages and a `dashboard.yaml` that
+  loads them. The pages are *Media*, *Energy History*, *Pond* and *Admin*. Keep yours in
+  `/config/homeview/custom_pages/`, one file per page, with
+  `custom_pages: !include_dir_list custom_pages` in a YAML dashboard. The guide covers the setup.
+- **`vars:` in a custom page:** the entities a page uses go in a block at the top, and `$name`
+  anywhere below is replaced by them. A shared page then works after you change only that block.
+  Admins see a note naming any entity a custom page uses that Home Assistant doesn't have.
+- **Reload pages:** in edit mode on a YAML dashboard, this button makes Home Assistant read the
+  dashboard's files again. Its own ⋮ → Refresh is hidden in full screen. A new or edited page file
+  shows up on every screen, with no restart.
+- **Hold to open a page:** `hold:` (or `tap:`) can name a page. It works on a tile, on every tile
+  of an entity (`customize.<entity>.hold`), on a pill and on a page's title
+  (`pages_config.<page>.hold`). Examples: hold the TV tile → Media, hold the Home title → Admin.
+- **Pages off the page bar:** a custom page with `subview: true` is opened only by such a hold,
+  and has a back arrow. `admin_only: true` limits a page to admins.
+- **Energy pill:** a new status pill shows your home's live power, and what goes to the grid when
+  you export. Tap it for the Energy page. It's on by default when HomeView finds power sensors.
+- **Pills of your own:** `pills:` items can be `{ entity, name, icon, alert: [states], hold }`,
+  such as a pond's water temperature that opens the Pond page. Built-in pills take a `hold:`
+  through `{ pill: energy, hold: energy-history }`.
+- **One colour code everywhere**, as on a hand-made HomeView. Green means secured or fine
+  (locked, closed, water on, all clear). Amber means needs a look: offline, arming, moving, getting
+  low, heating. Filled red means act now (unlocked, open, leak, water off, triggered), and a red
+  icon means the alarm is armed. Orange means on or in use, and blue means climate.
+  - Control chips, status pills, entity tiles and their sheets now all follow it. Before, a locked
+    door and a closed garage were grey, an offline lock or sensor looked fine, and an armed alarm
+    was orange.
+  - Pills show **"N offline"** in amber for locks, doors & windows and leak sensors that aren't
+    reporting.
+  - Chips take `color: security | light | climate` for a switch while it's on.
+  - README → *Colours*.
+- **Comfort in five grades**, the same words and colours on every room tile, room page and
+  person page:
+  - Temperature: *Too cold · Cold · Comfy · Warm · Hot*. *Hot* is new, above 83 °F / 28 °C.
+  - Humidity: *Too dry · Dry · Comfy · Humid · Too humid*, below 30 / 40 % and above 55 / 65 %.
+    Before, it was only Dry below 30 % and Humid above 55 %. A room says *Comfy* only when its
+    temperature and humidity both are. Otherwise it shows only what's off: "Warm", "Dry",
+    "Warm · Dry".
+  - The new `comfort_limits` option sets the outer grades. `comfort` and `comfort_margin` also
+    accept entities, so a home that keeps these as `input_number` helpers can point HomeView at
+    them.
+- **`size: full` / `half`** (with an optional height, `full x 3`) for tiles and cards on your own
+  pages: the page's width, or half of it.
+
 ## 0.8.7 — 2026-11-05
 
 - **Menu mode without the duplicate header:** leaving full screen now shows Home Assistant's
