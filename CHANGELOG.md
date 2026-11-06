@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.8.6 — 2026-11-05
+
+- **Fixed "Page isn't responding"** (seen on the Energy page, after a minute or two). Every time
+  a tile drew, it registered one more "refresh me" callback with the data it waits for; when that
+  data arrived, each callback redrew the tile, which registered more callbacks on the other data,
+  so redraws multiplied until the browser froze. Each tile and page now hands over one callback,
+  the same every time, and a tile redraws at most once per frame however often it's asked.
+  Tested: the Energy page ran 7 minutes without a freeze (0.8.5 froze after about 99 s).
+- Full screen re-applies itself quietly when Home Assistant rebuilds its sidebar (no resize
+  event, at most 5 times a second).
+- **Screensaver on a portrait screen:** the clock was drawn for landscape and cropped at the
+  sides on a portrait iPad (the 9 and 3 cut off, the weekday missing). It now fits either way up.
+
 ## 0.8.5 — 2026-11-05
 
 - **Menu and update icons in front of the page title** (top right on Widgets, which has no

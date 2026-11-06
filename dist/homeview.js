@@ -11,7 +11,7 @@
  * Home, Widgets, Family, Rooms (plus one page per room), Energy and Cameras. Everything is
  * optional and can be tuned in the strategy config — see README.md.
  */
-const HV_VERSION = '0.8.5';
+const HV_VERSION = '0.8.6';
 // where this file was loaded from (to re-download it after an update)
 const HV_URL = (() => { try { return import.meta.url; } catch (e) { return null; } })();
 
@@ -248,7 +248,17 @@ const kioskWatched = new WeakSet();
 function watchKiosk(sr) {
   if (!sr || kioskWatched.has(sr)) return;
   kioskWatched.add(sr);
-  new MutationObserver(() => { if (kioskOn && !sr.querySelector(`#${KIOSK_ID}`)) applyKiosk(true); }).observe(sr, { childList: true });
+  // quiet (no resize event): a resize makes HA lay its drawer out again, which could drop the style
+  // again and the two would chase each other without the page ever getting a free moment ("Page
+  // isn't responding"); and at most 5 re-applies a second, as a safety net
+  let n = 0, since = 0;
+  new MutationObserver(() => {
+    if (!kioskOn || sr.querySelector(`#${KIOSK_ID}`)) return;
+    const t = Date.now();
+    if (t - since > 1000) { since = t; n = 0; }
+    if (++n > 5) { setTimeout(() => { if (kioskOn) applyKiosk(true, true); }, 1000); return; }
+    applyKiosk(true, true);
+  }).observe(sr, { childList: true });
 }
 let kioskResizeBound = false;
 function bindKioskResize() {
@@ -308,18 +318,20 @@ const hvScreensaver = (() => {
   const clockSvg = () => {
     const d = new Date();
     const sec = d.getHours() % 12 * 3600 + d.getMinutes() * 60 + d.getSeconds() + d.getMilliseconds() / 1000;
+    // fills the screen either way up: landscape grows the drawing wider, portrait taller (the
+    // clock itself stays 100 × 100 in the middle — nothing is cropped off the sides)
     const ar = (window.innerWidth || 1180) / (window.innerHeight || 820);
-    const W = Math.max(100, 100 * ar), cx = W / 2, cy = 50;
+    const W = Math.max(100, 100 * ar), H = Math.max(100, 100 / ar), cx = W / 2, cy = H / 2;
     const num = (t, x, y) => `<text x="${x}" y="${y}" text-anchor="middle" dominant-baseline="central" fill="#0B0B0C" font-size="56" font-weight="300" letter-spacing="-3">${t}</text>`;
     const spin = (period) => `transform-origin:${cx}px ${cy}px;animation:hvss ${period}s linear infinite;animation-delay:-${(sec % period).toFixed(2)}s`;
     const hand = (len, w, period) => `<g style="${spin(period)}"><line x1="${cx}" y1="${cy}" x2="${cx}" y2="${cy - 6}" stroke="#FFF" stroke-width="1.3" stroke-linecap="round"/><line x1="${cx}" y1="${cy - 6}" x2="${cx}" y2="${cy - len}" stroke="#FFF" stroke-width="${w}" stroke-linecap="round"/></g>`;
     const wd = d.toLocaleDateString(hvHass?.locale?.language, { weekday: 'short' }).toUpperCase();
     const dx = Math.min(36, 30 + (W - 100) * 0.15);
-    return `<svg viewBox="0 0 ${W.toFixed(2)} 100" preserveAspectRatio="xMidYMid slice" style="width:100%;height:100%;display:block;font-family:${FONT}">
+    return `<svg viewBox="0 0 ${W.toFixed(2)} ${H.toFixed(2)}" preserveAspectRatio="xMidYMid slice" style="width:100%;height:100%;display:block;font-family:${FONT}">
       <style>@keyframes hvss{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}</style>
-      <rect x="0" y="0" width="${W}" height="100" fill="${color}"/>
-      ${num('12', cx, 25)}${num('9', cx - dx, 51)}${num('3', cx + dx, 51)}${num('6', cx + 2, 77)}
-      <text x="5" y="94" fill="#0B0B0C" font-size="4.6" font-weight="700" letter-spacing="0.2">${esc(wd)} ${d.getDate()}</text>
+      <rect x="0" y="0" width="${W}" height="${H}" fill="${color}"/>
+      ${num('12', cx, cy - 25)}${num('9', cx - dx, cy + 1)}${num('3', cx + dx, cy + 1)}${num('6', cx + 2, cy + 27)}
+      <text x="5" y="${(H - 6).toFixed(2)}" fill="#0B0B0C" font-size="4.6" font-weight="700" letter-spacing="0.2">${esc(wd)} ${d.getDate()}</text>
       <g style="filter:drop-shadow(0 0.4px 0.8px rgba(0,0,0,0.35))">${hand(25, 3.2, 43200)}${hand(39, 3.2, 3600)}</g>
       <g style="${spin(60)}"><line x1="${cx}" y1="${cy + 8}" x2="${cx}" y2="3" stroke="#FFF" stroke-width="0.45" stroke-linecap="round"/></g>
       <circle cx="${cx}" cy="${cy}" r="2.1" fill="#FFF"/><circle cx="${cx}" cy="${cy}" r="0.9" fill="${color}"/></svg>`;
@@ -1183,7 +1195,7 @@ R.weather = {
   html(h, s, tile) {
     const st = h.states[s.entity];
     if (!st) return `<div class="t na"><div class="sb">No weather entity</div></div>`;
-    const fc = getForecast(h, s.entity, () => tile.refresh()) || [];
+    const fc = getForecast(h, s.entity, tile.refresher) || [];
     const today = fc[0] || {};
     const [cond, icon] = WEATHER[st.state] || [st.state, 'mdi:weather-partly-cloudy'];
     const now = new Date();
@@ -1220,7 +1232,7 @@ R.forecast = {
   key: (h, s) => `${h.states[s.entity]?.last_updated}|${tileCacheTag(`fc:${s.entity}`)}`,
   html(h, s, tile) {
     const st = h.states[s.entity];
-    const fc = (getForecast(h, s.entity, () => tile.refresh()) || []).slice(0, s.days || 5);
+    const fc = (getForecast(h, s.entity, tile.refresher) || []).slice(0, s.days || 5);
     const [cond, icon] = WEATHER[st?.state] || ['', 'mdi:weather-partly-cloudy'];
     const loc = h.config.location_name || '';
     const rows = fc.map((f) => {
@@ -1297,7 +1309,7 @@ R.next_event = {
   tick: 60e3,
   key: (h, s) => `${tileCacheTag(`cal:${s.calendars.join(',')}:14`)}|${new Date().getHours()}`,
   html(h, s, tile) {
-    const evs = getEvents(h, s.calendars, 14, () => tile.refresh());
+    const evs = getEvents(h, s.calendars, 14, tile.refresher);
     const e = (evs || [])[0];
     const calName = e ? (h.states[e.calendar]?.attributes?.friendly_name || '') : '';
     if (!e) {
@@ -1314,7 +1326,7 @@ R.agenda = {
   tick: 60e3,
   key: (h, s) => `${tileCacheTag(`cal:${s.calendars.join(',')}:${s.days || 7}`)}|${new Date().getHours()}`,
   html(h, s, tile) {
-    const evs = getEvents(h, s.calendars, s.days || 7, () => tile.refresh());
+    const evs = getEvents(h, s.calendars, s.days || 7, tile.refresher);
     const max = s.max || 8;
     let rows = '', lastDay = '';
     for (const e of (evs || []).slice(0, max)) {
@@ -1474,7 +1486,7 @@ R.energy_backup = {
     if (kwh !== null && /^Wh$/i.test(st.attributes.unit_of_measurement || '')) kwh /= 1000;
     if (kwh === null && s.capacity && P.soc !== null) kwh = (s.capacity * P.soc) / 100;
     const scale = /^kW$/i.test(h.states[s.power.home]?.attributes?.unit_of_measurement || '') ? 1000 : 1;
-    const mean = s.power.home ? getMean24(h, s.power.home, () => tile.refresh()) : null;
+    const mean = s.power.home ? getMean24(h, s.power.home, tile.refresher) : null;
     const avgW = mean != null ? mean * scale : null;
     const nowW = P.home;
     const byAvg = kwh !== null && avgW > 50 ? kwh / (avgW / 1000) : null;
@@ -1504,7 +1516,7 @@ R.energy_window = {
   key: (h, s) => tileCacheTag(`hr:${s.ids.join(',')}:${new Date().toDateString()}`) + `:${Math.floor(Date.now() / 60e3)}`,
   html(h, s, tile) {
     const w = s.window, now = new Date();
-    const data = getHourlyToday(h, s.ids, () => tile.refresh());
+    const data = getHourlyToday(h, s.ids, tile.refresher);
     // spans: [{ start, end, days? }] — each span may have its own days (weekday vs weekend hours)
     const allSpans = asList(w.hours || [{ start: w.start, end: w.end }])
       .map((x) => ({ a: hourOf(x.start), b: hourOf(x.end) || 24, days: windowDays(x.days ?? w.days) }));
@@ -1564,7 +1576,7 @@ R.energy_load = {
   tick: 60e3,
   key: (h, s) => [s.power, s.current, s.sw].map((id) => h.states[id]?.state).join('|') + statTag(h, s.stat) + isTicked(h, s.sw),
   html(h, s, tile) {
-    const kwh = getStatToday(h, s.stat, () => tile.refresh(), s.power ? { power: s.power } : null);
+    const kwh = getStatToday(h, s.stat, tile.refresher, s.power ? { power: s.power } : null);
     const w = s.power ? num(h.states[s.power]?.state) : null, a = s.current ? num(h.states[s.current]?.state) : null;
     const sw = s.sw ? h.states[s.sw] : null, on = sw ? sw.state === 'on' : w !== null && w > 1;
     const ticked = isTicked(h, s.sw);
@@ -1617,7 +1629,7 @@ R.energy_stat = {
   tick: 60e3,
   key: (h, s) => s.stats.map((x) => statTag(h, x.id)).join('|'),
   html(h, s, tile) {
-    const vals = s.stats.map((x) => ({ ...x, v: getStatToday(h, x.id, () => tile.refresh(), x.live) }));
+    const vals = s.stats.map((x) => ({ ...x, v: getStatToday(h, x.id, tile.refresher, x.live) }));
     const loading = vals.some((x) => x.v === undefined);
     let value;
     let sub = s.sub || 'Today';
@@ -1636,7 +1648,7 @@ R.energy_today = {
   key: (h, s) => s.items.flatMap((it) => it.stats.map((x) => statTag(h, x.id))).join('|'),
   html(h, s, tile) {
     const cells = s.items.map((it) => {
-      const vals = it.stats.map((x) => ({ ...x, v: getStatToday(h, x.id, () => tile.refresh(), x.live) }));
+      const vals = it.stats.map((x) => ({ ...x, v: getStatToday(h, x.id, tile.refresher, x.live) }));
       const loading = vals.some((x) => x.v === undefined);
       const value = it.compute ? it.compute(Object.fromEntries(vals.map((x) => [x.role, x.v]))) : vals.reduce((a, x) => a + (x.v || 0) * (x.sign || 1), 0);
       const txt = loading ? '…' : value === null || Number.isNaN(value) ? '—' : it.unit === '%' ? `${fmt(value, 0)}%` : `${fmt(value, value >= 100 ? 0 : 1)} kWh`;
@@ -1651,7 +1663,7 @@ R.energy_device = {
   tick: 60e3,
   key: (h, s) => `${statTag(h, s.stat)}|${h.states[s.power]?.state}`,
   html(h, s, tile) {
-    const kwh = getStatToday(h, s.stat, () => tile.refresh(), s.power ? { power: s.power } : null);
+    const kwh = getStatToday(h, s.stat, tile.refresher, s.power ? { power: s.power } : null);
     const w = s.power ? num(h.states[s.power]?.state) : null;
     const u = s.power ? h.states[s.power]?.attributes?.unit_of_measurement || 'W' : '';
     const on = w !== null && w > 1;
@@ -1723,7 +1735,7 @@ R.chart = {
   key: (h, s) => `${h.states[s.entity]?.state}|${tileCacheTag(`hist:${s.entity}:24`)}`,
   html(h, s, tile) {
     const st = h.states[s.entity];
-    const pts = getHistory(h, s.entity, 24, () => tile.refresh()) || [];
+    const pts = getHistory(h, s.entity, 24, tile.refresher) || [];
     const unit = st?.attributes?.unit_of_measurement || '';
     const cur = num(st?.state);
     const now = Date.now(), t0 = now - 24 * 3600e3;
@@ -2019,7 +2031,19 @@ class HomeViewTile extends HTMLElement {
   /** Edit mode: { actions: ['fav', 'size', ...], onEdit(action, spec) } or null */
   set edit(e) { this._edit = e; this._key = null; this._render(); }
 
-  refresh() { this._key = null; this._render(); }
+  /** Redraw with fresh data: requests in the same frame make one redraw (a fetch finishing can
+   *  call this many times at once). */
+  refresh() {
+    this._key = null;
+    if (this._rq) return;
+    this._rq = true;
+    const run = () => { this._rq = false; this._render(); };
+    if (document.visibilityState === 'hidden') setTimeout(run, 0); else requestAnimationFrame(run);
+  }
+  /** The one callback a tile hands to cached(): the same function every time, so a cache entry
+   *  keeps one per tile however often the tile draws (a new closure per draw piled up and made
+   *  each finished fetch redraw tiles exponentially — "Page isn't responding", 0.8.5). */
+  get refresher() { return this._refresher || (this._refresher = () => this.refresh()); }
 
   connectedCallback() {
     const r = R[this._spec?.kind];
@@ -2378,7 +2402,7 @@ const PAGES = {
     if (wc.camera) {
       board.push({ kind: 'camera', entity: wc.camera, area: 'cam' });
     } else if (wc.slideshow !== false) {
-      const found = wc.slideshow ? null : findPhotoFolder(h, () => page.scheduleRebuild());
+      const found = wc.slideshow ? null : findPhotoFolder(h, page.rebuilder);
       // still looking (undefined): wait; nothing found (null): the sample photos
       const folder = wc.slideshow || (found === undefined ? null : found || 'samples');
       if (folder) board.push({ kind: 'slideshow', folder, interval: wc.slideshow_interval || 60, thumbnail: wc.slideshow_thumbnail, area: 'cam' });
@@ -2527,7 +2551,7 @@ const PAGES = {
   },
 
   energy(h, m, cfg, opts, page) {
-    const prefs = getEnergyPrefs(h, () => page.rebuild());
+    const prefs = getEnergyPrefs(h, page.rebuilder);
     const ec = cfg.energy || {};
     if (prefs === undefined) return { title: 'Energy', sections: [{ tiles: [] }], note: 'Loading energy settings…' };
     const src = prefs?.energy_sources || [];
@@ -2677,7 +2701,7 @@ const PAGES = {
     // power outage: every device from the Energy settings with its switch, W · A, kWh today
     const devices = asList(prefs?.device_consumption);
     if (devices.length) {
-      if (outageLabel === null) cached('outage:label', 10 * 60e3, () => outageLabelId(h, false).then((id) => { outageLabel = id || ''; return id; }), () => page.scheduleRebuild());
+      if (outageLabel === null) cached('outage:label', 10 * 60e3, () => outageLabelId(h, false).then((id) => { outageLabel = id || ''; return id; }), page.rebuilder);
       const loads = devices.map((d) => {
         const statId = d.stat_consumption;
         const dev = devOf(statId) && h.devices?.[devOf(statId)];
@@ -3184,6 +3208,8 @@ class HomeViewPage extends HTMLElement {
     clearTimeout(this._rb);
     this._rb = setTimeout(() => this.rebuild(), 400);
   }
+  /** Stable callbacks for cached() (one per page, however often the page builds). */
+  get rebuilder() { return this._rebuilder || (this._rebuilder = () => this.scheduleRebuild()); }
 
   _tile(spec, dark) {
     // customize: per-entity name / icon / size / tap from the config
