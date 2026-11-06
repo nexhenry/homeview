@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- **Widgets fills the screen, edge to edge**, in a hand-made HomeView's proportions: the date
+  top-left (a big numeral, sunrise / sunset), the clock filling its area, the photo, Up next and the
+  weather (a large temperature) sized to their space. The sizes scale with the screen. On a portrait
+  tablet the board is two columns: date and clock, the photo across, then Up next and the weather.
+- **Home: the clock and the next event come before Scenes**, in the row with the Lights tiles
+  (which they fill on tablets). Before, they were at the bottom of the page.
+- **Home: the pills stay right of the weather tile.** On tablets and in a browser they use only
+  the width above the tiles beside the weather (air quality, doors), in more lines if needed,
+  instead of reaching over the weather tile.
+
 ## 0.8.9 — 2026-11-05
 
 - **No pencil button:** double-tap a page's title to start edit mode (admins), for a cleaner

@@ -977,6 +977,9 @@ const TILE_CSS = `
 .sb.x { font-weight:600; color:var(--hv-accent); }
 .t.on .sb { color:var(--hv-on-fg2); }
 .up { font-size:clamp(9px, 5.4cqi, 13px); letter-spacing:.06em; text-transform:uppercase; font-weight:650; color:var(--hv-fg2); }
+/* the Widgets board's Up next: natural height (centred in its area), the board's text size */
+.ag-list.ag-bare { flex:none !important; overflow:visible; }
+.ag-list.ag-bare .sb, .ag-list.ag-bare .up { font-size:inherit; }
 .edit { position:absolute; inset:0; border-radius:var(--hv-radius, 22px); outline:2px dashed var(--hv-accent); outline-offset:-2px;
   display:flex; flex-wrap:wrap; align-content:flex-start; justify-content:flex-end; gap:5px; padding:7px; pointer-events:none; z-index:2;
   animation:hv-wiggle .35s ease-in-out infinite alternate; }
@@ -1331,6 +1334,13 @@ R.forecast = {
         <span class="ic" style="--mdc-icon-size:1.3em"><i data-i="${(WEATHER[f.condition] || [])[1] || 'mdi:weather-partly-cloudy'}"></i></span>
         <span style="margin-left:auto;color:var(--hv-fg2)">${fmt(f.templow, 0)}°</span><span style="width:2.4em;text-align:right;font-weight:600">${fmt(f.temperature, 0)}°</span></div>`;
     }).join('');
+    if (s.bare) {   // the Widgets board: a hand-made HomeView's proportions
+      return `<div class="t" style="align-items:flex-start;justify-content:center;text-align:left;padding:0 5.7cqi;gap:1.8cqh;cursor:default">
+        <div style="font-weight:600;font-size:min(8.9cqh,5.2cqi)">${esc(loc)}</div>
+        <div style="font-size:min(46cqh,27cqi);font-weight:500;letter-spacing:-.04em;line-height:.95">${fmt(st?.attributes?.temperature, 0)}°</div>
+        <div style="display:flex;align-items:center;gap:.4em;font-weight:600;font-size:min(8.9cqh,5.2cqi)"><span class="ic" style="display:inline-flex;--mdc-icon-size:1.3em"><i data-i="${icon}"></i></span>${esc(cond)}</div>
+        ${fc[0] ? `<div style="font-weight:500;font-size:min(8cqh,4.7cqi)">H:${fmt(Math.max(fc[0].temperature ?? -99, st?.attributes?.temperature ?? -99), 0)}°&nbsp;&nbsp;L:${fmt(Math.min(fc[0].templow ?? 99, st?.attributes?.temperature ?? 99), 0)}°</div>` : ''}</div>`;
+    }
     return `<div class="t" style="align-items:stretch;justify-content:flex-start;text-align:left;padding:7%;cursor:default">
       <div class="up">${esc(loc)}</div>
       <div style="display:flex;align-items:center;gap:10px"><span style="font-size:min(24cqh,72px);font-weight:300;letter-spacing:-.04em">${fmt(st?.attributes?.temperature, 0)}°</span>
@@ -1346,7 +1356,7 @@ R.forecast = {
 R.clock = {
   tick: 1000,
   key: () => String(Math.floor(Date.now() / 1000)),
-  html() {
+  html(h, s) {
     const n = new Date();
     const sec = n.getSeconds(), min = n.getMinutes() + sec / 60, hr = (n.getHours() % 12) + min / 60;
     let ticks = '';
@@ -1360,7 +1370,7 @@ R.clock = {
       nums += `<text x="${50 + 31 * Math.cos(a)}" y="${50 + 31 * Math.sin(a) + 3.6}" text-anchor="middle" font-size="10" style="fill:var(--hv-clock-num, var(--hv-accent))">${i}</text>`;
     }
     const hand = (deg, len, w, color) => `<line x1="50" y1="50" x2="50" y2="${50 - len}" stroke="${color}" stroke-width="${w}" stroke-linecap="round" transform="rotate(${deg} 50 50)"/>`;
-    return `<div class="t white" style="padding:6%;cursor:default"><svg viewBox="0 0 100 100" style="width:100%;height:100%;color:var(--hv-fg)" font-family="${FONT}">
+    return `<div class="t white" style="padding:${s.bare ? '0' : '6%'};cursor:default"><svg viewBox="${s.bare ? '3 3 94 94' : '0 0 100 100'}" style="width:100%;height:100%;color:var(--hv-fg)" font-family="${FONT}">
       ${ticks}${nums}${hand(hr * 30, 24, 2.6, 'currentColor')}${hand(min * 6, 36, 1.8, 'currentColor')}${hand(sec * 6, 40, 0.8, 'var(--hv-accent)')}
       <circle cx="50" cy="50" r="2" fill="var(--hv-card)" stroke="var(--hv-accent)" stroke-width="1"/></svg></div>`;
   },
@@ -1370,9 +1380,18 @@ R.clock = {
 R.date = {
   tick: 60e3,
   key: (h) => `${new Date().toDateString()}|${h.states['sun.sun']?.last_updated}`,
-  html(h) {
+  html(h, s = {}) {
     const n = new Date(), lang = h.locale?.language;
     const sun = h.states['sun.sun'];
+    if (s.bare) {   // the Widgets board: a hand-made HomeView's proportions, top-aligned
+      const t2 = (iso) => (iso ? timeFmt(new Date(iso), h).replace(/\s?[AP]M$/i, '') : '');
+      const item = (iso, ic) => `<span style="display:inline-flex;align-items:center;gap:.25em;white-space:nowrap"><span class="ic" style="display:inline-flex;--mdc-icon-size:1.2em"><i data-i="${ic}"></i></span>${esc(t2(iso))}</span>`;
+      return `<div class="t" style="cursor:default;background:transparent;border:none;box-shadow:none;justify-content:flex-start;padding:4.7cqh 6.8cqi">
+        <div style="font-weight:700;font-size:min(11.5cqh,14cqi);letter-spacing:-.01em;line-height:1.05;white-space:nowrap"><span style="color:var(--hv-accent)">${esc(n.toLocaleDateString(lang, { weekday: 'short' }))}</span>
+        <span style="color:var(--hv-fg2)">${esc(n.toLocaleDateString(lang, { month: 'short' }))}</span></div>
+        <div style="font-weight:700;font-size:min(47cqh,57cqi);line-height:.92;letter-spacing:-.045em;margin-top:3.8cqh">${n.getDate()}</div>
+        ${sun ? `<div style="display:flex;gap:.6em;justify-content:center;font-weight:600;font-size:min(4.7cqh,5.7cqi);margin-top:3cqh;color:var(--hv-fg2)">${item(sun.attributes.next_rising, 'mdi:weather-sunset-up')}${item(sun.attributes.next_setting, 'mdi:weather-sunset-down')}</div>` : ''}</div>`;
+    }
     const t = (iso) => (iso ? timeFmt(new Date(iso), h) : '');
     const sunRow = sun ? `<div class="sb" style="display:flex;gap:14px;justify-content:center;font-weight:600;margin-top:6%">
       <span><span class="ic" style="display:inline-flex;--mdc-icon-size:1.2em;vertical-align:-3px"><i data-i="mdi:weather-sunset-up"></i></span> ${esc(t(sun.attributes.next_rising))}</span>
@@ -1427,9 +1446,10 @@ R.agenda = {
         <span style="color:var(--hv-fg2);flex:none">${esc(w.time)}</span></div>`;
     }
     if (!rows) rows = `<div class="sb" style="margin-top:8px">${evs === undefined ? 'Loading…' : 'Nothing planned'}</div>`;
-    return `<div class="t" style="align-items:stretch;justify-content:flex-start;text-align:left;padding:6% 7%;cursor:default;font-size:clamp(12px,4cqi,16px)">
-      <div style="display:flex;align-items:center;gap:8px" class="up"><span class="ic" style="--mdc-icon-size:1.4em"><i data-i="mdi:calendar-month-outline"></i></span>${esc(s.title || 'Up next')}</div>
-      <div class="ag-list">${rows}</div></div>`;
+    // the Widgets board: centred in its area, a hand-made HomeView's 16–17 px on a tablet
+    return `<div class="t" style="align-items:stretch;justify-content:${s.bare ? 'center' : 'flex-start'};text-align:left;padding:${s.bare ? '0 5.7cqi' : '6% 7%'};cursor:default;font-size:${s.bare ? 'clamp(13px,4.4cqi,17px)' : 'clamp(12px,4cqi,16px)'}">
+      <div style="display:flex;align-items:center;gap:8px${s.bare ? ';font-size:.94em;letter-spacing:.04em;font-weight:700' : ''}" class="up"><span class="ic" style="--mdc-icon-size:1.4em"><i data-i="mdi:calendar-month-outline"></i></span>${esc(s.title || 'Up next')}</div>
+      <div class="ag-list${s.bare ? ' ag-bare' : ''}">${rows}</div></div>`;
   },
 };
 
@@ -2676,7 +2696,7 @@ const PAGES = {
   home(h, m, cfg) {
     const pc = cfg.home || {};
     const tiles = [];
-    const later = [];   // clock and next event go last (bottom row), as on a hand-made HomeView
+    const later = [];   // clock and next event: after the other tiles, before the scenes
     if (m.weather) tiles.push({ kind: 'weather', entity: m.weather, size: [2, 2] });
     const air = pc.air !== false ? findAir(h, m) : null;
     if (air) tiles.push({ kind: 'air', ...air, size: [2, 1] });
@@ -2707,12 +2727,13 @@ const PAGES = {
       const lights = nonGroupLights(h, r.groups.lights);
       if (lights.length) tiles.push({ kind: 'room_lights', lights, roomName: r.name, roomId: r.id, size: [1, 1], hue: undefined });
     }
+    // the clock and the next event: right after the lights (they fill that row on tablets), before
+    // the scenes
+    tiles.push(...later);
     const sections = [{ tiles }];
     if (pc.rooms === true && m.rooms.length) sections.push({ title: 'Rooms', link: 'rooms', tiles: m.rooms.map((r) => roomTile(r)) });
     const scenes = (m.byDomain.scene || []).slice(0, pc.max_scenes ?? 8);
     if (pc.scenes !== false && scenes.length) sections.push({ title: 'Scenes', layout: 'rows', tiles: scenes.map((id) => rowTile(id, { sub: 'Scene' })) });
-    // the clock and the next event: below the scenes
-    if (later.length) sections.push({ tiles: later });
     const chips = pc.chips === false ? [] : pc.chips ? asList(pc.chips).map((c) => (typeof c === 'string' ? { entity: c } : c)).filter((c) => c?.entity)
       : chipsAuto(h, m);
     return { title: cfg.title || h.config.location_name || 'Home', pills: true, people: true, chips, sections };
@@ -2990,6 +3011,8 @@ const PAGE_CSS = `
   .head { flex-wrap:nowrap; }
   .head > div:first-child { flex:0 1 auto; }
   .head > .pills { flex:1 1 0; min-width:220px; align-content:flex-start; align-self:flex-start; padding-top:4px; }
+  /* Home: the pills stay above the tiles right of the weather tile (2 columns wide), never over it */
+  .head.home > .pills { max-width:calc(100% - 2 * ((100% - (var(--hv-cols) - 1) * var(--hv-gap)) / var(--hv-cols)) - 2 * var(--hv-gap)); }
 }
 .head > .xclose { flex:none; margin-left:auto; align-self:flex-start; width:40px; height:40px; --mdc-icon-size:22px; }
 .head > .xclose ha-icon { display:flex; }
@@ -3041,16 +3064,26 @@ const PAGE_CSS = `
   grid-template-areas:"date clock clock" "date clock clock" "cam next weather"; box-sizing:border-box; overflow:hidden;
   height:var(--hv-board-h, calc(100vh - 140px)); min-height:420px; }
 .board > homeview-tile { min-height:0; min-width:0; }
-/* Widgets fills the screen: a thin edge instead of the page padding, no empty header above it */
-.page.boardpage { padding:clamp(8px, 1.2vw, 14px); }
+/* Widgets fills the screen edge to edge: no page padding, square corners, no empty header above it
+   (the page bar, when shown, stays above the board) */
+.page.boardpage { padding:0; }
 .page.boardpage .head:empty { display:none; }
-.page.boardpage .board { border-radius:28px; }
+/* Slopeview's widgets board: 28 px padding, 20 px gaps, 44 px corners on a tablet (scaled down on phones) */
+.page.boardpage .board { border-radius:0; padding:clamp(14px, 2.2vw, 28px); gap:clamp(12px, 1.6vw, 20px);
+  height:var(--hv-board-h, 100vh); }
 /* phones: one screen, like a hand-made iPhone HomeView — date | clock, the photo, up next
    (the weather is on Home) */
 .board.narrow { min-height:360px; gap:12px; padding:14px; border-radius:32px;
   grid-template-columns:repeat(2, minmax(0, 1fr)); grid-template-rows:minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, .85fr);
   grid-template-areas:"date clock" "cam cam" "next next"; }
 .board.narrow > homeview-tile.a-weather { display:none; }
+/* portrait tablets (taller than wide, not a phone): two columns — date | clock, the photo across,
+   up next | weather — instead of the landscape board's empty space around the clock */
+@media (orientation:portrait) and (min-width:600px) {
+  .board:not(.narrow) { grid-template-columns:repeat(2, minmax(0, 1fr));
+    grid-template-rows:minmax(0, 1fr) minmax(0, 1.15fr) minmax(0, .8fr);
+    grid-template-areas:"date clock" "cam cam" "next weather"; }
+}
 img.lt { object-fit:cover; background:var(--hv-pill); }
 .lt { width:20px; height:20px; border-radius:50%; background:var(--hv-accent); color:#fff; font-size:11px; font-weight:750;
   display:inline-flex; align-items:center; justify-content:center; }
@@ -3232,7 +3265,7 @@ class HomeViewPage extends HTMLElement {
 
     this._tiles = [];
     const frag = document.createDocumentFragment();
-    const head = document.createElement('div'); head.className = 'head';
+    const head = document.createElement('div'); head.className = 'head' + (this._config.page === 'home' ? ' home' : '');
     frag.appendChild(head);
     this._head = head; this._headKey = null;
     const notes = [];
@@ -3544,8 +3577,9 @@ class HomeViewPage extends HTMLElement {
       // fill the screen below the page bar: measured once laid out (and again after a resize)
       requestAnimationFrame(() => {
         const top = board.getBoundingClientRect().top + (window.scrollY || 0);
-        const below = parseFloat(getComputedStyle(this._root).paddingBottom) || pad;
-        if (top > 0) board.style.setProperty('--hv-board-h', `${Math.max(420, Math.round(window.innerHeight - top - below))}px`);
+        const pb = parseFloat(getComputedStyle(this._root).paddingBottom);
+        const below = Number.isFinite(pb) ? pb : pad;   // 0 on Widgets (edge to edge) is a real value
+        if (top >= 0 && board.isConnected) board.style.setProperty('--hv-board-h', `${Math.max(420, Math.round(window.innerHeight - top - below))}px`);
       });
     }
     for (const t of this._tiles) {
