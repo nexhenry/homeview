@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.8.8 — 2026-11-05
 
 - **Page files, ready to share:** a new [`custom_pages/`](custom_pages/README.md) folder in the
   repo has a fully explained `sample.yaml`, four ready-made pages and a `dashboard.yaml` that
