@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.8.10 — 2026-11-06
 
 - **Edit mode is one state for the whole dashboard.** Start it on one page and every page is in
   edit mode, with the edit bar. Widgets has the bar too. Tap Done anywhere and it ends everywhere.
