@@ -450,6 +450,8 @@ strategy:
     slideshow_interval: 60        # seconds per photo
     slideshow_thumbnail: '{dir}/.@__thumb/s800{name}'     # optional smaller copy to try first (QNAP NAS)
     camera: camera.front_door     # a camera here instead of the photos (the camera is on Home)
+    font: geist                   # the Widgets page in a font of your own (see "Fonts"); the clock
+                                  # keeps the system font
   home:
     favorites: [alarm_control_panel.home, lock.front_door, cover.garage, climate.hallway]
                                   # default: automatic; [] = none
@@ -529,7 +531,27 @@ strategy:
   kiosk: true                     # full screen: hide HA's header and sidebar
   kiosk_chip: true                # the Menu / Full screen chip
   update_notice: true             # an update icon for admins when HACS has a newer HomeView
+  font: geist                     # the whole dashboard in a font of your own (see "Fonts")
 ```
+
+### Fonts
+
+HomeView uses each screen's own system font: SF Pro on an iPad, iPhone or Mac, Roboto on an Android
+tablet. So the same page looks a little different on each. To make every screen look the same, give
+HomeView a font of its own. It's served from your Home Assistant, so nothing is fetched from the
+internet and it works offline.
+
+Two free fonts (SIL Open Font License) are built in:
+
+| Option | Font | Put this file in place |
+|---|---|---|
+| `font: geist` | **Geist**: its numbers are the closest to SF Pro's (the 6, 9 and the round bowls) | `Geist[wght].ttf` from [Google Fonts' repository](https://github.com/google/fonts/tree/main/ofl/geist) → `/config/www/fonts/geist/Geist.ttf` |
+| `font: inter` | **Inter**: very close to SF Pro overall, with rounder, curlier numbers | `web/InterVariable.woff2` from the zip on [rsms.me/inter](https://rsms.me/inter/) → `/config/www/fonts/inter/InterVariable.woff2` |
+
+Then set `font: geist` (the whole dashboard) or `widgets: { font: geist }` (the Widgets page only).
+
+Any other font: `font: { family: My Font, url: /local/fonts/myfont.woff2, weight: 100 900 }`, or just
+`font: Georgia` for a font the screens already have. The clock always keeps the system font.
 
 ### What goes where
 

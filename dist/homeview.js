@@ -66,7 +66,7 @@ const KNOWN_OPTIONS = ['type', 'title', 'theme', 'pages', 'pages_config', 'room_
   'exclude_entities', 'customize', 'people', 'calendars', 'weather', 'cameras', 'home', 'pills', 'battery_low',
   'people_chips', 'energy', 'tile_size', 'max_columns', 'swipe', 'custom_pages', 'edit_button', 'update_notice',
   'kiosk', 'kiosk_chip', 'members', 'living_rooms', 'widgets', 'avatars', 'phone_favorites', 'access',
-  'comfort', 'comfort_thermostat', 'comfort_margin', 'comfort_limits', 'screensaver', 'rows_on_screen', 'ui_edits', 'from', 'edits'];   // energy.* : see the energy page
+  'comfort', 'comfort_thermostat', 'comfort_margin', 'comfort_limits', 'screensaver', 'rows_on_screen', 'ui_edits', 'from', 'edits', 'font'];   // energy.* : see the energy page
 
 // What a room page / room row shows, in this order
 const ROOM_GROUPS = [
@@ -107,6 +107,33 @@ const WEATHER = {
 };
 
 const FONT = "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Helvetica Neue', Helvetica, Roboto, sans-serif";
+/**
+ * font: a font of your own instead of each screen's system font (SF Pro on Apple, Roboto on
+ * Android …), so every screen looks the same. Served from your Home Assistant, nothing from the
+ * internet. `font:` = the whole dashboard; `widgets: { font: … }` = the Widgets page only. The clock
+ * always keeps the system font.
+ *   font: geist                                   /config/www/fonts/geist/Geist.ttf (closest to SF Pro)
+ *   font: inter                                   /config/www/fonts/inter/InterVariable.woff2
+ *   font: { family: Inter, url: /local/fonts/inter/InterVariable.woff2, weight: 100 900 }
+ *   font: Georgia                                 a font the screens already have
+ */
+const FONT_PRESETS = {
+  inter: { family: 'Inter', url: '/local/fonts/inter/InterVariable.woff2', weight: '100 900' },
+  // Geist: the closest free match for SF Pro's digits (the 6's straight, flat-cut top; round bowls)
+  geist: { family: 'Geist', url: '/local/fonts/geist/Geist.ttf', weight: '100 900' },
+};
+const _fontLoads = new Map();
+function fontStack(spec) {
+  if (!spec) return null;
+  const d = typeof spec === 'string' ? (FONT_PRESETS[spec.toLowerCase()] || { family: spec }) : spec;
+  if (!d || !d.family) return null;
+  if (d.url && !_fontLoads.has(d.url) && window.FontFace && document.fonts) {
+    const ff = new FontFace(String(d.family), `url(${d.url})`, { weight: String(d.weight || '100 900'), display: 'swap' });
+    _fontLoads.set(d.url, ff.load().then((f) => { document.fonts.add(f); return true; },
+      (e) => { console.warn(`HomeView: couldn't load the font ${d.url}`, e); return false; }));
+  }
+  return `'${String(d.family).replace(/['"]/g, '')}', ${FONT}`;
+}
 const UNAVAILABLE = ['unavailable', 'unknown'];
 
 /* ============================================================================================
@@ -3772,6 +3799,8 @@ class HomeViewPage extends HTMLElement {
     const dark = isDark(h, cfg);
     this._dark = dark;
     this._root.setAttribute('style', styleVars(palette(hue, dark, pd.sat ?? 1)));
+    const pf = fontStack(cfg.font);   // font: inter — the whole dashboard
+    if (pf) this._root.style.fontFamily = pf;
 
     // the user's own sections (pages_config.<page>.sections, rooms.<area>.sections, custom_pages)
     const custom = this._config.page === 'custom' ? customPages(cfg)[this._config.custom] : null;
@@ -3823,6 +3852,8 @@ class HomeViewPage extends HTMLElement {
         '--hv-fg': dark ? '#EEF2F3' : '#15191B', '--hv-fg2': dark ? `hsl(${bh} 8% 66%)` : `hsl(${bh} 9% 30%)`,
         '--hv-accent': dark ? '#FF9F45' : '#E8640C', '--hv-clock-num': 'var(--hv-fg)', '--hv-line': dark ? 'rgba(255,255,255,.14)' : 'rgba(0,0,0,.14)',
         '--hv-tile': 'transparent', '--hv-pill': dark ? 'rgba(255,255,255,.08)' : 'rgba(255,255,255,.35)' }));
+      const bf = fontStack(cfg.widgets?.font);   // widgets: { font: inter } (the clock keeps the system font)
+      if (bf) b.style.fontFamily = bf;
       for (const spec of page.board) {
         const t = this._tile({ ...spec, size: [1, 1] }, dark);
         t._hvFree = true;

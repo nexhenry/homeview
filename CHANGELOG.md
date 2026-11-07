@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- **A font of your own.** `font: geist` (the whole dashboard) or `widgets: { font: geist }` (the
+  Widgets page only) makes every screen use the same font, not each device's system font (SF Pro
+  on Apple, Roboto on Android). Built in: `geist`, whose numbers are the closest free match for
+  SF Pro's, and `inter`. The fonts are served from your Home Assistant (`/config/www/fonts/…`), so
+  nothing comes from the internet. Any font: `font: { family, url, weight }`. The clock keeps the
+  system font. README → Fonts.
+
 ## 0.8.14 — 2026-11-07
 
 - **Widgets page: the weather is centred.** The location, temperature, condition and high / low
