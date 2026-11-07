@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.8.15 — 2026-11-07
 
 - **A font of your own.** `font: geist` (the whole dashboard) or `widgets: { font: geist }` (the
   Widgets page only) makes every screen use the same font, not each device's system font (SF Pro
