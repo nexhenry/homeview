@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.8.11 — 2026-11-06
 
 - **Edit a YAML dashboard on screen.** A dashboard in YAML mode (e.g. for page files in
   `custom_pages/`) used to answer every edit with "paste this YAML". Now edit mode and Settings save
