@@ -3628,6 +3628,11 @@ img.lt { object-fit:cover; background:var(--hv-pill); }
 @media (min-width:700px) { .pop { align-items:center; } }
 .sheet { width:min(920px, 100%); max-height:86vh; overflow:auto; background:var(--hv-bg); border-radius:26px 26px 0 0; padding:18px var(--hv-pad) 28px; }
 @media (min-width:700px) { .sheet { border-radius:26px; } }
+/* a pill's pop-up (Locks, Lights, Doors & Windows …): at the top on every screen, so a short list
+   sits near the pill that opened it instead of floating mid-screen or at the bottom */
+.pop.top { align-items:flex-start; padding-top:calc(env(safe-area-inset-top, 0px) + 3vh); }
+.pop.top .sheet { border-radius:26px; max-height:calc(94vh - env(safe-area-inset-top, 0px)); }
+@media (max-width:699px) { .pop.top { padding:calc(env(safe-area-inset-top, 0px) + 8px) 8px 0; } }
 .sheet-h { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:14px; font-size:21px; font-weight:750; position:sticky; top:-18px; background:inherit; padding:6px 0; z-index:3; }
 .sheet-b { display:flex; gap:8px; align-items:center; }
 .pop-sec { display:flex; align-items:baseline; gap:8px; margin:16px 2px 8px; font-size:15px; font-weight:700; color:var(--hv-fg); }
@@ -4575,7 +4580,7 @@ class HomeViewPage extends HTMLElement {
    *  under headings, tinted (the batteries: low in red, offline faded …); else one grid of ids. */
   _popup({ title, ids, showRoom, groups }) {
     const h = this._hass;
-    const pop = document.createElement('div'); pop.className = 'pop';
+    const pop = document.createElement('div'); pop.className = 'pop top';   // pill pop-ups: at the top
     const sheet = document.createElement('div'); sheet.className = 'sheet';
     sheet.innerHTML = `<div class="sheet-h">${esc(title)}<button class="back" data-close><ha-icon icon="mdi:close"></ha-icon></button></div>`;
     const TONE = {
