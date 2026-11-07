@@ -3,7 +3,7 @@
 ## 0.8.19 — 2026-11-07
 
 - **Faster swiping.** Measured on a phone-speed CPU: first visits to a page are 13–54% quicker
-  (Cameras 1.0 → 0.47 s, Lucy 1.0 → 0.76 s, Widgets 1.4 → 1.1 s, Living 1.6 → 1.3 s), and
+  (Cameras 1.0 → 0.47 s, a person's page 1.0 → 0.76 s, Widgets 1.4 → 1.1 s, Living 1.6 → 1.3 s), and
   HomeView does about 40% less work while a page sits idle.
   - All pages share one model of the house (entities, rooms, people), built once instead of per
     page. Rebuilding a page takes 28–80 ms instead of 100–170 ms.
