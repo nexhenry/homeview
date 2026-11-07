@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.8.13 — 2026-11-07
 
 - **Control pages.** Custom pages can now be laid out like a hand-made control panel:
   - Sections: `layout: pills` (small pills in a row), `layout: keypad` with `columns:` (an icon
