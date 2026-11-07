@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.8.20 — 2026-11-07
 
 - **Move tiles in edit mode.** Drag a favourite on Home, or a device tile in a room (Living, a
   person's page, a room's page), to a new place. Mouse: drag; touch: hold a moment, then drag, so a
