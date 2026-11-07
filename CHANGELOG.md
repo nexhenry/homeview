@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+- **Edit a room's tiles.** In edit mode, Living, a person's page and a room's page get a dashed
+  **+ Add** tile: search the devices and entities and add one to that room. Every tile gains
+  **Change the icon** (HA's icon picker) and, in a room, **Remove from this room**. Both save the
+  room's `rooms.<area>.entities` list.
+- **A person's page follows the room's list.** It used to show the room's first seven devices, lights
+  first, so a TV whose area came from its device could be left out. With `rooms.<area>.entities`
+  set, the page shows that list.
+- **Sizes in a room's lists.** A size set in edit mode was saved but ignored in a room page's device
+  lists. It now spans the list's columns, and a tile two rows tall shows as a full tile.
+- **List rows: one ⋯ button.** The six edit buttons covered a list row's name. A row now has one
+  ⋯ that opens its actions in a sheet, each with its name.
+- **Rename a page.** In edit mode, ✎ next to the title: a room's page renames the room; any other
+  page sets `pages_config.<page>.title`, the title and its page-bar name. Person and custom pages
+  are keyed by their path (`member-zoe`, `pond`).
+
 ## 0.8.11 — 2026-11-06
 
 - **Edit a YAML dashboard on screen.** A dashboard in YAML mode (e.g. for page files in

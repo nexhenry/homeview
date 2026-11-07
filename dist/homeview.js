@@ -1068,6 +1068,7 @@ const TILE_CSS = `
 .edit button { all:unset; pointer-events:auto; cursor:pointer; width:30px; height:30px; border-radius:50%; background:rgba(20,20,20,.62);
   color:#fff; display:flex; align-items:center; justify-content:center; --mdc-icon-size:17px; backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px); }
 .edit button[data-edit=unfav] { background:#FF9F0A; }
+.edit.rowed { align-content:center; padding:0 12px; }
 .t.bare { background:transparent; border:none; box-shadow:none; }
 .fc-hl { display:none; font-weight:600; font-size:clamp(12px, 9cqh, 18px); }
 @container (max-height: 300px) { .fc-rows { display:none; } .fc-hl { display:block; } }
@@ -1207,6 +1208,11 @@ function fillIcons(root, hass) {
 const R = {};
 
 // ---- any entity --------------------------------------------------------------------------
+R.add = {
+  key: () => 'add',
+  html: () => `<div class="t flex add" data-edit="add" style="border:1.5px dashed var(--hv-line);background:transparent;cursor:pointer">
+    <div class="ic" style="color:var(--hv-accent)"><i data-i="mdi:plus"></i></div><div class="tx"><div class="nm">Add</div><div class="sb">a tile here</div></div></div>`,
+};
 R.entity = {
   key: (h, s) => { const st = h.states[s.entity]; return st ? st.last_updated + st.state + (st.attributes.brightness || '') : 'x'; },
   html(h, s) {
@@ -2204,10 +2210,12 @@ R.link = {
 
 const EDIT_ICONS = {
   fav: 'mdi:star-outline', unfav: 'mdi:star', size: 'mdi:resize', name: 'mdi:rename-outline', hide: 'mdi:eye-off-outline',
+  icon: 'mdi:shape-outline', remove: 'mdi:minus-circle-outline', menu: 'mdi:dots-horizontal',
   unhide: 'mdi:eye-outline', color: 'mdi:palette-outline', 'hide-room': 'mdi:eye-off-outline', 'unhide-room': 'mdi:eye-outline',
 };
 const EDIT_TITLES = {
   fav: 'Add to Home', unfav: 'Remove from Home', size: 'Change size', name: 'Rename', hide: 'Hide', unhide: 'Show again',
+  icon: 'Change the icon', remove: 'Remove from this room', menu: 'Edit this tile',
   color: 'Change colour', 'hide-room': 'Hide room', 'unhide-room': 'Show room again',
 };
 
@@ -2322,6 +2330,10 @@ class HomeViewTile extends HTMLElement {
 
   _editHtml() {
     if (!this._edit) return '';
+    // a list row (66 px) has no room for a button per action: one ⋯ that opens them as a sheet
+    if (this._spec?.row && this._edit.actions.length > 2) {
+      return `<div class="edit rowed"><button data-edit="menu" title="${EDIT_TITLES.menu}"><ha-icon icon="${EDIT_ICONS.menu}"></ha-icon></button></div>`;
+    }
     return `<div class="edit">${this._edit.actions.map((a) =>
       `<button data-edit="${a}" title="${EDIT_TITLES[a]}"><ha-icon icon="${EDIT_ICONS[a]}"></ha-icon></button>`).join('')}</div>`;
   }
@@ -2612,6 +2624,8 @@ function roomMainLight(h, room) {
 }
 
 const roomTile = (room, size = [1, 1]) => ({ kind: 'room', room, size, hue: room.hue });
+/** "+ Add" at the end of a room's tiles, in edit mode only: add any entity to the room's list. */
+const addTile = (room, roomIds, row = false) => ({ kind: 'add', room, roomIds: [...roomIds], size: [1, 1], editOnly: true, ...(row ? { row: true } : {}) });
 const entTile = (id, extra = {}) => ({ kind: 'entity', entity: id, size: [1, 1], ...extra });
 
 /** The favourites strip on a phone (Living, a member's page): six, three per row. */
@@ -2874,7 +2888,7 @@ const PAGES = {
     const sections = list.map((r) => {
       const ids = (r.pinned || ROOM_ROW_DOMAINS.flatMap((d) => r.entities.filter((id) => domainOf(id) === d
         && !UNAVAILABLE.includes(h.states[id]?.state) && !(d === 'light' && Array.isArray(h.states[id]?.attributes?.entity_id))))).slice(0, 11);
-      return { title: r.name, room: r.id, hue: r.hue, tiles: [roomTile(r), ...ids.map((id) => entTile(id, { areaName: r.name, hue: r.hue }))] };
+      return { title: r.name, room: r.id, hue: r.hue, tiles: [roomTile(r), ...ids.map((id) => entTile(id, { areaName: r.name, hue: r.hue, pinRoom: r.id, roomIds: ids })), addTile(r.id, ids)] };
     });
     return { title: 'Living', pills: true, greet: true, sections, compactSections: true,
       note: list.length ? null : 'No living spaces found. List them with living_rooms: [living_room, kitchen, …].' };
@@ -2926,7 +2940,8 @@ const PAGES = {
     // charts: shorter on phones (two rows each)
     charts.forEach((c) => { c.phoneSpan = [2, 2]; });
     if (charts.length) sections.push({ title: 'Last 24 hours', tiles: charts });
-    if (r.pinned) sections.push({ tiles: r.pinned.map((id) => rowTile(id, { areaName: r.name })), layout: 'rows' });
+    if (r.pinned) sections.push({ tiles: r.pinned.map((id) => rowTile(id, { areaName: r.name, pinRoom: r.id, roomIds: r.pinned })), layout: 'rows' });
+    sections.push({ tiles: [addTile(r.id, r.pinned || [], true)], layout: 'rows' });   // + Add (edit mode only)
     for (const g of ROOM_GROUPS) {
       const ids = (r.groups[g.id] || []).filter((id) => !r.pinned?.includes(id) && !charts.some((c) => c.entity === id));
       if (!ids.length) continue;
@@ -2949,10 +2964,12 @@ const PAGES = {
     tiles.push({ kind: 'member_hero', room: r, title: `${mem.name}'s ${r ? 'room' : 'day'}`, openings, size: [2, 2] });
     tiles.push({ kind: 'clock', size: [1, 1] });
     if (r) {
-      const ids = ROOM_ROW_DOMAINS.flatMap((d) => r.entities.filter((id) => domainOf(id) === d && !UNAVAILABLE.includes(h.states[id]?.state)
-        && !(d === 'light' && Array.isArray(h.states[id]?.attributes?.entity_id)))).slice(0, 7);
-      ids.forEach((id) => tiles.push(entTile(id, { areaName: r.name })));
-      openings.filter((id) => domainOf(id) === 'binary_sensor').forEach((id) => tiles.push(entTile(id, { areaName: r.name })));
+      // the room's own list (rooms.<area>.entities, also what "+ Add" builds), else the first 7 devices
+      const ids = r.pinned ? [...r.pinned] : [...ROOM_ROW_DOMAINS.flatMap((d) => r.entities.filter((id) => domainOf(id) === d && !UNAVAILABLE.includes(h.states[id]?.state)
+        && !(d === 'light' && Array.isArray(h.states[id]?.attributes?.entity_id)))).slice(0, 7),
+        ...openings.filter((id) => domainOf(id) === 'binary_sensor')];
+      ids.forEach((id) => tiles.push(entTile(id, { areaName: r.name, pinRoom: r.id, roomIds: ids })));
+      tiles.push(addTile(r.id, ids));
     }
     const cals = mem.calendars.length ? mem.calendars : m.calendars;
     if (cals.length) tiles.push({ kind: 'next_event', calendars: cals, size: [3, 1] });
@@ -3378,8 +3395,11 @@ class HomeViewPage extends HTMLElement {
     this._page = page;
     if (this._config.popup) page.close = true;
     const pd = PAGE_DEFS[this._config.page] || {};
-    const titleCfg = (cfg.pages_config?.[this._config.page] || (this._config.page === 'living' ? cfg.pages_config?.family || cfg.pages_config?.shared : null))?.title;
-    if (titleCfg && this._config.page !== 'room' && this._config.page !== 'member') page.title = titleCfg;
+    // pages_config.<page>.title (person and custom pages: pages_config.<their path>.title; a room's
+    // page is named by rooms.<area>.name)
+    const titleKey = ['member', 'custom'].includes(this._config.page) ? this._config.path : this._config.page;
+    const titleCfg = (cfg.pages_config?.[titleKey] || (this._config.page === 'living' ? cfg.pages_config?.family || cfg.pages_config?.shared : null))?.title;
+    if (titleCfg && this._config.page !== 'room') page.title = titleCfg;
     const pageCfg = cfg.pages_config?.[this._config.page] || (this._config.page === 'living' ? cfg.pages_config?.family || cfg.pages_config?.shared : null) || {};
     const hue = hueOf(pageCfg.color, page.hue ?? pd.hue ?? 28);
     const dark = isDark(h, cfg);
@@ -3450,8 +3470,13 @@ class HomeViewPage extends HTMLElement {
       const g = document.createElement('div'); g.className = 'grid' + (sec.layout ? ` ${sec.layout}` : '') + (sec.loads ? ' loads' : '');
       if (sec.hue !== undefined) g.setAttribute('style', styleVars(palette(sec.hue, dark)));
       for (const spec of sec.tiles) {
-        const t = this._tile(sec.layout === 'rows' ? { ...spec, row: true } : spec, dark);
+        if (spec.editOnly && !(editing && h.user?.is_admin)) continue;
+        // a size set in edit mode (customize.<id>.size) counts in a list too: it spans list columns / rows,
+        // and a tile two rows tall is drawn as a full tile, not a list row
+        const czSize = sec.layout === 'rows' && spec.entity && parseSize(this._config.options?.customize?.[spec.entity]?.size);
+        const t = this._tile(sec.layout === 'rows' ? { ...spec, row: !(czSize && czSize[1] >= 2) } : spec, dark);
         if (sec.layout) t._hvFree = true;
+        if (czSize) t._hvRowSpan = czSize;
         // the outage header: its text wraps on phones and narrow tablets (iPad portrait)
         if (spec.full) { t.style.gridColumn = '1 / -1'; if (spec.kind === 'energy_outage' && (this._phone || window.innerWidth < 1000)) t.style.gridRow = `span ${this._phone ? 3 : 2}`; }
         g.appendChild(t);
@@ -3482,7 +3507,7 @@ class HomeViewPage extends HTMLElement {
           continue;
         }
         if (t.kind === 'room') { out.push({ ...t, section: true }); continue; }
-        if (['entity', 'room_lights', 'energy_device', 'room_power'].includes(t.kind) && !sec.layout) { out.push({ ...t, row: true }); continue; }
+        if (['entity', 'room_lights', 'energy_device', 'room_power', 'add'].includes(t.kind) && !sec.layout) { out.push({ ...t, row: true }); continue; }
         out.push(t);
       }
       sec.tiles = out;
@@ -3524,14 +3549,18 @@ class HomeViewPage extends HTMLElement {
     if (spec.kind === 'room') return { actions: ['color', 'hide-room'], onEdit };
     // a person's page: their room summary changes the room's colour, which tints their page too
     if (spec.kind === 'member_hero' && spec.room) return { actions: ['color'], onEdit };
+    if (spec.kind === 'add') return { actions: [], onEdit };
     if (spec.kind === 'entity' && !spec.user) {
-      return { actions: [this._favorites().includes(spec.entity) ? 'unfav' : 'fav', 'size', 'name', 'hide'], onEdit };
+      return { actions: [this._favorites().includes(spec.entity) ? 'unfav' : 'fav', 'size', 'name', 'icon', ...(spec.pinRoom ? ['remove'] : []), 'hide'], onEdit };
     }
     return null;
   }
 
   async _onEdit(a, spec) {
     const h = this._hass, id = spec.entity;
+    if (a === 'menu') return this._actionSheet(spec);
+    if (a === 'icon') return this._iconSheet(spec);
+    if (a === 'add') return this._addSheet(spec);
     let name = null;
     if (a === 'name') {
       const cur = this._config.options?.customize?.[id]?.name ?? shortName(h, id, spec.areaName);
@@ -3568,9 +3597,37 @@ class HomeViewPage extends HTMLElement {
           rc.color = COLOR_CYCLE[(COLOR_CYCLE.indexOf(rc.color) + 1) % COLOR_CYCLE.length];
           break;
         }
+        case 'remove': {   // off this room's list (the list starts as what the room shows now)
+          o.rooms = o.rooms || {};
+          const rc = (o.rooms[spec.pinRoom] = o.rooms[spec.pinRoom] || {});
+          rc.entities = asList(rc.entities ?? spec.roomIds).filter((x) => x !== id);
+          break;
+        }
         case 'hide-room': o.hide_rooms = [...new Set([...asList(o.hide_rooms), spec.room.id])]; break;
         case 'unhide-room': o.hide_rooms = asList(o.hide_rooms).filter((x) => x !== spec.room.id); break;
         default: break;
+      }
+    });
+  }
+
+  // edit mode: the page's title. A room's page renames the room (rooms.<area>.name, everywhere it
+  // shows); any other page: pages_config.<path>.title (its title and its name in the page bar)
+  async _renamePage() {
+    const page = this._page, room = page?.room;
+    const key = ['member', 'custom'].includes(this._config.page) ? this._config.path : this._config.page;
+    const name = window.prompt(room ? 'Room name (leave empty for the name in Home Assistant)' : 'Page title (leave empty for the automatic title)', page?.title || '');
+    if (name === null) return;
+    const v = name.trim();
+    await this._save((o) => {
+      if (room) {
+        o.rooms = o.rooms || {};
+        const rc = (o.rooms[room.id] = o.rooms[room.id] || {});
+        if (v) rc.name = v; else delete rc.name;
+      } else {
+        o.pages_config = o.pages_config || {};
+        const pc = (o.pages_config[key] = o.pages_config[key] || {});
+        if (v) pc.title = v; else delete pc.title;
+        if (!Object.keys(pc).length) delete o.pages_config[key];
       }
     });
   }
@@ -3611,6 +3668,82 @@ class HomeViewPage extends HTMLElement {
     sheet.querySelector('[data-close]').addEventListener('click', close);
     this._root.appendChild(pop);
     return { pop, sheet, close };
+  }
+
+  /** Edit mode, a list row: its actions as a sheet, each with its name. */
+  _actionSheet(spec) {
+    const ed = this._editFor(spec);
+    if (!ed) return;
+    const { sheet, close } = this._sheet(spec.name || shortName(this._hass, spec.entity, spec.areaName));
+    sheet.insertAdjacentHTML('beforeend', `<div style="display:flex;flex-direction:column;gap:6px">${ed.actions.map((a) =>
+      `<button data-a="${a}" style="all:unset;cursor:pointer;display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:14px;background:var(--hv-tile);font:15px ${FONT};color:${a === 'hide' || a === 'remove' ? '#FF3B30' : 'var(--hv-fg)'}"><ha-icon icon="${EDIT_ICONS[a]}"></ha-icon>${esc(EDIT_TITLES[a])}</button>`).join('')}</div>`);
+    sheet.querySelectorAll('[data-a]').forEach((b) => b.addEventListener('click', () => { close(); this._onEdit(b.dataset.a, spec); }));
+  }
+
+  /** Edit mode: a tile's icon (HA's icon picker when the browser has it, else mdi:… with a preview). */
+  _iconSheet(spec) {
+    const h = this._hass, id = spec.entity;
+    const cur = this._config.options?.customize?.[id]?.icon || '';
+    const { sheet, close } = this._sheet(`Icon · ${spec.name || shortName(h, id, spec.areaName)}`,
+      '<button class="txt" data-auto>Automatic</button><button class="txt primary" data-ok>Save</button>');
+    sheet.classList.add('narrow');
+    const body = document.createElement('div');
+    let val = cur;
+    if (customElements.get('ha-icon-picker')) {
+      const pk = document.createElement('ha-icon-picker'); pk.hass = h; pk.value = cur; pk.label = 'Icon';
+      pk.addEventListener('value-changed', (e) => { val = e.detail.value || ''; });
+      body.appendChild(pk);
+    } else {
+      body.innerHTML = `<p class="hint">An icon name from materialdesignicons.com, e.g. <b>mdi:television</b>.</p>
+        <div style="display:flex;align-items:center;gap:12px"><ha-icon data-prev icon="${esc(cur || 'mdi:help-circle-outline')}" style="--mdc-icon-size:32px"></ha-icon>
+        <input data-in value="${esc(cur)}" placeholder="mdi:television" style="flex:1;font:16px ${FONT};padding:10px 12px;border-radius:12px;border:1px solid var(--hv-line);background:var(--hv-tile);color:var(--hv-fg)"></div>`;
+      const inp = body.querySelector('[data-in]'), prev = body.querySelector('[data-prev]');
+      inp.addEventListener('input', () => { val = inp.value.trim(); prev.setAttribute('icon', /^mdi:[a-z0-9-]+$/.test(val) ? val : 'mdi:help-circle-outline'); });
+    }
+    sheet.appendChild(body);
+    const save = (icon) => { close(); this._save((o) => {
+      o.customize = o.customize || {};
+      const cz = (o.customize[id] = o.customize[id] || {});
+      if (icon) cz.icon = icon; else delete cz.icon;
+      if (!Object.keys(cz).length) delete o.customize[id];
+    }); };
+    sheet.querySelector('[data-ok]').addEventListener('click', () => save(val));
+    sheet.querySelector('[data-auto]').addEventListener('click', () => save(''));
+  }
+
+  /** Edit mode: "+ Add" — any entity, added to the room's list (rooms.<area>.entities). */
+  _addSheet(spec) {
+    const h = this._hass;
+    const { sheet, close } = this._sheet(`Add to ${this._model.areaById[spec.room]?.name || 'this room'}`);
+    sheet.classList.add('narrow');
+    const SKIP = ['update', 'person', 'zone', 'sun', 'tts', 'stt', 'conversation', 'event', 'image', 'todo', 'device_tracker'];
+    const all = Object.keys(h.states).filter((x) => !SKIP.includes(domainOf(x)) && !spec.roomIds.includes(x))
+      .map((x) => ({ id: x, name: h.states[x].attributes.friendly_name || x }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    sheet.insertAdjacentHTML('beforeend', `<input data-q placeholder="Search devices and entities…" style="width:100%;box-sizing:border-box;font:16px ${FONT};padding:10px 12px;border-radius:12px;border:1px solid var(--hv-line);background:var(--hv-tile);color:var(--hv-fg);margin-bottom:10px">
+      <div data-list style="display:flex;flex-direction:column;gap:6px"></div>`);
+    const q = sheet.querySelector('[data-q]'), list = sheet.querySelector('[data-list]');
+    const show = () => {
+      const t = q.value.trim().toLowerCase();
+      const hits = all.filter((e) => !t || e.name.toLowerCase().includes(t) || e.id.includes(t)).slice(0, 40);
+      list.innerHTML = hits.map((e) => `<button class="txt" data-id="${esc(e.id)}" style="justify-content:flex-start;text-align:left;border-radius:14px;padding:10px 12px">
+        <ha-state-icon data-si="${esc(e.id)}" style="--mdc-icon-size:20px"></ha-state-icon><span style="display:flex;flex-direction:column;min-width:0">
+        <b style="font-weight:650">${esc(e.name)}</b><span style="font-size:12px;color:var(--hv-fg2)">${esc(e.id)}</span></span></button>`).join('')
+        || '<p class="hint">Nothing matches.</p>';
+      list.querySelectorAll('ha-state-icon').forEach((el) => { el.hass = h; el.stateObj = h.states[el.dataset.si]; });
+      list.querySelectorAll('[data-id]').forEach((b) => b.addEventListener('click', () => {
+        const id = b.dataset.id; close();
+        this._save((o) => {
+          o.rooms = o.rooms || {};
+          const rc = (o.rooms[spec.room] = o.rooms[spec.room] || {});
+          rc.entities = [...new Set([...asList(rc.entities ?? spec.roomIds), id])];
+          // shown again if it was hidden
+          o.exclude_entities = asList(o.exclude_entities).filter((x) => x !== id);
+        });
+      }));
+    };
+    q.addEventListener('input', show); show();
+    setTimeout(() => q.focus(), 50);
   }
 
   _yamlSheet(config, failed) {
@@ -3761,6 +3894,16 @@ class HomeViewPage extends HTMLElement {
       t.style.gridColumn = `span ${Math.min(sw, cols)}`;
       t.style.gridRow = `span ${sh}`;
     }
+    // lists (a room's devices): sizes set in edit mode span the list's columns (as many as it has)
+    for (const g of this._root.querySelectorAll('.grid.rows')) {
+      const n = getComputedStyle(g).gridTemplateColumns.split(' ').filter(Boolean).length || 1;
+      for (const t of g.children) {
+        if (!t._hvRowSpan) continue;
+        const [sw, sh] = t._hvRowSpan;
+        t.style.gridColumn = `span ${Math.max(1, Math.min(n, typeof sw === 'number' ? sw : n))}`;
+        t.style.gridRow = `span ${phone ? 1 : (typeof sh === 'number' ? sh : 1)}`;
+      }
+    }
     this._cols = cols;
   }
 
@@ -3834,7 +3977,7 @@ class HomeViewPage extends HTMLElement {
           <span class="eb">${canReload ? `<button class="txt" data-reload-pages title="${yamlDash ? 'Read the dashboard\'s files again — after adding or editing a page in homeview/custom_pages/' : 'Read this dashboard\'s saved config again — after editing it in the raw configuration editor'}"><ha-icon icon="mdi:file-refresh-outline"></ha-icon> Reload pages</button>` : ''}<button class="txt" data-settings><ha-icon icon="mdi:cog-outline"></ha-icon> Settings</button><button class="txt primary" data-edit-off>Done</button></span></div>` : '';
     head.innerHTML = page.minimalHead ? `${topbar}${editbar}` : `${topbar}<div>
         <div class="date">${esc(today)}</div>
-        <div class="title">${menuBtn}${updBtn}${page.back ? '<button class="back" data-back><ha-icon icon="mdi:chevron-left"></ha-icon></button>' : ''}<span class="tt"${titleHold || (canEdit && !editing) ? ' data-title' : ''}${titleHold ? ' data-title-hold' : ''}${canEdit && !editing ? ' title="Double-tap to edit"' : ''}>${esc(this._phone && page.greet && h.user?.name ? `Hi ${h.user.name.split(' ')[0]}` : page.title)}</span>${roomSub ? `<span class="sub">${esc(roomSub)}</span>` : ''}</div>
+        <div class="title">${menuBtn}${updBtn}${page.back ? '<button class="back" data-back><ha-icon icon="mdi:chevron-left"></ha-icon></button>' : ''}<span class="tt"${titleHold || (canEdit && !editing) ? ' data-title' : ''}${titleHold ? ' data-title-hold' : ''}${canEdit && !editing ? ' title="Double-tap to edit"' : ''}>${esc(this._phone && page.greet && h.user?.name && !editing ? `Hi ${h.user.name.split(' ')[0]}` : page.title)}</span>${editing && canEdit ? '<button class="back hb" data-rename title="Rename this page" aria-label="Rename this page"><ha-icon icon="mdi:rename-outline"></ha-icon></button>' : ''}${roomSub ? `<span class="sub">${esc(roomSub)}</span>` : ''}</div>
         ${editbar}
         ${chips.length ? `<div class="chips">${chips.map((c, i) => {
           const L = looks[i], st = h.states[c.entity];
@@ -3871,6 +4014,7 @@ class HomeViewPage extends HTMLElement {
     });
     head.querySelector('[data-edit-off]')?.addEventListener('click', () => this._setEditing(false));
     head.querySelector('[data-settings]')?.addEventListener('click', () => this._settings());
+    head.querySelector('[data-rename]')?.addEventListener('click', () => this._renamePage());
     // HA's own ⋮ → Refresh (hidden with its header): the panel reads the YAML files again, and every
     // open screen of this dashboard follows (HA's lovelace_updated)
     head.querySelector('[data-reload-pages]')?.addEventListener('click', (ev) => {
@@ -4358,12 +4502,12 @@ class HomeViewStrategy extends HTMLElement {
     const views = paths.map((p) => {
       const mem = m.members.find((x) => `member-${x.slug}` === p);
       if (mem) {
-        return { title: mem.name, path: p, icon: mem.room?.icon || 'mdi:account', letter: mem.name.slice(0, 1).toUpperCase(), avatar: avatarUrl(hass, mem.person), type: 'panel',
+        return { title: pc[p]?.title || mem.name, path: p, icon: mem.room?.icon || 'mdi:account', letter: mem.name.slice(0, 1).toUpperCase(), avatar: avatarUrl(hass, mem.person), type: 'panel',
           cards: [{ type: 'custom:homeview-page', page: 'member', member: mem.person, path: p, order: paths, options }] };
       }
       const c = customs.find((x) => x.path === p);
       if (c) {
-        return { title: c.title || 'Page', path: p, icon: c.icon || 'mdi:view-grid-outline', type: 'panel',
+        return { title: pc[p]?.title || c.title || 'Page', path: p, icon: c.icon || 'mdi:view-grid-outline', type: 'panel',
           cards: [{ type: 'custom:homeview-page', page: 'custom', custom: c.idx, path: p, order: paths, options }] };
       }
       const pcp = pc[p] || (p === 'living' ? pc.family || pc.shared : null) || {};
@@ -4383,7 +4527,7 @@ class HomeViewStrategy extends HTMLElement {
         cards: [{ type: 'custom:homeview-page', page: p, path: p, order: [], popup: true, nav, popups, options }] });
     }
     for (const c of customs.filter((x) => x.subview && allowed(x.path))) {
-      views.push({ title: c.title || 'Page', path: c.path, icon: c.icon || 'mdi:view-grid-outline', subview: true, type: 'panel',
+      views.push({ title: pc[c.path]?.title || c.title || 'Page', path: c.path, icon: c.icon || 'mdi:view-grid-outline', subview: true, type: 'panel',
         cards: [{ type: 'custom:homeview-page', page: 'custom', custom: c.idx, path: c.path, order: [], options }] });
     }
     for (const r of m.rooms) {

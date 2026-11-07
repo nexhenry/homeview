@@ -227,10 +227,23 @@ buttons:
 | Button | What it does |
 |---|---|
 | ★ | Put the tile on the Home page (or take it off). Filled = it's on Home |
-| ⤢ | Change the size: 1×1 → 2×1 → 2×2 |
+| ⤢ | Change the size: 1×1 → 2×1 → 3×1 → 2×2. In a room's lists too (a size two rows tall shows as a full tile) |
 | ✎ | Rename the tile (empty = the automatic name) |
+| ◇ | Change the icon (Home Assistant's icon picker; **Automatic** = the entity's own icon) |
+| ⊖ | Living, a person's page, a room's page: take the tile off this room (saved as the room's `entities:` list) |
 | 👁 | Hide it everywhere. While you edit, a hidden tile stays in its place, faded — tap the eye again to show it. It leaves the page when you tap **Done** |
 | 🎨 | Rooms and a person's room summary: change the room's colour (it tints that person's page too) |
+| ⋯ | A room's lists (one row per device): the same actions, in a sheet |
+
+**+ Add** (a dashed tile on Living, a person's page and a room's page, in edit mode): search
+Home Assistant's devices and entities and add one to that room. That's how a device whose area
+comes from its device, or one past the first few, gets a tile, e.g. a TV on a child's page.
+A room you've added or removed tiles in keeps that list (`rooms.<area>.entities`); a person's page
+shows it too.
+
+**✎ next to the page title** renames the page: on a room's page the room itself (`rooms.<area>.name`,
+everywhere), on any other page its title and its name in the page bar (`pages_config.<page>.title`,
+e.g. `pages_config: { member-zoe: { title: Zoe's room } }`). Empty = the automatic title.
 
 Each change is saved straight away, and the page stays where you scrolled to. **Settings** opens the settings editor, **Done** leaves
 edit mode. Turn the double tap off with `edit_button: false`.
