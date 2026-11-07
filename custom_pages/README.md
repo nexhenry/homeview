@@ -188,5 +188,8 @@ strategy:
 ```
 
 Holds, `vars:` and everything else work the same. Only the page files need the YAML dashboard.
+On a YAML dashboard, edit mode and Settings still save: HomeView keeps those changes in a hidden
+`<dashboard>-edits` dashboard and lays them over the YAML. The page files stay in charge of the
+pages.
 Saving in the editor updates the dashboard right away; **Reload pages** brings other open screens up
 to date.

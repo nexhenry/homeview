@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- **Edit a YAML dashboard on screen.** A dashboard in YAML mode (e.g. for page files in
+  `custom_pages/`) used to answer every edit with "paste this YAML". Now edit mode and Settings save
+  to a hidden companion UI dashboard, `<dashboard>-edits`, made on the first save (out of the
+  sidebar, admin-only to change). HomeView lays it over the YAML on every screen.
+  - Only the differences are kept, per entity, room or setting, so the rest of the YAML stays in
+    charge. Custom pages always come from the files.
+  - `ui_edits: false` brings back the YAML sheet.
+
 ## 0.8.10 — 2026-11-06
 
 - **Edit mode is one state for the whole dashboard.** Start it on one page and every page is in

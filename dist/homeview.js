@@ -66,7 +66,7 @@ const KNOWN_OPTIONS = ['type', 'title', 'theme', 'pages', 'pages_config', 'room_
   'exclude_entities', 'customize', 'people', 'calendars', 'weather', 'cameras', 'home', 'pills', 'battery_low',
   'people_chips', 'energy', 'tile_size', 'max_columns', 'swipe', 'custom_pages', 'edit_button', 'update_notice',
   'kiosk', 'kiosk_chip', 'members', 'living_rooms', 'widgets', 'avatars', 'phone_favorites', 'access',
-  'comfort', 'comfort_thermostat', 'comfort_margin', 'comfort_limits', 'screensaver', 'rows_on_screen'];   // energy.* : see the energy page
+  'comfort', 'comfort_thermostat', 'comfort_margin', 'comfort_limits', 'screensaver', 'rows_on_screen', 'ui_edits'];   // energy.* : see the energy page
 
 // What a room page / room row shows, in this order
 const ROOM_GROUPS = [
@@ -924,6 +924,62 @@ function dashboardPath() {
   return !p || p === 'lovelace' ? null : p;
 }
 
+/**
+ * UI edits on a YAML dashboard (custom_pages from files, everything else editable): HA can't save a
+ * YAML dashboard, so HomeView keeps the settings changed in edit mode / Settings in a hidden UI
+ * dashboard next to it, "<dashboard>-edits", and lays them over the YAML when it builds the views.
+ * Only top-level keys that differ from the YAML are kept (null = removed); custom_pages always comes
+ * from the YAML. Option ui_edits: false = the old way (show the YAML to paste).
+ */
+const editsPath = () => `${dashboardPath() || 'homeview'}-edits`;
+const isYamlDash = (hass) => hass?.panels?.[dashboardPath() || 'lovelace']?.config?.mode === 'yaml';
+async function loadEdits(hass) {
+  try {
+    const c = await ws(hass, { type: 'lovelace/config', url_path: editsPath() });
+    return c?.homeview && typeof c.homeview === 'object' ? c.homeview : {};
+  } catch (e) { return {}; }   // none yet
+}
+const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
+// an edit to a block (customize, rooms, home, pages_config …) is kept per entry: { __edits: { key: value | null } }
+function applyEdits(options, edits) {
+  const out = { ...options };
+  for (const [k, v] of Object.entries(edits || {})) {
+    if (k === 'custom_pages' || k === 'type') continue;
+    if (v === null) delete out[k];
+    else if (isObj(v) && isObj(v.__edits)) {
+      const blk = isObj(out[k]) ? { ...out[k] } : {};
+      for (const [kk, vv] of Object.entries(v.__edits)) { if (vv === null) delete blk[kk]; else blk[kk] = vv; }
+      out[k] = blk;
+    } else out[k] = v;
+  }
+  return out;
+}
+async function saveEdits(hass, yamlOptions, next) {
+  const edits = {};
+  const keys = new Set([...Object.keys(yamlOptions || {}), ...Object.keys(next)]);
+  for (const k of keys) {
+    if (k === 'custom_pages' || k === 'type') continue;
+    const y = yamlOptions?.[k], n = next[k];
+    if (JSON.stringify(y ?? null) === JSON.stringify(n ?? null)) continue;
+    if (isObj(y) && isObj(n)) {   // a block: only the entries that changed
+      const sub = {};
+      for (const kk of new Set([...Object.keys(y), ...Object.keys(n)])) {
+        if (JSON.stringify(y[kk] ?? null) !== JSON.stringify(n[kk] ?? null)) sub[kk] = n[kk] === undefined ? null : n[kk];
+      }
+      edits[k] = { __edits: sub };
+    } else edits[k] = n === undefined ? null : n;
+  }
+  const url = editsPath();
+  const save = () => ws(hass, { type: 'lovelace/config/save', url_path: url,
+    config: { title: 'HomeView edits', views: [], homeview: edits } });
+  try { await save(); } catch (e) {
+    // first save: make the companion dashboard (out of the sidebar), then save again
+    await ws(hass, { type: 'lovelace/dashboards/create', url_path: url, title: 'HomeView edits', mode: 'storage',
+      icon: 'mdi:pencil-box-outline', show_in_sidebar: false, require_admin: true });
+    await save();
+  }
+}
+
 async function loadStrategyConfig(hass) {
   try {
     const cur = await ws(hass, { type: 'lovelace/config', url_path: dashboardPath() });
@@ -938,6 +994,24 @@ async function loadStrategyConfig(hass) {
  */
 async function saveStrategy(hass, fallbackOptions, mutate) {
   const cur = await loadStrategyConfig(hass);
+  // a YAML dashboard: edit the YAML + the UI edits, save the difference to "<dashboard>-edits"
+  if (cur?.strategy && isYamlDash(hass) && cur.strategy.ui_edits !== false) {
+    const { type: _t, ...yamlOpts } = cur.strategy;
+    const merged = applyEdits(yamlOpts, await loadEdits(hass));
+    const base = JSON.parse(JSON.stringify({ type: 'custom:homeview', ...merged }));
+    mutate(base);
+    const next = cleanConfig(base);
+    next.type = 'custom:homeview';
+    try {
+      await saveEdits(hass, yamlOpts, next);
+      // the YAML dashboard rebuilds its views with the new edits (every open screen follows)
+      HomeViewPage._current?.dispatchEvent(new CustomEvent('config-refresh', { bubbles: true, composed: true }));
+      return { ok: true, config: next };
+    } catch (e) {
+      console.warn('HomeView: could not save the UI edits', e);
+      return { ok: false, config: next, error: e };
+    }
+  }
   const base = JSON.parse(JSON.stringify(cur?.strategy || { type: 'custom:homeview', ...(fallbackOptions || {}) }));
   mutate(base);
   const next = cleanConfig(base);
@@ -4226,7 +4300,9 @@ customElements.get('homeview-strategy-editor') || customElements.define('homevie
 
 class HomeViewStrategy extends HTMLElement {
   static async generate(config, hass) {
-    const { type, ...options } = config || {};
+    let { type, ...options } = config || {};
+    // a YAML dashboard: the settings changed in the UI (kept in "<dashboard>-edits") on top
+    if (isYamlDash(hass) && options.ui_edits !== false) options = applyEdits(options, await loadEdits(hass));
     hvAvatarMode = options.avatars ?? 'samples';
     const m = buildModel(hass, options);
     // custom_pages (see custom_pages/README.md): subview: true = no place in the page bar, opened by

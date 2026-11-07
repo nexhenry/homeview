@@ -263,9 +263,16 @@ strategy:
     favorites: [lock.front_door, cover.garage, climate.hallway, scene.movie_night]
 ```
 
-If the dashboard itself is a YAML dashboard (`mode: yaml` in `configuration.yaml`),
-HomeView can't save changes from edit mode or the editor. It shows you the YAML to paste
-into the file instead.
+**A YAML dashboard** (`mode: yaml` in `configuration.yaml`, e.g. to load page files from
+`custom_pages/`) can still be edited on screen:
+- Home Assistant can't save a YAML dashboard, so HomeView keeps what you change in edit mode and in
+  Settings in a hidden companion dashboard, `<dashboard>-edits`. It's made on the first save, out of
+  the sidebar and admin-only.
+- HomeView lays those changes over the YAML each time it loads, and everyone sees them.
+- Only what differs from the YAML is kept, per entity, room or setting, so the rest of your YAML
+  stays in charge. Custom pages always come from the files.
+- To start over, delete that dashboard (Settings → Dashboards).
+- `ui_edits: false` turns this off: HomeView then shows the YAML to paste into the file instead.
 
 Admins see a note on the page when the config has an option HomeView doesn't know — usually
 a typo.
