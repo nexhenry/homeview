@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.8.18 — 2026-11-07
 
 - **Edit the warnings in edit mode.** While editing, the Warnings pill always shows on Home ("Warnings ·
   4", or "+ Warnings" when there are none). Tap it (without dragging) for the list: each warning's
