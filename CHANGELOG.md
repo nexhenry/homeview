@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Widgets page: the weather is centred.** The location, temperature, condition and high / low
+  were aligned left in their corner; now they're centred like the date. The ° no longer pulls the
+  temperature off centre.
+- **Fix: a hidden tile showed up anyway.** Hiding a tile (edit mode → eye, or
+  `exclude_entities`) removed it only from what HomeView finds by itself. Tiles listed by name still
+  showed it: a room's `entities:` list (person pages, Living, room pages), Home favourites, and
+  custom pages. A hidden entity is now gone from every page; in edit mode it stays, faded, with
+  the eye to show it again.
 - **`from: <dashboard>`: a dashboard that mirrors another.** It shows that dashboard's settings,
   pages and on-screen edits, read each time it loads. Its own changes are kept in its config as
   `edits:` and never touch the original. Use it for a test copy or a kiosk.

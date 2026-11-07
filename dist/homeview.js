@@ -595,7 +595,8 @@ function buildModel(hass, cfg) {
   }
   for (const room of model.areas) {
     const order = (cfg.rooms?.[room.id]?.entities) || null;
-    if (order) room.pinned = asList(order).filter((id) => hass.states[id]);
+    // a hidden entity (exclude_entities / customize.hidden) leaves a room's own list too
+    if (order) room.pinned = asList(order).filter((id) => hass.states[id] && !exclude.has(id));
   }
   // rooms worth a tile: something to control or a temperature (not just a smart plug's sensors)
   model.rooms = model.areas.filter((r) => r.temp || r.pinned?.length
@@ -1644,9 +1645,11 @@ R.forecast = {
         <span style="margin-left:auto;color:var(--hv-fg2)">${fmt(f.templow, 0)}°</span><span style="width:2.4em;text-align:right;font-weight:600">${fmt(f.temperature, 0)}°</span></div>`;
     }).join('');
     if (s.bare) {   // the Widgets board: a hand-made HomeView's proportions
-      return `<div class="t" style="align-items:flex-start;justify-content:center;text-align:left;padding:0 5.7cqi;gap:1.8cqh;cursor:default">
+      // centred in its area, like the date beside it; the ° hangs outside the centring so the
+      // digits sit in the middle
+      return `<div class="t" style="align-items:center;justify-content:center;text-align:center;padding:0 5.7cqi;gap:1.8cqh;cursor:default">
         <div style="font-weight:600;font-size:min(8.9cqh,5.2cqi)">${esc(loc)}</div>
-        <div style="font-size:min(46cqh,27cqi);font-weight:500;letter-spacing:-.04em;line-height:.95">${fmt(st?.attributes?.temperature, 0)}°</div>
+        <div style="font-size:min(46cqh,27cqi);font-weight:500;letter-spacing:-.04em;line-height:.95">${fmt(st?.attributes?.temperature, 0)}<span style="margin-right:-.32em">°</span></div>
         <div style="display:flex;align-items:center;gap:.4em;font-weight:600;font-size:min(8.9cqh,5.2cqi)"><span class="ic" style="display:inline-flex;--mdc-icon-size:1.3em"><i data-i="${icon}"></i></span>${esc(cond)}</div>
         ${fc[0] ? `<div style="font-weight:500;font-size:min(8cqh,4.7cqi)">H:${fmt(Math.max(fc[0].temperature ?? -99, st?.attributes?.temperature ?? -99), 0)}°&nbsp;&nbsp;L:${fmt(Math.min(fc[0].templow ?? 99, st?.attributes?.temperature ?? 99), 0)}°</div>` : ''}</div>`;
     }
@@ -3751,6 +3754,10 @@ class HomeViewPage extends HTMLElement {
           if (t.room && t.kind === 'room' && hiddenRooms.has(t.room.id)) t.hiddenRoom = true;
         }
       }
+    } else if (hiddenEnts.size) {
+      // hidden means hidden everywhere: tiles named explicitly (favourites, a room's entities: list,
+      // custom pages, phone favourites) don't pass through the model's exclusion, so drop them here
+      for (const sec of page.sections || []) sec.tiles = (sec.tiles || []).filter((t) => !(t.entity && hiddenEnts.has(t.entity)));
     }
     this._page = page;
     if (this._config.popup) page.close = true;
@@ -3773,6 +3780,9 @@ class HomeViewPage extends HTMLElement {
     for (const sec of userSections(extra, h, this._model)) {
       // show_room: false (a custom page) — tiles show their state, not their room
       if (custom?.show_room === false) sec.tiles = sec.tiles.map((t) => (t.kind === 'entity' ? { ...t, showRoom: false } : t));
+      // hidden entities: gone (edit mode: faded, with the eye to show them again)
+      if (editing) sec.tiles.forEach((t) => { if (t.entity && hiddenEnts.has(t.entity)) t.hiddenEnt = true; });
+      else if (hiddenEnts.size) sec.tiles = sec.tiles.filter((t) => !(t.entity && hiddenEnts.has(t.entity)));
       if (sec.position === 'top') page.sections.unshift(sec); else page.sections.push(sec);
     }
     // (hidden entities / rooms are marked in place above while editing)
