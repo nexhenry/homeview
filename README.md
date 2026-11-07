@@ -78,32 +78,31 @@ open door, and you can control them right there. Energy opens the Energy page; a
 ## A real home, fine-tuned
 
 What one family's wall tablet looks like after taking the same design further by hand: the
-**Slopeview** dashboard that HomeView is modelled on, on a Pixel Tablet (1280 × 800, full
-screen). HomeView builds this kind of page from your home automatically. Use these as ideas
+dashboard that HomeView is modelled on, on a Pixel Tablet (1280 × 800, full screen). HomeView builds this kind of page from your home automatically. Use these as ideas
 for your own fine-tuning: favourites, `customize`, your own sections and pages (a pond, a
 media room), energy time windows. Camera pictures, photos, calendar and school details and the town are blurred, and family names are changed, for privacy.
 
 **Widgets**, the wall tablet's resting page: a big date, a clock, the family photo slideshow,
 what's next and the weather.
 
-![Widgets: big date with sunrise / sunset, analog clock, photo slideshow, up next and the weather](docs/screenshots/slopeview-widgets.png)
+![Widgets: big date with sunrise / sunset, analog clock, photo slideshow, up next and the weather](docs/screenshots/home-widgets.png)
 
 | Home | Living |
 |---|---|
-| ![Home: control chips, status pills, weather, air quality, camera, doors, lights, clock and the next event](docs/screenshots/slopeview-home.png) | ![Living: every shared room in its own colour, with its devices](docs/screenshots/slopeview-living.png) |
+| ![Home: control chips, status pills, weather, air quality, camera, doors, lights, clock and the next event](docs/screenshots/home-home.png) | ![Living: every shared room in its own colour, with its devices](docs/screenshots/home-living.png) |
 | **A person's page** (their room, devices and next event) | **Another person's page** (with a school-day tile) |
-| ![A person's page: their room's temperature, comfort and doors, their lights and devices, the next family event](docs/screenshots/slopeview-person-mia.png) | ![A person's page: their room, TV, fan, window and door, the next school event and whether today is a school day](docs/screenshots/slopeview-person-zoe.png) |
+| ![A person's page: their room's temperature, comfort and doors, their lights and devices, the next family event](docs/screenshots/home-person-mia.png) | ![A person's page: their room, TV, fan, window and door, the next school event and whether today is a school day](docs/screenshots/home-person-zoe.png) |
 | **A room's page** (hold the room) | **Energy** (full screen) |
-| ![Living Room: 24-hour charts against outdoor, then every device grouped](docs/screenshots/slopeview-room.png) | ![Energy: live flow, Powerwall, backup time, peak / partial-peak off-grid, solar self-sufficiency and the power-outage list](docs/screenshots/slopeview-energy.png) |
+| ![Living Room: 24-hour charts against outdoor, then every device grouped](docs/screenshots/home-room.png) | ![Energy: live flow, Powerwall, backup time, peak / partial-peak off-grid, solar self-sufficiency and the power-outage list](docs/screenshots/home-energy.png) |
 | **Your own page: a pond** | **Your own page: media** |
-| ![Pond: pumps, air, UV, valves and garden with live power](docs/screenshots/slopeview-pond.png) | ![Media: karaoke controls, TV remote, effect presets and mixer levels](docs/screenshots/slopeview-media.png) |
+| ![Pond: pumps, air, UV, valves and garden with live power](docs/screenshots/home-pond.png) | ![Media: karaoke controls, TV remote, effect presets and mixer levels](docs/screenshots/home-media.png) |
 
 **An admin page** of the home's own settings (modes, comfort thresholds, light and fan timing,
 climate periods, vacation, the photobeam and the security messages), each a tap or slider on
 an HA helper. In HomeView you'd make a page like this with `custom_pages` and your own tiles.
 Family names are changed here and the hub's address is hidden.
 
-![Admin: modes, climate thresholds and periods, light and fan timing, vacation, photobeam and security messages](docs/screenshots/slopeview-admin.png)
+![Admin: modes, climate thresholds and periods, light and fan timing, vacation, photobeam and security messages](docs/screenshots/home-admin.png)
 
 ## What you need
 

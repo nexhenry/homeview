@@ -370,7 +370,7 @@ function restoreScroll() {
  */
 /**
  * Screensaver: a big analog clock that fills the screen after a while without a touch — for a
- * wall tablet (after the hand-made Slopeview HomeView's WallPanel clock). Built in, no plugin.
+ * wall tablet (after a hand-made HomeView's WallPanel clock). Built in, no plugin.
  * screensaver: auto (default) = touch tablets only (a touch screen whose smaller side is ≥ 600
  * px), never phones or desktops | true | false | { idle: 120, pages: [...], color: '#4D7DB8' }.
  * Not on Cameras or while editing. Any touch closes it, and that touch doesn't reach the page.
