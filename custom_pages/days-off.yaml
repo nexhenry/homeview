@@ -1,0 +1,32 @@
+# days-off.yaml — every day off still to come (school holidays, breaks, bank holidays …) from a
+# calendar, one row each with its dates and length; the one under way first, marked "Now".
+#
+# Opens as a popup (subview: true → a floating ✕). Open it with a tap on any tile, e.g. in
+# dashboard.yaml:   customize: { binary_sensor.school_today: { tap: days-off } }
+# or a tile that shows the next one, on any page:
+#   { type: next_event, calendars: [calendar.school], match: 'no school|holiday|break', all_day: true,
+#     days: 300, title: Next day off, icon: mdi:beach, tap: days-off }
+path: days-off
+title: Days off
+icon: mdi:beach
+color: orange
+subview: true
+vars:
+  calendar: calendar.school            # the school's (or work's) calendar
+  match: no school|holiday|break       # titles that mean a day off (case-insensitive)
+sections:
+- tiles:
+  - type: agenda
+    calendars: [$calendar]
+    match: $match
+    all_day: true                      # only all-day events
+    join_weekends: true                # take in the weekend right before / after (a Monday off: Sat–Mon)
+    strip: ' - No School'              # optional: text removed from the titles
+    days: 300                          # how far ahead
+    layout: list                       # one row per event: title, dates, length
+    title: Days off
+    icon: mdi:beach
+    long_icon: mdi:beach               # events of a week or more
+    event_icon: mdi:calendar-remove-outline
+    size: full x auto
+    phone_size: 2 x auto

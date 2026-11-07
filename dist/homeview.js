@@ -1060,6 +1060,14 @@ const TILE_CSS = `
 .up { font-size:clamp(9px, 5.4cqi, 13px); letter-spacing:.06em; text-transform:uppercase; font-weight:650; color:var(--hv-fg2); }
 /* the Widgets board's Up next: natural height (centred in its area), the board's text size */
 .ag-list.ag-bare { flex:none !important; overflow:visible; }
+.ag-rows { display:flex; flex-direction:column; gap:8px; margin-top:12px; }
+.ag-row { display:flex; align-items:center; gap:12px; padding:11px 14px; border-radius:16px; background:color-mix(in srgb, var(--hv-fg) 5%, transparent); }
+.ag-row.on { background:color-mix(in srgb, #34C759 16%, transparent); box-shadow:inset 0 0 0 1.5px #34C759; }
+.ag-t { flex:1; min-width:0; display:flex; flex-direction:column; }
+.ag-t b { font-weight:650; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ag-t span, .ag-n { color:var(--hv-fg2); font-size:.92em; }
+.ag-n { flex:none; font-weight:600; display:flex; flex-direction:column; align-items:flex-end; }
+.ag-n span { font-weight:500; font-size:.9em; }
 .ag-list.ag-bare .sb, .ag-list.ag-bare .up { font-size:inherit; }
 .edit { position:absolute; inset:0; border-radius:var(--hv-radius, 22px); outline:2px dashed var(--hv-accent); outline-offset:-2px;
   display:flex; flex-wrap:wrap; align-content:flex-start; justify-content:flex-end; gap:5px; padding:7px; pointer-events:none; z-index:2;
@@ -1508,20 +1516,80 @@ function eventWhen(h, e) {
     : e.startD.toLocaleDateString(lang, diff < 7 ? { weekday: 'long' } : { weekday: 'short', month: 'short', day: 'numeric' });
   return { day, time: e.allDay ? 'All day' : timeFmt(e.startD, h) };
 }
+// Calendar tiles' filters (next_event, agenda):
+//   match: 'no school|break'   only events whose title matches (case-insensitive; a regex, or plain text)
+//   all_day: true              only all-day events
+//   strip: ' - No School'      removed from the titles shown (case-insensitive; a regex, or plain text)
+const ciRegex = (v) => { try { return new RegExp(v, 'i'); } catch (e) { return new RegExp(String(v).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'); } };
+function filterEvents(evs, s) {
+  if (!evs) return evs;
+  const re = s.match ? ciRegex(s.match) : null;
+  const out = evs.filter((e) => (!re || re.test(e.summary || '')) && (!s.all_day || e.allDay));
+  return s.join_weekends ? joinWeekends(out, s) : out;
+}
+//   join_weekends: true   an all-day event takes in the weekend right before / after it (a Monday off
+//                         runs Sat–Mon, a Mon–Fri break Sat–Sun, 9 days), and events that then touch
+//                         or overlap become one ("Semester Break, New Year's Day"); `weekdays` = the
+//                         working / school days in it. A midweek day off stays one day.
+function joinWeekends(evs, s) {
+  const day = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+  const wkend = (d) => d.getDay() === 0 || d.getDay() === 6;
+  const spans = evs.map((e) => {
+    if (!e.allDay) return { ...e };
+    let a = new Date(e.startD), b = new Date(e.endD);            // b: exclusive
+    while (wkend(day(a, -1))) a = day(a, -1);
+    while (wkend(b)) b = day(b, 1);
+    return { ...e, startD: a, endD: b, titles: [eventTitle(e, s)] };
+  }).sort((x, y) => x.startD - y.startD);
+  const out = [];
+  for (const e of spans) {
+    const last = out[out.length - 1];
+    if (last && last.allDay && e.allDay && e.startD <= last.endD) {
+      if (e.endD > last.endD) last.endD = e.endD;
+      for (const t of e.titles) if (!last.titles.includes(t)) last.titles.push(t);
+    } else out.push(e);
+  }
+  for (const e of out) {
+    if (!e.allDay) continue;
+    e.summary = e.titles.join(', ');
+    let n = 0; for (let d = new Date(e.startD); d < e.endD; d = day(d, 1)) if (!wkend(d)) n++;
+    e.weekdays = n;
+  }
+  return out.filter((e) => e.endD > new Date());
+}
+const eventTitle = (e, s) => {
+  const t = s.strip ? String(e.summary || '').replace(new RegExp(ciRegex(s.strip).source, 'gi'), '').trim() : e.summary;
+  return t || e.summary || '';
+};
+// an event's dates in a few words: "Sat, Nov 21 – Sun, Nov 29" (all-day ends are exclusive), its length in days
+function eventSpan(h, e) {
+  const lang = h.locale?.language;
+  const d = (x) => x.toLocaleDateString(lang, { weekday: 'short', month: 'short', day: 'numeric' });
+  if (!e.allDay) {
+    const same = e.startD.toDateString() === e.endD.toDateString();
+    return { span: `${d(e.startD)} · ${timeFmt(e.startD, h)}${same ? '' : ` – ${d(e.endD)}`}`, days: Math.max(1, Math.round((e.endD - e.startD) / 86400e3)) };
+  }
+  const last = new Date(e.endD.getTime() - 86400e3);
+  const days = Math.max(1, Math.round((e.endD - e.startD) / 86400e3));
+  return { span: days === 1 ? d(e.startD) : `${d(e.startD)} – ${d(last)}`, days };
+}
 R.next_event = {
   tick: 60e3,
-  key: (h, s) => `${tileCacheTag(`cal:${s.calendars.join(',')}:14`)}|${new Date().getHours()}`,
+  key: (h, s) => `${tileCacheTag(`cal:${s.calendars.join(',')}:${s.days || 14}`)}|${new Date().getHours()}`,
   html(h, s, tile) {
-    const evs = getEvents(h, s.calendars, 14, tile.refresher);
+    const days = s.days || 14;
+    const evs = filterEvents(getEvents(h, s.calendars, days, tile.refresher), s);
     const e = (evs || [])[0];
     const calName = e ? (h.states[e.calendar]?.attributes?.friendly_name || '') : '';
     if (!e) {
-      return `<div class="t flex"><div class="ic"><i data-i="mdi:calendar-check"></i></div><div class="tx">
-        <div class="up">Up next</div><div class="nm">${evs === undefined ? 'Loading…' : 'Nothing planned'}</div><div class="sb">Next 2 weeks</div></div></div>`;
+      return `<div class="t flex"><div class="ic"><i data-i="${esc(s.icon || 'mdi:calendar-check')}"></i></div><div class="tx">
+        <div class="up">${esc(s.title || 'Up next')}</div><div class="nm">${evs === undefined ? 'Loading…' : 'Nothing planned'}</div><div class="sb">${days === 14 ? 'Next 2 weeks' : `Next ${days} days`}</div></div></div>`;
     }
     const w = eventWhen(h, e);
-    return `<div class="t flex"><div class="ic" style="color:var(--hv-accent)"><i data-i="mdi:calendar-heart"></i></div><div class="tx">
-      <div class="up">Next on ${esc(calName)}</div><div class="nm">${esc(e.summary)}</div><div class="sb">${esc(w.day)} · ${esc(w.time)}</div></div></div>`;
+    const sp = (s.match || s.all_day) && e.allDay ? eventSpan(h, e) : null;   // a filtered list (days off …): its dates
+    const now = e.startD <= new Date();
+    return `<div class="t flex"><div class="ic" style="color:var(--hv-accent)"><i data-i="${esc(s.icon || 'mdi:calendar-heart')}"></i></div><div class="tx">
+      <div class="up">${esc(s.title || `Next on ${calName}`)}</div><div class="nm">${now && sp ? 'Now: ' : ''}${esc(eventTitle(e, s))}</div><div class="sb">${sp ? `${esc(sp.span)} · ${sp.days === 1 ? '1 day' : `${sp.days} days`}` : `${esc(w.day)} · ${esc(w.time)}`}</div></div></div>`;
   },
   action: (h, s, tile) => (s.calendars[0] ? moreInfo(tile, s.calendars[0]) : null),
 };
@@ -1529,7 +1597,8 @@ R.agenda = {
   tick: 60e3,
   key: (h, s) => `${tileCacheTag(`cal:${s.calendars.join(',')}:${s.days || 7}`)}|${new Date().getHours()}`,
   html(h, s, tile) {
-    const evs = getEvents(h, s.calendars, s.days || 7, tile.refresher);
+    const evs = filterEvents(getEvents(h, s.calendars, s.days || 7, tile.refresher), s);
+    if (s.layout === 'list') return R.agenda.list(h, s, evs);
     const max = s.max || 8;
     let rows = '', lastDay = '';
     for (const e of (evs || []).slice(0, max)) {
@@ -1545,6 +1614,27 @@ R.agenda = {
     return `<div class="t" style="align-items:stretch;justify-content:${s.bare ? 'center' : 'flex-start'};text-align:left;padding:${s.bare ? '0 5.7cqi' : '6% 7%'};cursor:default;font-size:${s.bare ? 'clamp(13px,4.4cqi,17px)' : 'clamp(12px,4cqi,16px)'}">
       <div style="display:flex;align-items:center;gap:8px${s.bare ? ';font-size:.94em;letter-spacing:.04em;font-weight:700' : ''}" class="up"><span class="ic" style="--mdc-icon-size:1.4em"><i data-i="mdi:calendar-month-outline"></i></span>${esc(s.title || 'Up next')}</div>
       <div class="ag-list${s.bare ? ' ag-bare' : ''}">${rows}</div></div>`;
+  },
+  // layout: list — one row per event: its title, dates and length; the one under way first and
+  // marked (days off, holidays, bin days … with match:). Events of a week or more get long_icon.
+  list(h, s, evs) {
+    const max = s.max || 30;
+    const list = (evs || []).slice(0, max);
+    const nowD = new Date();
+    const rows = list.map((e) => {
+      const sp = eventSpan(h, e), on = e.startD <= nowD;
+      const icon = sp.days >= 7 ? (s.long_icon || 'mdi:calendar-range') : (s.event_icon || 'mdi:calendar-blank-outline');
+      return `<div class="ag-row${on ? ' on' : ''}"><span class="ic" style="--mdc-icon-size:24px;color:${sp.days >= 7 ? 'var(--hv-accent)' : 'var(--hv-fg2)'}"><i data-i="${esc(icon)}"></i></span>
+        <span class="ag-t"><b>${on ? 'Now: ' : ''}${esc(eventTitle(e, s))}</b><span>${esc(sp.span)}</span></span><span class="ag-n">${sp.days === 1 ? '1 day' : `${sp.days} days`}${e.weekdays !== undefined && e.weekdays !== sp.days ? `<span>${e.weekdays} ${esc(s.weekday_word || 'school')} day${e.weekdays === 1 ? '' : 's'}</span>` : ''}</span></div>`;
+    }).join('');
+    // with join_weekends: the school (working) days off, as the rows count them
+    const wk = list.some((e) => e.weekdays !== undefined);
+    const total = list.reduce((n, e) => n + (wk ? (e.weekdays ?? eventSpan(h, e).days) : eventSpan(h, e).days), 0);
+    const head = evs === undefined ? 'Loading…' : !list.length ? 'Nothing on the calendar'
+      : `${list.length} coming · ${total}${wk ? ` ${s.weekday_word || 'school'}` : ''} day${total === 1 ? '' : 's'}${wk ? ' off' : ''}`;
+    return `<div class="t" style="align-items:stretch;justify-content:flex-start;text-align:left;padding:18px;cursor:default;font-size:15px">
+      <div style="display:flex;align-items:center;gap:8px" class="up"><span class="ic" style="--mdc-icon-size:1.4em"><i data-i="${esc(s.icon || 'mdi:calendar-month-outline')}"></i></span>${esc(s.title || 'Coming up')}<span style="margin-left:auto;text-transform:none;letter-spacing:0;font-weight:500">${esc(head)}</span></div>
+      <div class="ag-rows">${rows}</div></div>`;
   },
 };
 
@@ -2281,6 +2371,11 @@ class HomeViewTile extends HTMLElement {
     if (card && this._spec.row && card.classList.contains('flex')) card.classList.add('row-t');
     fillIcons(this._wrap, this._hass);
     if (r.update) r.update(this._hass, this._spec, this);
+    // size: … x auto on a HomeView widget (an agenda list …): the rows its content needs, measured
+    // after drawing (as cards are); grows with the content, never clipped
+    if (card && ((this._spec.size || [])[1] === 'auto' || (this._spec.phoneSpan || [])[1] === 'auto')) {
+      requestAnimationFrame(() => { const hh = Math.ceil(card.scrollHeight); if (hh && hh !== this._hvAutoH) { this._hvAutoH = hh; this._hvAuto?.(); } });
+    }
   }
 
   // a Lovelace card from the user's config, created once with HA's card helpers

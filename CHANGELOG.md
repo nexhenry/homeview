@@ -13,6 +13,16 @@
   lists. It now spans the list's columns, and a tile two rows tall shows as a full tile.
 - **List rows: one ⋯ button.** The six edit buttons covered a list row's name. A row now has one
   ⋯ that opens its actions in a sheet, each with its name.
+- **Filtered calendars.** `agenda` and `next_event` take `match:` (only events whose title matches;
+  text or a regex, case-insensitive), `all_day: true` and `strip:` (text removed from titles).
+  `join_weekends: true` stretches a day off over the weekend right before or after it, and joins
+  breaks that then touch (a Monday off: Sat–Mon; a Mon–Fri break: Sat–Sun, 9 days, "5 school
+  days"). `next_event` also takes `days`, `title` and `icon`. `agenda` takes `layout: list`: one row per
+  event with its dates and length, and the one under way marked "Now". New sample page:
+  `custom_pages/days-off.yaml`, a popup with every school day off, opened by any tile's
+  `tap: days-off`.
+- **`size: … x auto` on HomeView widgets.** It used to measure only Lovelace cards; an agenda list
+  now gets the rows it needs.
 - **Rename a page.** In edit mode, ✎ next to the title: a room's page renames the room; any other
   page sets `pages_config.<page>.title`, the title and its page-bar name. Person and custom pages
   are keyed by their path (`member-zoe`, `pond`).

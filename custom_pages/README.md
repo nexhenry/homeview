@@ -11,6 +11,7 @@ has a fully annotated starter and four ready-made pages:
 | [`energy-history.yaml`](energy-history.yaml) | Energy History | **hold the Energy pill** | nothing: it uses your Energy settings |
 | [`pond.yaml`](pond.yaml) | Pond | **tap its own Pond pill** (`pill:` in the file) | `vars:` (pumps, filter, UV, light, water) |
 | [`admin.yaml`](admin.yaml) | Admin (admins only) | **hold the Home title** | `vars:` (modes, actions, automations) |
+| [`days-off.yaml`](days-off.yaml) | Days off (a popup) | **tap a tile** with `tap: days-off` | `vars:` (calendar, the words that mean a day off) |
 | [`dashboard.yaml`](dashboard.yaml) | — | — | the dashboard that loads them, with those holds |
 
 ## One name per page
@@ -139,6 +140,7 @@ entity. That makes a page easy to share: everything house-specific is at the top
 | An entity | `light.kitchen` or `{ entity: light.kitchen, name: Island, icon: mdi:x, size: 2x1 }` |
 | A room | `{ type: room, area: kitchen }` |
 | A HomeView widget | `{ type: clock }` · `weather` · `forecast` · `date` · `next_event` · `agenda` · `camera` · `person` · `chart` (a 24-hour graph of `entity`) |
+| A filtered calendar | `{ type: agenda, calendars: [calendar.school], match: 'no school\|break', all_day: true, days: 300, layout: list }`: only the events whose title matches, one row each with its dates and length (`strip:` removes text from titles; `join_weekends: true` adds the weekend right before or after a day off and joins breaks that then touch, so a Monday off runs Sat–Mon; `long_icon` / `event_icon`). `next_event` takes the same `match` / `all_day` / `days`, plus `title` / `icon` |
 | Any Lovelace card | `{ card: { type: history-graph, entities: [sensor.x] }, size: full x 2 }`. Includes HACS cards and the Energy cards (`energy-usage-graph`, `energy-date-selection` …) |
 
 `size` is *columns* x *rows*: `1x1`, `2x1`, `3x2`. `full` is the page's width and `half` is half
