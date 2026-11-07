@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.8.19 — 2026-11-07
 
 - **Faster swiping.** Measured on a phone-speed CPU: first visits to a page are 13–54% quicker
   (Cameras 1.0 → 0.47 s, Lucy 1.0 → 0.76 s, Widgets 1.4 → 1.1 s, Living 1.6 → 1.3 s), and
