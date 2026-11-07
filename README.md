@@ -291,6 +291,21 @@ strategy:
   stays in charge. Custom pages always come from the files.
 - To start over, delete that dashboard (Settings → Dashboards).
 - `ui_edits: false` turns this off: HomeView then shows the YAML to paste into the file instead.
+- Note: the companion's name follows the dashboard's address. If you rename the dashboard, copy
+  the old `<dashboard>-edits` into the new one, or the edits stay behind.
+
+**A second dashboard that mirrors the first** (a test copy, a kiosk): make a dashboard in the UI
+and set its raw config to
+
+```yaml
+strategy:
+  type: custom:homeview
+  from: home-view          # the other dashboard's address
+```
+
+It shows that dashboard's settings, pages and on-screen edits, read each time it loads. Changes you
+make on the copy (edit mode, Settings) are kept in its own config as `edits:` and never touch the
+original.
 
 Admins see a note on the page when the config has an option HomeView doesn't know — usually
 a typo.
@@ -675,8 +690,17 @@ There is no build step: `dist/homeview.js` is the source, a plain ES module.
 ./scripts/check.sh                 # syntax check (Node, or Docker's node image)
 ```
 
-Try a change on your own Home Assistant by copying `dist/homeview.js` over the installed file
-and reloading the browser (bump `?v=` on the resource if it is cached).
+**Test next to the HACS release** without touching your everyday dashboard:
+
+```sh
+./scripts/dev-build.sh /config/www/homeview-dev/homeview.js   # a copy with its own element names
+```
+
+1. Add `/local/homeview-dev/homeview.js` as a dashboard resource (JavaScript module).
+2. Make a test dashboard with `strategy: { type: custom:homeview-dev, from: <your dashboard> }`.
+
+The test dashboard runs your copy with your real settings and pages, while every other dashboard
+keeps running the HACS release. After each change, run the build again and reload the browser.
 
 ## License
 

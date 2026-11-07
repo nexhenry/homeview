@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- **`from: <dashboard>`: a dashboard that mirrors another.** It shows that dashboard's settings,
+  pages and on-screen edits, read each time it loads. Its own changes are kept in its config as
+  `edits:` and never touch the original. Use it for a test copy or a kiosk.
+- **`scripts/dev-build.sh`** makes a development copy (`custom:homeview-dev`, its own element
+  names) that runs next to the HACS release. Point a test dashboard at your real one with
+  `from:` to try changes on your own settings and pages.
+
 ## 0.8.13 — 2026-11-07
 
 - **Control pages.** Custom pages can now be laid out like a hand-made control panel:
