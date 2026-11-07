@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+- **Energy History: the 10 biggest devices, and "More (41)".** The devices chart shows the top 10
+  (`max_devices: 10`), so its pie view fits its card instead of keeping the height of ~40 bars. The
+  button says how many devices you track ("More (41)") and lists them all as bars; "Top 10" goes
+  back. The chart's own "More (4)" legend chip is hidden, so there's one way to see more. New
+  card-tile options: `more:` (a button that switches a card to other settings), `{energy_devices}`
+  in its labels, and `legend_more: false` (custom_pages/README.md).
+- **Fix: a thermostat tile looked "working" while the HVAC was off.** The tile lit up whenever a
+  mode was set (Heat/Cool), even while idle. It now lights up only while the system is actually
+  heating, cooling, drying or running the fan (`hvac_action`), as the climate pill already did.
+  Thermostats that don't report it behave as before.
+- **Fix: the Widgets page's "Up next" said "Nothing planned" while Home's Next tile showed an
+  event.** The Widgets agenda looked one week ahead, Home's Next tile two. Both now look two weeks
+  ahead. An empty agenda now says how far it looked ("Nothing in the next 2 weeks").
+- **A Warnings pill.** List the conditions that need attention under `warnings:` (a fridge plug
+  switched off or offline, a valve shut …), with the same rules as a page's alerts: `not_on`, `on`,
+  `off`, `all_off`. While any of them is true, a Warnings pill shows first on Home: red for a
+  critical warning, amber for notices, with the warning itself or "2 warnings" as its text. Tap it
+  for a pop-up with each warning's entities, to switch or open them straight away. No warnings, no
+  pill. `pills:` can place it (`warnings`); otherwise it comes first.
+
 ## 0.8.16 — 2026-11-07
 
 - **Pill pop-ups open at the top.** Locks, Lights, Doors & Windows and the other pill sheets now

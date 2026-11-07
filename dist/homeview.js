@@ -66,7 +66,7 @@ const KNOWN_OPTIONS = ['type', 'title', 'theme', 'pages', 'pages_config', 'room_
   'exclude_entities', 'customize', 'people', 'calendars', 'weather', 'cameras', 'home', 'pills', 'battery_low',
   'people_chips', 'energy', 'tile_size', 'max_columns', 'swipe', 'custom_pages', 'edit_button', 'update_notice',
   'kiosk', 'kiosk_chip', 'members', 'living_rooms', 'widgets', 'avatars', 'phone_favorites', 'access',
-  'comfort', 'comfort_thermostat', 'comfort_margin', 'comfort_limits', 'screensaver', 'rows_on_screen', 'ui_edits', 'from', 'edits', 'font'];   // energy.* : see the energy page
+  'comfort', 'comfort_thermostat', 'comfort_margin', 'comfort_limits', 'screensaver', 'rows_on_screen', 'ui_edits', 'from', 'edits', 'font', 'warnings'];   // energy.* : see the energy page
 
 // What a room page / room row shows, in this order
 const ROOM_GROUPS = [
@@ -677,7 +677,14 @@ function isActive(st) {
   if (!st || UNAVAILABLE.includes(st.state)) return false;
   const s = st.state;
   switch (domainOf(st.entity_id)) {
-    case 'climate': case 'water_heater': case 'humidifier': return s !== 'off';
+    // a thermostat is "working" while it heats / cools … (hvac_action), not just because a mode is
+    // set: heat_cool + idle is not on. Without hvac_action: any mode but off, as before
+    case 'climate':
+      if (st.attributes?.hvac_action !== undefined && st.attributes.hvac_action !== null) {
+        return ['heating', 'cooling', 'drying', 'fan', 'preheating', 'defrosting'].includes(st.attributes.hvac_action);
+      }
+      return s !== 'off';
+    case 'water_heater': case 'humidifier': return s !== 'off';
     case 'lock': return s !== 'locked';
     case 'cover': case 'valve': return s !== 'closed';
     case 'media_player': return ['playing', 'on', 'paused', 'buffering'].includes(s);
@@ -1318,6 +1325,16 @@ R.add = {
     <div class="ic" style="color:var(--hv-accent)"><i data-i="mdi:plus"></i></div><div class="tx"><div class="nm">Add</div><div class="sb">a tile here</div></div></div>`,
 };
 // ---- power, pills, buttons, faders (custom pages) -------------------------------------------
+/** How many devices the Energy settings track (cached a few minutes). */
+function energyDeviceCount(hass) {
+  return new Promise((resolve) => {
+    const v = cached('energy-device-count', 5 * 60e3, async () => {
+      const p = await ws(hass, { type: 'energy/get_prefs' });
+      return (p?.device_consumption || []).length;
+    }, () => resolve(cached('energy-device-count', 5 * 60e3, async () => null)));
+    if (v !== undefined) resolve(v);
+  });
+}
 /** A power sensor's value in W (W / kW / MW), or null. */
 function toWatts(st) {
   const v = num(st?.state);
@@ -1845,7 +1862,8 @@ R.agenda = {
         <span style="font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.summary)}</span>
         <span style="color:var(--hv-fg2);flex:none">${esc(w.time)}</span></div>`;
     }
-    if (!rows) rows = `<div class="sb" style="margin-top:8px">${evs === undefined ? 'Loading…' : 'Nothing planned'}</div>`;
+    const span = (s.days || 7) === 14 ? 'the next 2 weeks' : (s.days || 7) === 7 ? 'the next week' : `the next ${s.days} days`;
+    if (!rows) rows = `<div class="sb" style="margin-top:8px">${evs === undefined ? 'Loading…' : `Nothing in ${span}`}</div>`;
     // the Widgets board: centred in its area, a hand-made HomeView's 16–17 px on a tablet
     return `<div class="t" style="align-items:stretch;justify-content:${s.bare ? 'center' : 'flex-start'};text-align:left;padding:${s.bare ? '0 5.7cqi' : '6% 7%'};cursor:default;font-size:${s.bare ? 'clamp(13px,4.4cqi,17px)' : 'clamp(12px,4cqi,16px)'}">
       <div style="display:flex;align-items:center;gap:8px${s.bare ? ';font-size:.94em;letter-spacing:.04em;font-weight:700' : ''}" class="up"><span class="ic" style="--mdc-icon-size:1.4em"><i data-i="mdi:calendar-month-outline"></i></span>${esc(s.title || 'Up next')}</div>
@@ -2626,13 +2644,20 @@ class HomeViewTile extends HTMLElement {
       }, 600);
       if (this._edit && !this._wrap.querySelector('.edit')) this._wrap.insertAdjacentHTML('beforeend', this._editHtml());
       if (!this._edit) this._wrap.querySelector('.edit')?.remove();
+      if (this._spec.legend_more === false) this._hideLegendMore();
       return;
     }
     if (this._card === 'loading') return;
     this._card = 'loading';
     (async () => {
       const helpers = await window.loadCardHelpers();
-      const el = helpers.createCardElement(this._spec.card);
+      // more: — the expanded settings while "Show all" is on
+      let conf = this._spec.card;
+      if (this._expanded && this._spec.more && typeof this._spec.more === 'object') {
+        conf = { ...conf, ...this._spec.more };
+        for (const [k, v] of Object.entries(this._spec.more)) if (v === null) delete conf[k];
+      }
+      const el = helpers.createCardElement(conf);
       el.hass = this._hass;
       const box = document.createElement('div');
       box.style.cssText = 'height:100%;overflow:auto;border-radius:var(--hv-radius,22px);display:flex;flex-direction:column;justify-content:safe center;background:var(--hv-tile)';
@@ -2647,6 +2672,19 @@ class HomeViewTile extends HTMLElement {
       box.appendChild(el);
       this._wrap.replaceChildren(box);
       this._wrap.style.position = 'relative';
+      if (this._spec.more) {   // the Show all / Show less button, top left (HA's card buttons sit top right)
+        const b = document.createElement('button');
+        b.textContent = this._expanded ? (this._spec.less_label || 'Show less') : (this._spec.more_label || 'Show all');
+        // {energy_devices}: how many devices the Energy settings track (e.g. "More (41)")
+        if (/\{energy_devices\}/.test(b.textContent)) {
+          const label = b.textContent;
+          b.textContent = label.replace('{energy_devices}', '…');
+          energyDeviceCount(this._hass).then((n) => { b.textContent = label.replace('{energy_devices}', n ?? '?'); });
+        }
+        b.style.cssText = 'all:unset;position:absolute;top:12px;left:14px;z-index:2;cursor:pointer;padding:6px 12px;border-radius:999px;background:var(--hv-pill);color:var(--hv-fg);font:inherit;font-size:13.5px;font-weight:650';
+        b.addEventListener('click', (e) => { e.stopPropagation(); this._expanded = !this._expanded; this._card = null; this._hvAutoH = null; this._renderCard(); });
+        this._wrap.appendChild(b);
+      }
       this._card = el;
       this._cardBox = box;
       // size: … x auto — natural height, measured: the page gives the tile that many rows
@@ -2657,6 +2695,21 @@ class HomeViewTile extends HTMLElement {
       }
       this._renderCard();
     })().catch((e) => { this._card = null; this._wrap.innerHTML = `<div class="t na"><div class="sb">Card error: ${esc(e.message)}</div></div>`; });
+  }
+
+  /** legend_more: false — hide HA's "More (n)" chip at the end of a chart's legend (ha-chart-base),
+   *  on every draw (switching bar / pie can draw a new chart) */
+  _hideLegendMore() {
+    clearTimeout(this._legendT);
+    this._legendT = setTimeout(() => {
+      const base = deepFind(this._card, 'ha-chart-base', 6);
+      const sr = base?.shadowRoot;
+      if (sr && !sr.querySelector('style[data-hv-legend]')) {
+        const st = document.createElement('style'); st.dataset.hvLegend = '';
+        st.textContent = '.chart-legend li:has(ha-assist-chip) { display:none !important; }';
+        sr.appendChild(st);
+      }
+    }, 300);
   }
 
   _editHtml() {
@@ -2723,6 +2776,22 @@ customElements.get('homeview-tile') || customElements.define('homeview-tile', Ho
  * ========================================================================================== */
 
 const PILLS = {
+  // warnings: [{ text, level: critical | notice, not_on | on | off | all_off, text_offline, entities }]
+  // (the same rules as a custom page's alerts:). Shows only while one is active: red for a critical
+  // one, amber for notices; tap = a pop-up with each warning's entities to switch or open.
+  warnings(h, m, cfg) {
+    const list = asList(cfg.warnings).filter((w) => w && typeof w === 'object');
+    const active = list.map((w) => ({ w, a: pageAlerts(h, [w])[0] })).filter((x) => x.a);
+    if (!active.length) return null;
+    const crit = active.some((x) => x.a.level === 'critical');
+    const idsOf = (w) => asList(w.entities || [w.not_on, w.on, w.off, ...asList(w.all_off)]).filter((id) => id && h.states[id]);
+    return {
+      icon: crit ? 'mdi:alert-circle' : 'mdi:alert', alert: crit, tone: crit ? null : 'warn',
+      text: active.length === 1 ? active[0].a.text : `${active.length} warnings`,
+      popup: { title: 'Warnings', showRoom: true,
+        groups: active.map(({ w, a }) => ({ title: a.text, ids: idsOf(w), tone: a.level === 'critical' ? 'red' : 'amber' })) },
+    };
+  },
   alarm(h, m) {
     const id = (m.byDomain.alarm_control_panel || [])[0];
     const st = h.states[id];
@@ -3034,7 +3103,11 @@ function userTile(def, h, m) {
 }
 function userTileBase(def, h, m) {
   const size = parseSize(def.size);
-  if (def.card) return { kind: 'card', card: def.card, size: size || [2, 2] };
+  // more: { … } — a "Show all" button on the card that switches it to these settings (null removes
+  // one), e.g. { max_devices: null }; more_label / less_label for the button's words
+  // legend_more: false — hide a chart card's own "More (n)" legend chip (HA's), e.g. when more: gives
+  // a better "show all"; the legend keeps the names that fit
+  if (def.card) return { kind: 'card', card: def.card, size: size || [2, 2], more: def.more, more_label: def.more_label, less_label: def.less_label, legend_more: def.legend_more };
   const t = def.type;
   if (t === 'room') {
     const r = m.areaById[def.area];
@@ -3187,7 +3260,8 @@ const PAGES = {
     const wc = cfg.widgets || {};
     const board = [{ kind: 'date', area: 'date', bare: true }, { kind: 'clock', area: 'clock', bare: true }];
     if (m.weather) board.push({ kind: 'forecast', entity: m.weather, days: 3, area: 'weather', bare: true });
-    if (m.calendars.length) board.push({ kind: 'agenda', calendars: m.calendars, days: 7, max: 5, area: 'next', bare: true, title: 'Up next' });
+    // the same 2 weeks as Home's Next tile, so the two never disagree (7 days missed an event 8 days out)
+    if (m.calendars.length) board.push({ kind: 'agenda', calendars: m.calendars, days: 14, max: 5, area: 'next', bare: true, title: 'Up next' });
     // the photo slideshow (the camera is on Home; widgets.camera: <entity> puts one here instead)
     if (wc.camera) {
       board.push({ kind: 'camera', entity: wc.camera, area: 'cam' });
@@ -4078,7 +4152,7 @@ class HomeViewPage extends HTMLElement {
     const base = asList(cfg.pills && cfg.pills !== true ? cfg.pills : DEFAULT_PILLS);
     const byId = new Map(this._pills.map(([i, , d]) => [String(i), d]));
     const shown = order.map((i) => byId.get(String(i))).filter(Boolean);
-    const entry = (d) => (typeof d.src === 'number' ? base[d.src] : { page_pill: String(d.src).slice(5) });
+    const entry = (d) => (typeof d.src === 'number' ? base[d.src] : d.src === 'pill:warnings' ? 'warnings' : { page_pill: String(d.src).slice(5) });
     const list = shown.map(entry);
     const used = new Set(shown.filter((d) => typeof d.src === 'number').map((d) => d.src));
     // a pill not showing goes back right after the one before it in the old list (first: at the front)
@@ -4418,6 +4492,8 @@ class HomeViewPage extends HTMLElement {
       ? asList(cfg.pills && cfg.pills !== true ? cfg.pills : DEFAULT_PILLS)
         .map((x, k) => (typeof x === 'string' ? { pill: x, src: k } : x && typeof x === 'object' && x.page_pill ? (this._config.page === 'home' && pagePill(x.page_pill) ? { ...pagePill(x.page_pill), src: k } : null) : x && typeof x === 'object' ? { ...x, src: k } : null))
         .filter((d) => d && !(d.pill === 'alarm' && chipAlarm))
+        // warnings: (when set): first, unless pills: places it
+        .reduce((acc, d) => acc.concat([d]), cfg.warnings && this._config.page === 'home' && !asList(cfg.pills).includes('warnings') ? [{ pill: 'warnings', src: 'pill:warnings' }] : [])
         // pills from custom pages (unless a listed pill already opens that page, or places it)
         .concat(this._config.page !== 'home' ? [] : asList(this._config.pagePills)
           .filter((pp) => !asList(cfg.pills).some((d) => d && typeof d === 'object' && (d.hold === pp.page || d.tap === pp.page || d.page_pill === pp.page)))
@@ -4699,7 +4775,7 @@ const EDITOR_LABELS = {
 };
 
 const PILL_NAMES = { alarm: 'Alarm', climate: 'Climate', lights: 'Lights on', locks: 'Locks', openings: 'Doors & windows',
-  safety: 'Leaks, smoke & gas', batteries: 'Batteries', media: 'Now playing' };
+  safety: 'Leaks, smoke & gas', batteries: 'Batteries', media: 'Now playing', warnings: 'Warnings (warnings:)' };
 
 // What HomeView does when an option is not set: shown in the editor, left out when saving
 const EDITOR_DEFAULTS = { theme: 'auto', pages: DEFAULT_PAGES, swipe: true, edit_button: true, update_notice: true, kiosk: true, kiosk_chip: true, avatars: 'samples', people_chips: true, battery_low: 20,

@@ -473,6 +473,12 @@ strategy:
 
   pills: [alarm, climate, energy, lights, locks, openings, safety, batteries, media]   # or false; items can also be
                                   # { pill: energy, hold: <page> } or { entity, name, icon, alert: [states], hold: <page> }
+  warnings:                       # a Warnings pill, first on Home, only while one of these is true:
+    - { text: Kitchen fridge off, text_offline: Kitchen fridge offline, level: critical,
+        not_on: switch.kitchen_fridge, entities: [switch.kitchen_fridge, sensor.kitchen_fridge_power] }
+    - { text: Water shut off, level: notice, off: switch.water_valve }
+                                  # rules: not_on / on / off / all_off: [ids]; critical = red, notice = amber;
+                                  # tap = a pop-up with each warning's entities (default: the ones in its rule)
   battery_low: 20                 # % under which a battery counts as low
   screensaver: auto               # big clock after 2 min idle: auto = touch tablets only; true; false;
                                   # or { idle: 120, color: '#4D7DB8', pages: [home, living] }

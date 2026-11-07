@@ -30,6 +30,12 @@ sections:
       - card: { type: energy-solar-graph }      # empty if you have no solar
         size: full x auto
         phone_size: 2xauto
-      - card: { type: energy-devices-graph }
+      # the 10 biggest devices (bar or pie, sized to them); "All devices" lists every one, as bars
+      # (a pie with dozens of slices can't be read, and the card sizes its pie by the device count)
+      - card: { type: energy-devices-graph, max_devices: 10 }
+        more: { max_devices: null, modes: [bar] }
+        more_label: More ({energy_devices})        # how many devices the Energy settings track
+        less_label: Top 10
+        legend_more: false                         # no "More (4)" of the chart's own: More (41) shows them all
         size: full x auto
         phone_size: 2xauto
