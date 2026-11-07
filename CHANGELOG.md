@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.8.12 — 2026-11-07
 
 - **Edit a room's tiles.** In edit mode, Living, a person's page and a room's page get a dashed
   **+ Add** tile: search the devices and entities and add one to that room. Every tile gains
@@ -23,6 +23,9 @@
   `tap: days-off`.
 - **`size: … x auto` on HomeView widgets.** It used to measure only Lovelace cards; an agenda list
   now gets the rows it needs.
+- **Move pills and chips.** In edit mode, drag a status pill or a chip to a new place (mouse or
+  touch). Saved as `pills:` / `home.chips:`. `pills:` takes `{ page_pill: <path> }` to place a
+  custom page's pill.
 - **Rename a page.** In edit mode, ✎ next to the title: a room's page renames the room; any other
   page sets `pages_config.<page>.title`, the title and its page-bar name. Person and custom pages
   are keyed by their path (`member-zoe`, `pond`).

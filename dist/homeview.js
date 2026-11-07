@@ -11,7 +11,7 @@
  * Home, Widgets, Family, Rooms (plus one page per room), Energy and Cameras. Everything is
  * optional and can be tuned in the strategy config — see README.md.
  */
-const HV_VERSION = '0.8.11';
+const HV_VERSION = '0.8.12';
 // where this file was loaded from (to re-download it after an update)
 const HV_URL = (() => { try { return import.meta.url; } catch (e) { return null; } })();
 
@@ -3267,6 +3267,11 @@ const PAGE_CSS = `
 .pill.alert ha-icon { color:#fff; }
 .people { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
 .chips { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+/* edit mode: chips and pills move by dragging */
+@keyframes hv-wiggle { from { transform:rotate(-.6deg); } to { transform:rotate(.6deg); } }
+.sorting > [data-chip], .sorting > [data-pill] { cursor:grab; touch-action:none; user-select:none; -webkit-user-select:none;
+  outline:1.5px dashed var(--hv-accent); outline-offset:2px; animation:hv-wiggle .35s ease-in-out infinite alternate; }
+.sorting > .dragging { cursor:grabbing; animation:none; transform:scale(1.08); box-shadow:0 6px 18px rgba(0,0,0,.22); z-index:3; position:relative; }
 .chp { all:unset; box-sizing:border-box; cursor:pointer; height:40px; min-width:40px; padding:0 9px; border-radius:999px; background:var(--hv-pill);
   display:inline-flex; align-items:center; justify-content:center; gap:6px; color:var(--hv-icon); --mdc-icon-size:22px;
   -webkit-tap-highlight-color:transparent; user-select:none; -webkit-user-select:none; transition:background .2s, color .2s; }
@@ -3705,6 +3710,68 @@ class HomeViewPage extends HTMLElement {
     });
   }
 
+  // edit mode: drag a chip / pill to a new place (pointer events: mouse, touch and pen alike).
+  // The item follows the pointer through the row, live; on release, onDrop gets the new order of
+  // the items' data-<key> values (only when something moved)
+  _sortable(box, sel, key, onDrop) {
+    box.classList.add('sorting');
+    box.querySelectorAll(sel).forEach((el) => {
+      el.addEventListener('pointerdown', (e) => {
+        if (e.button > 0) return;
+        e.preventDefault();
+        const before = [...box.querySelectorAll(sel)].map((x) => x.dataset[key]).join();
+        const x0 = e.clientX, y0 = e.clientY;
+        let moved = false;
+        this._dragging = true;
+        el.classList.add('dragging');
+        const move = (ev) => {
+          if (!moved && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 6) return;
+          moved = true;
+          const over = [...box.querySelectorAll(sel)].find((x) => {
+            if (x === el) return false;
+            const r = x.getBoundingClientRect();
+            return ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top - 4 && ev.clientY <= r.bottom + 4;
+          });
+          if (over) { const r = over.getBoundingClientRect(); over.insertAdjacentElement(ev.clientX > r.left + r.width / 2 ? 'afterend' : 'beforebegin', el); }
+        };
+        const up = () => {
+          window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up);
+          el.classList.remove('dragging');
+          this._dragging = false;
+          const order = [...box.querySelectorAll(sel)].map((x) => x.dataset[key]);
+          if (moved && order.join() !== before) onDrop(order); else this._renderHead();
+        };
+        window.addEventListener('pointermove', move); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
+      });
+    });
+  }
+
+  // chips in their new order → home.chips (an automatic set is written out as it is now)
+  _saveChipOrder(chips, order) {
+    const list = order.map((i) => chips[Number(i)]).filter(Boolean)
+      .map((c) => (Object.keys(c).length === 1 ? c.entity : c));
+    return this._save((o) => { o.home = o.home || {}; o.home.chips = list; });
+  }
+
+  // pills in their new order → pills: (the default set is written out). Pills not showing right
+  // now (no lights, the alarm pill beside an alarm chip …) keep their place in the list.
+  _savePillOrder(order) {
+    const cfg = this._config.options || {};
+    const base = asList(cfg.pills && cfg.pills !== true ? cfg.pills : DEFAULT_PILLS);
+    const byId = new Map(this._pills.map(([i, , d]) => [String(i), d]));
+    const shown = order.map((i) => byId.get(String(i))).filter(Boolean);
+    const entry = (d) => (typeof d.src === 'number' ? base[d.src] : { page_pill: String(d.src).slice(5) });
+    const list = shown.map(entry);
+    const used = new Set(shown.filter((d) => typeof d.src === 'number').map((d) => d.src));
+    // a pill not showing goes back right after the one before it in the old list (first: at the front)
+    base.forEach((x, k) => {
+      if (used.has(k)) return;
+      const at = k === 0 ? -1 : list.indexOf(base[k - 1]);
+      list.splice(at + 1, 0, x);
+    });
+    return this._save((o) => { o.pills = list; });
+  }
+
   // edit mode: the page's title. A room's page renames the room (rooms.<area>.name, everywhere it
   // shows); any other page: pages_config.<path>.title (its title and its name in the page bar)
   async _renamePage() {
@@ -4005,19 +4072,25 @@ class HomeViewPage extends HTMLElement {
   _renderHead() {
     const h = this._hass, page = this._page, head = this._head;
     if (!h || !page || !head) return;
+    if (this._dragging) { this._headKey = null; return; }   // not under a finger mid-drag: after it
     const cfg = this._config.options || {};
     const m = this._model;
     const chipAlarm = asList(page.chips).some((c) => domainOf(c.entity) === 'alarm_control_panel');
     // phones: the status pills on Home only (as on a hand-made iPhone HomeView)
     // pills: [lights, { pill: energy, hold: energy-history }, { entity: sensor.pond_temp, name: Pond, hold: pond }]
     // status pills: Home only (custom pages with pills: true too), top right beside the title
+    // each pill keeps where it came from (src: its index in pills:, or page:<path> for a custom
+    // page's own pill) so edit mode can save a new order. { page_pill: pond } in pills: places a
+    // custom page's pill (its look still comes from the page file)
+    const pagePill = (path) => { const pp = asList(this._config.pagePills).find((x) => x.page === path); return pp ? { ...pp, tap: pp.tap || pp.page } : null; };
     const pills = page.pills && cfg.pills !== false && ['home', 'custom'].includes(this._config.page)
       ? asList(cfg.pills && cfg.pills !== true ? cfg.pills : DEFAULT_PILLS)
-        .map((x) => (typeof x === 'string' ? { pill: x } : x)).filter((d) => d && typeof d === 'object' && !(d.pill === 'alarm' && chipAlarm))
-        // pills from custom pages (unless a listed pill already opens that page)
+        .map((x, k) => (typeof x === 'string' ? { pill: x, src: k } : x && typeof x === 'object' && x.page_pill ? (this._config.page === 'home' && pagePill(x.page_pill) ? { ...pagePill(x.page_pill), src: k } : null) : x && typeof x === 'object' ? { ...x, src: k } : null))
+        .filter((d) => d && !(d.pill === 'alarm' && chipAlarm))
+        // pills from custom pages (unless a listed pill already opens that page, or places it)
         .concat(this._config.page !== 'home' ? [] : asList(this._config.pagePills)
-          .filter((pp) => !asList(cfg.pills).some((d) => d && typeof d === 'object' && (d.hold === pp.page || d.tap === pp.page)))
-          .map((pp) => ({ ...pp, tap: pp.tap || pp.page })))
+          .filter((pp) => !asList(cfg.pills).some((d) => d && typeof d === 'object' && (d.hold === pp.page || d.tap === pp.page || d.page_pill === pp.page)))
+          .map((pp) => ({ ...pp, tap: pp.tap || pp.page, src: `page:${pp.page}` })))
         .map((d, i) => [i, d.pill ? PILLS[d.pill]?.(h, m, cfg, this) : d.entity || d.page ? entityPill(h, d) : null, d]).filter(([, p]) => p)
       : [];
     this._pills = pills;
@@ -4068,7 +4141,7 @@ class HomeViewPage extends HTMLElement {
         <div class="nav">${nav.length > 1 && window.innerWidth < 870 ? '<button class="nv" data-sidebar title="Home Assistant menu" aria-label="Home Assistant menu"><ha-icon icon="mdi:dock-left"></ha-icon></button>' : ''}${nav.length > 1 ? nav.map((v) => `<button class="nv${v.path === here ? ' on' : ''}" data-nav-to="${esc(v.path)}" title="${esc(v.title)}">${v.avatar ? `<img class="lt" src="${esc(v.avatar)}" alt="">` : v.letter ? `<span class="lt">${esc(v.letter)}</span>` : `<ha-icon icon="${esc(v.icon)}"></ha-icon>`}<span>${esc(v.title)}</span></button>`).join('') : ''}</div>
         ${barBtns ? `<span class="tbb">${barBtns}</span>` : ''}</div>` : '';
     // edit mode's bar: on every page while editing (Widgets too, which has no title)
-    const editbar = editing ? `<div class="editbar"><span><b>Editing</b> · <ha-icon icon="mdi:star-outline"></ha-icon> on Home · <ha-icon icon="mdi:resize"></ha-icon> size · <ha-icon icon="mdi:rename-outline"></ha-icon> name · <ha-icon icon="mdi:eye-off-outline"></ha-icon> hide · <ha-icon icon="mdi:palette-outline"></ha-icon> room colour</span>
+    const editbar = editing ? `<div class="editbar"><span><b>Editing</b> · <ha-icon icon="mdi:star-outline"></ha-icon> on Home · <ha-icon icon="mdi:resize"></ha-icon> size · <ha-icon icon="mdi:rename-outline"></ha-icon> name · <ha-icon icon="mdi:eye-off-outline"></ha-icon> hide · <ha-icon icon="mdi:palette-outline"></ha-icon> room colour · drag pills and chips to move them</span>
           <span class="eb">${canReload ? `<button class="txt" data-reload-pages title="${yamlDash ? 'Read the dashboard\'s files again — after adding or editing a page in homeview/custom_pages/' : 'Read this dashboard\'s saved config again — after editing it in the raw configuration editor'}"><ha-icon icon="mdi:file-refresh-outline"></ha-icon> Reload pages</button>` : ''}<button class="txt" data-settings><ha-icon icon="mdi:cog-outline"></ha-icon> Settings</button><button class="txt primary" data-edit-off>Done</button></span></div>` : '';
     head.innerHTML = page.minimalHead ? `${topbar}${editbar}` : `${topbar}<div>
         <div class="date">${esc(today)}</div>
@@ -4091,7 +4164,12 @@ class HomeViewPage extends HTMLElement {
     head.querySelector('[data-back]')?.addEventListener('click', () => (history.length > 1 ? history.back() : navigate('living')));
     head.querySelector('[data-close-page]')?.addEventListener('click', () => (history.length > 1 ? history.back() : navigate('home')));
     fillIcons(head, h);
-    head.querySelectorAll('[data-chip]').forEach((el) => {
+    if (editing && canEdit) {
+      const cb = head.querySelector('.chips'), pb = head.querySelector('.pills');
+      if (cb) this._sortable(cb, '[data-chip]', 'chip', (order) => this._saveChipOrder(chips, order));
+      if (pb) this._sortable(pb, '[data-pill]', 'pill', (order) => this._savePillOrder(order));
+    }
+    if (!editing) head.querySelectorAll('[data-chip]').forEach((el) => {
       const c = chips[Number(el.dataset.chip)];
       bindPress(el, () => { const p = chipTap(this._hass, c, this); if (p?.catch) p.catch((e) => console.warn('HomeView chip', e)); },
         () => moreInfo(this, c.entity));
@@ -4129,7 +4207,7 @@ class HomeViewPage extends HTMLElement {
     }
     head.querySelectorAll('[data-more]').forEach((el) => el.addEventListener('click', () => moreInfo(this, el.dataset.more)));
     // pill tap: its sheet / details / page; hold: the page its hold: names (else the same as a tap)
-    head.querySelectorAll('[data-pill]').forEach((el) => {
+    if (!editing) head.querySelectorAll('[data-pill]').forEach((el) => {
       const act = (kind) => {
         const [, p, d] = this._pills.find(([i]) => String(i) === el.dataset.pill) || [];
         if (!p || d[kind] === 'none') return;

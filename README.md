@@ -241,6 +241,11 @@ comes from its device, or one past the first few, gets a tile, e.g. a TV on a ch
 A room you've added or removed tiles in keeps that list (`rooms.<area>.entities`); a person's page
 shows it too.
 
+**Drag a pill or chip** to move it (they wiggle in edit mode; a tap doesn't act while you edit).
+The new order is saved as `pills:` or `home.chips:`. A custom page's own pill (e.g. Pond) can move
+too: it's saved as `{ page_pill: pond }`, and its look still comes from the page file. Pills that
+aren't showing right now (nothing playing, the alarm pill beside an alarm chip) keep their place.
+
 **✎ next to the page title** renames the page: on a room's page the room itself (`rooms.<area>.name`,
 everywhere), on any other page its title and its name in the page bar (`pages_config.<page>.title`,
 e.g. `pages_config: { member-zoe: { title: Zoe's room } }`). Empty = the automatic title.
