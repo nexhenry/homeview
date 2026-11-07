@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.8.17 — 2026-11-07
 
 - **Energy History: the 10 biggest devices, and "More (41)".** The devices chart shows the top 10
   (`max_devices: 10`), so its pie view fits its card instead of keeping the height of ~40 bars. The

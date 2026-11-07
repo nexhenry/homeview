@@ -11,7 +11,7 @@
  * Home, Widgets, Family, Rooms (plus one page per room), Energy and Cameras. Everything is
  * optional and can be tuned in the strategy config — see README.md.
  */
-const HV_VERSION = '0.8.16';
+const HV_VERSION = '0.8.17';
 // where this file was loaded from (to re-download it after an update)
 const HV_URL = (() => { try { return import.meta.url; } catch (e) { return null; } })();
 
