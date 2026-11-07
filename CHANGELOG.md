@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **Edit the warnings in edit mode.** While editing, the Warnings pill always shows on Home ("Warnings ·
+  4", or "+ Warnings" when there are none). Tap it (without dragging) for the list: each warning's
+  level (Critical / Notice) and a remove button, and **+ Add** to make one from any entity. A
+  switch or plug warns when it isn't on, with its power reading in the pop-up; a leak, smoke or
+  problem sensor warns when it's on. Saved like every other edit.
+
 ## 0.8.17 — 2026-11-07
 
 - **Energy History: the 10 biggest devices, and "More (41)".** The devices chart shows the top 10

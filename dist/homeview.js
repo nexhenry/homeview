@@ -2779,9 +2779,11 @@ const PILLS = {
   // warnings: [{ text, level: critical | notice, not_on | on | off | all_off, text_offline, entities }]
   // (the same rules as a custom page's alerts:). Shows only while one is active: red for a critical
   // one, amber for notices; tap = a pop-up with each warning's entities to switch or open.
-  warnings(h, m, cfg) {
+  warnings(h, m, cfg, el) {
     const list = asList(cfg.warnings).filter((w) => w && typeof w === 'object');
     const active = list.map((w) => ({ w, a: pageAlerts(h, [w])[0] })).filter((x) => x.a);
+    // edit mode (admins): always shown — tap it to add / remove warnings
+    if (el?._editing && h.user?.is_admin && !active.length) return { icon: 'mdi:alert-outline', text: list.length ? `Warnings · ${list.length}` : '+ Warnings' };
     if (!active.length) return null;
     const crit = active.some((x) => x.a.level === 'critical');
     const idsOf = (w) => asList(w.entities || [w.not_on, w.on, w.off, ...asList(w.all_off)]).filter((id) => id && h.states[id]);
@@ -4105,7 +4107,7 @@ class HomeViewPage extends HTMLElement {
   // edit mode: drag a chip / pill to a new place (pointer events: mouse, touch and pen alike).
   // The item follows the pointer through the row, live; on release, onDrop gets the new order of
   // the items' data-<key> values (only when something moved)
-  _sortable(box, sel, key, onDrop) {
+  _sortable(box, sel, key, onDrop, onTap) {
     box.classList.add('sorting');
     box.querySelectorAll(sel).forEach((el) => {
       el.addEventListener('pointerdown', (e) => {
@@ -4131,11 +4133,77 @@ class HomeViewPage extends HTMLElement {
           el.classList.remove('dragging');
           this._dragging = false;
           const order = [...box.querySelectorAll(sel)].map((x) => x.dataset[key]);
-          if (moved && order.join() !== before) onDrop(order); else this._renderHead();
+          if (moved && order.join() !== before) onDrop(order);
+          else { this._renderHead(); if (!moved && onTap) onTap(el.dataset[key]); }
         };
         window.addEventListener('pointermove', move); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
       });
     });
+  }
+
+  /** Edit mode: the Warnings pill's list — each warning's level and remove, + Add from any entity. */
+  _warningsSheet() {
+    const h = this._hass;
+    const list = asList(this._config.options?.warnings).filter((w) => w && typeof w === 'object');
+    const { sheet, close } = this._sheet('Warnings');
+    sheet.classList.add('narrow');
+    const rule = (w) => (w.not_on ? `when ${w.not_on} isn't on` : w.on ? `when ${w.on} is on` : w.off ? `when ${w.off} is off`
+      : w.all_off ? `when ${asList(w.all_off).join(', ')} are all off` : '');
+    const save = (next) => { close(); this._save((o) => { o.warnings = next; if (!next.length) delete o.warnings; }); };
+    sheet.insertAdjacentHTML('beforeend', `<p class="hint">The Warnings pill shows on Home while one of these is true; tap it for quick access to their devices.</p>
+      <div style="display:flex;flex-direction:column;gap:8px">${list.map((w, i) => `
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:14px;background:var(--hv-tile)">
+          <span style="flex:1;min-width:0"><b style="display:block;font-weight:650">${esc(w.text || 'Warning')}</b>
+            <span style="font-size:12px;color:var(--hv-fg2)">${esc(rule(w))}</span></span>
+          <button class="txt" data-level="${i}" style="color:${w.level === 'notice' ? HV_TONES.warn : HV_TONES.alert}">${w.level === 'notice' ? 'Notice' : 'Critical'}</button>
+          <button class="back" data-del="${i}" title="Remove"><ha-icon icon="mdi:minus-circle-outline"></ha-icon></button></div>`).join('') || '<p class="hint">No warnings yet.</p>'}</div>
+      <button class="txt primary" data-addw style="margin-top:12px"><ha-icon icon="mdi:plus"></ha-icon> Add</button>`);
+    sheet.querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', () => save(list.filter((_, i) => i !== Number(b.dataset.del)))));
+    sheet.querySelectorAll('[data-level]').forEach((b) => b.addEventListener('click', () => {
+      const i = Number(b.dataset.level);
+      save(list.map((w, k) => (k === i ? { ...w, level: w.level === 'notice' ? 'critical' : 'notice' } : w)));
+    }));
+    sheet.querySelector('[data-addw]').addEventListener('click', () => { close(); this._addWarningSheet(list); });
+  }
+
+  /** + Add a warning: pick an entity; a switch / plug warns when it isn't on (with its power
+   *  reading in the pop-up), a leak / smoke / problem sensor when it's on. */
+  _addWarningSheet(list) {
+    const h = this._hass;
+    const { sheet, close } = this._sheet('Add a warning');
+    sheet.classList.add('narrow');
+    const OK = ['switch', 'light', 'fan', 'input_boolean', 'automation', 'binary_sensor'];
+    const used = new Set(list.flatMap((w) => [w.not_on, w.on, w.off, ...asList(w.all_off)]).filter(Boolean));
+    const all = Object.keys(h.states).filter((x) => OK.includes(domainOf(x)) && !used.has(x))
+      .map((x) => ({ id: x, name: h.states[x].attributes.friendly_name || x })).sort((a, b) => a.name.localeCompare(b.name));
+    sheet.insertAdjacentHTML('beforeend', `<input data-q placeholder="Search: fridge, freezer, leak …" style="width:100%;box-sizing:border-box;font:16px ${FONT};padding:10px 12px;border-radius:12px;border:1px solid var(--hv-line);background:var(--hv-tile);color:var(--hv-fg);margin-bottom:10px">
+      <div data-list style="display:flex;flex-direction:column;gap:6px"></div>`);
+    const q = sheet.querySelector('[data-q]'), box = sheet.querySelector('[data-list]');
+    const powerOf = (id) => {   // a power sensor on the same device (a smart plug's own)
+      const dev = h.entities?.[id]?.device_id;
+      return dev ? Object.keys(h.states).find((x) => x.startsWith('sensor.') && h.entities?.[x]?.device_id === dev && h.states[x].attributes.device_class === 'power') : null;
+    };
+    const make = (id) => {
+      const name = (h.states[id].attributes.friendly_name || id).replace(/\s+switch$/i, '');
+      if (domainOf(id) === 'binary_sensor') return { text: name, level: 'critical', on: id };
+      const pw = powerOf(id);
+      return { text: `${name} off`, text_offline: `${name} offline`, level: 'critical', not_on: id, ...(pw ? { entities: [id, pw] } : {}) };
+    };
+    const show = () => {
+      const t = q.value.trim().toLowerCase();
+      const hits = all.filter((e) => !t || e.name.toLowerCase().includes(t) || e.id.includes(t)).slice(0, 40);
+      box.innerHTML = hits.map((e) => `<button class="txt" data-id="${esc(e.id)}" style="justify-content:flex-start;text-align:left;border-radius:14px;padding:10px 12px">
+        <ha-state-icon data-si="${esc(e.id)}" style="--mdc-icon-size:20px"></ha-state-icon><span style="display:flex;flex-direction:column;min-width:0">
+        <b style="font-weight:650">${esc(e.name)}</b><span style="font-size:12px;color:var(--hv-fg2)">${esc(e.id)} · ${domainOf(e.id) === 'binary_sensor' ? 'warn while on' : 'warn while not on'}</span></span></button>`).join('')
+        || '<p class="hint">Nothing matches.</p>';
+      box.querySelectorAll('ha-state-icon').forEach((el) => { el.hass = h; el.stateObj = h.states[el.dataset.si]; });
+      box.querySelectorAll('[data-id]').forEach((b) => b.addEventListener('click', () => {
+        close();
+        this._save((o) => { o.warnings = [...list, make(b.dataset.id)]; });
+      }));
+    };
+    q.addEventListener('input', show); show();
+    setTimeout(() => q.focus(), 50);
   }
 
   // chips in their new order → home.chips (an automatic set is written out as it is now)
@@ -4493,7 +4561,7 @@ class HomeViewPage extends HTMLElement {
         .map((x, k) => (typeof x === 'string' ? { pill: x, src: k } : x && typeof x === 'object' && x.page_pill ? (this._config.page === 'home' && pagePill(x.page_pill) ? { ...pagePill(x.page_pill), src: k } : null) : x && typeof x === 'object' ? { ...x, src: k } : null))
         .filter((d) => d && !(d.pill === 'alarm' && chipAlarm))
         // warnings: (when set): first, unless pills: places it
-        .reduce((acc, d) => acc.concat([d]), cfg.warnings && this._config.page === 'home' && !asList(cfg.pills).includes('warnings') ? [{ pill: 'warnings', src: 'pill:warnings' }] : [])
+        .reduce((acc, d) => acc.concat([d]), (cfg.warnings || (this._editing && h.user?.is_admin)) && this._config.page === 'home' && !asList(cfg.pills).includes('warnings') ? [{ pill: 'warnings', src: 'pill:warnings' }] : [])
         // pills from custom pages (unless a listed pill already opens that page, or places it)
         .concat(this._config.page !== 'home' ? [] : asList(this._config.pagePills)
           .filter((pp) => !asList(cfg.pills).some((d) => d && typeof d === 'object' && (d.hold === pp.page || d.tap === pp.page || d.page_pill === pp.page)))
@@ -4574,7 +4642,10 @@ class HomeViewPage extends HTMLElement {
     if (editing && canEdit) {
       const cb = head.querySelector('.chips'), pb = head.querySelector('.pills');
       if (cb) this._sortable(cb, '[data-chip]', 'chip', (order) => this._saveChipOrder(chips, order));
-      if (pb) this._sortable(pb, '[data-pill]', 'pill', (order) => this._savePillOrder(order));
+      if (pb) this._sortable(pb, '[data-pill]', 'pill', (order) => this._savePillOrder(order), (id) => {
+        const [, , d] = this._pills.find(([i]) => String(i) === String(id)) || [];
+        if (d?.pill === 'warnings') this._warningsSheet();   // tap the Warnings pill: edit the warnings
+      });
     }
     if (!editing) head.querySelectorAll('[data-chip]').forEach((el) => {
       const c = chips[Number(el.dataset.chip)];
