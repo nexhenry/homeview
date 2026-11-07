@@ -1356,9 +1356,9 @@ const R = {};
 
 // ---- any entity --------------------------------------------------------------------------
 R.add = {
-  key: () => 'add',
-  html: () => `<div class="t flex add" data-edit="add" style="border:1.5px dashed var(--hv-line);background:transparent;cursor:pointer">
-    <div class="ic" style="color:var(--hv-accent)"><i data-i="mdi:plus"></i></div><div class="tx"><div class="nm">Add</div><div class="sb">a tile here</div></div></div>`,
+  key: (h, s) => (s.addFav ? 'addfav' : 'add'),
+  html: (h, s) => `<div class="t flex add" data-edit="add" style="border:1.5px dashed var(--hv-line);background:transparent;cursor:pointer">
+    <div class="ic" style="color:var(--hv-accent)"><i data-i="${s.addFav ? 'mdi:star-plus-outline' : 'mdi:plus'}"></i></div><div class="tx"><div class="nm">Add</div><div class="sb">${s.addFav ? 'a favourite' : 'a tile here'}</div></div></div>`,
 };
 // ---- power, pills, buttons, faders (custom pages) -------------------------------------------
 /** How many devices the Energy settings track (cached a few minutes). */
@@ -3335,8 +3335,10 @@ const PAGES = {
     favs.forEach((id) => {
       if (!h.states[id]) return;
       const room = m.areaById[entityArea(h, id)];
-      tiles.push(entTile(id, { showRoom: true, areaName: room?.name, size: [1, 1] }));
+      tiles.push(entTile(id, { showRoom: true, areaName: room?.name, size: [1, 1], fav: true }));
     });
+    // edit mode: + Add a favourite (★ on a favourite takes it off)
+    tiles.push({ kind: 'add', addFav: true, roomIds: favs, size: [1, 1], editOnly: true });
     // "Lights" for the main rooms: tap = all on / off, hold = the room
     const main = /living|lounge|kitchen|dining|family|great|\bden\b/i;
     const lightRooms = (pc.light_rooms ? asList(pc.light_rooms).map((id) => m.areaById[id]).filter(Boolean)
@@ -3657,6 +3659,8 @@ const PAGE_CSS = `
 @keyframes hv-wiggle { from { transform:rotate(-.6deg); } to { transform:rotate(.6deg); } }
 .sorting > [data-chip], .sorting > [data-pill] { cursor:grab; touch-action:none; user-select:none; -webkit-user-select:none;
   outline:1.5px dashed var(--hv-accent); outline-offset:2px; animation:hv-wiggle .35s ease-in-out infinite alternate; }
+.grid > homeview-tile[data-sort] { cursor:grab; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
+.grid > homeview-tile.dragging { cursor:grabbing; z-index:3; transform:scale(1.04); filter:drop-shadow(0 8px 18px rgba(0,0,0,.25)); transition:transform .12s; }
 .sorting > .dragging { cursor:grabbing; animation:none; transform:scale(1.08); box-shadow:0 6px 18px rgba(0,0,0,.22); z-index:3; position:relative; }
 .chp { all:unset; box-sizing:border-box; cursor:pointer; height:40px; min-width:40px; padding:0 9px; border-radius:999px; background:var(--hv-pill);
   display:inline-flex; align-items:center; justify-content:center; gap:6px; color:var(--hv-icon); --mdc-icon-size:22px;
@@ -4011,9 +4015,15 @@ class HomeViewPage extends HTMLElement {
         const t = this._tile(sec.layout === 'rows' ? { ...spec, row: !(czSize && czSize[1] >= 2) } : spec, dark);
         if (sec.layout) t._hvFree = true;
         if (czSize) t._hvRowSpan = czSize;
+        // edit mode: tiles that can move (Home's favourites, a room's own tiles) carry what they move in
+        if (editing && h.user?.is_admin && spec.entity && !spec.hiddenEnt && (spec.fav || spec.pinRoom)) t.dataset.sort = spec.fav ? 'fav' : `room:${spec.pinRoom}`;
         // the outage header: its text wraps on phones and narrow tablets (iPad portrait)
         if (spec.full) { t.style.gridColumn = '1 / -1'; if (spec.kind === 'energy_outage' && (this._phone || window.innerWidth < 1000)) t.style.gridRow = `span ${this._phone ? 3 : 2}`; }
         g.appendChild(t);
+      }
+      if (editing && h.user?.is_admin) {
+        const groups = new Set([...g.children].map((t) => t.dataset.sort).filter(Boolean));
+        for (const grp of groups) if (g.querySelectorAll(`[data-sort="${grp}"]`).length > 1) this._sortTiles(g, grp);
       }
       s.appendChild(g);
       if (sec.half && !this._phone) {
@@ -4181,6 +4191,52 @@ class HomeViewPage extends HTMLElement {
         };
         window.addEventListener('pointermove', move); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
       });
+    });
+  }
+
+  /** Edit mode: drag tiles of one group (`data-sort`: fav | room:<area>) into a new order, then
+   *  save it. Mouse: drag at once; touch: hold still a moment, then drag (a quick swipe scrolls). */
+  _sortTiles(grid, grp) {
+    const items = () => [...grid.querySelectorAll(`[data-sort="${grp}"]`)];
+    for (const el of items()) {
+      el.addEventListener('pointerdown', (e) => {
+        if (e.button > 0 || e.composedPath().some((n) => n?.dataset?.edit !== undefined)) return;   // an edit button
+        const before = items().map((x) => x.spec.entity).join();
+        const x0 = e.clientX, y0 = e.clientY, touch = e.pointerType === 'touch';
+        let active = !touch, moved = false;
+        const hold = touch ? setTimeout(() => { active = true; el.classList.add('dragging'); if (navigator.vibrate) navigator.vibrate(10); }, 300) : null;
+        const noScroll = (ev) => { if (active) ev.preventDefault(); };
+        window.addEventListener('touchmove', noScroll, { passive: false });
+        const move = (ev) => {
+          const far = Math.hypot(ev.clientX - x0, ev.clientY - y0) > 8;
+          if (!active) { if (far) end(); return; }   // touch: moved before the hold — a scroll
+          if (!moved && !far) return;
+          moved = true; this._dragging = true; el.classList.add('dragging');
+          const over = items().find((x) => { if (x === el) return false; const r = x.getBoundingClientRect(); return ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top && ev.clientY <= r.bottom; });
+          if (over) { const r = over.getBoundingClientRect(); over.insertAdjacentElement(ev.clientX > r.left + r.width / 2 ? 'afterend' : 'beforebegin', el); }
+        };
+        const end = () => {
+          clearTimeout(hold);
+          window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', end); window.removeEventListener('pointercancel', end);
+          window.removeEventListener('touchmove', noScroll);
+          el.classList.remove('dragging'); this._dragging = false;
+          const order = items().map((x) => x.spec.entity);
+          if (moved && order.join() !== before) this._saveTileOrder(grp, order);
+        };
+        window.addEventListener('pointermove', move); window.addEventListener('pointerup', end); window.addEventListener('pointercancel', end);
+      });
+    }
+  }
+
+  // a new order: Home's favourites, or a room's own list (entries not showing keep their place at the end)
+  _saveTileOrder(grp, order) {
+    return this._save((o) => {
+      if (grp === 'fav') { o.home = o.home || {}; o.home.favorites = order; return; }
+      const room = grp.slice(5);
+      o.rooms = o.rooms || {};
+      const rc = (o.rooms[room] = o.rooms[room] || {});
+      const base = asList(rc.entities ?? this._model.areaById[room]?.pinned ?? order);
+      rc.entities = [...order, ...base.filter((x) => !order.includes(x))];
     });
   }
 
@@ -4379,7 +4435,7 @@ class HomeViewPage extends HTMLElement {
   /** Edit mode: "+ Add" — any entity, added to the room's list (rooms.<area>.entities). */
   _addSheet(spec) {
     const h = this._hass;
-    const { sheet, close } = this._sheet(`Add to ${this._model.areaById[spec.room]?.name || 'this room'}`);
+    const { sheet, close } = this._sheet(spec.addFav ? 'Add a favourite' : `Add to ${this._model.areaById[spec.room]?.name || 'this room'}`);
     sheet.classList.add('narrow');
     const SKIP = ['update', 'person', 'zone', 'sun', 'tts', 'stt', 'conversation', 'event', 'image', 'todo', 'device_tracker'];
     const all = Object.keys(h.states).filter((x) => !SKIP.includes(domainOf(x)) && !spec.roomIds.includes(x))
@@ -4398,6 +4454,13 @@ class HomeViewPage extends HTMLElement {
       list.querySelectorAll('ha-state-icon').forEach((el) => { el.hass = h; el.stateObj = h.states[el.dataset.si]; });
       list.querySelectorAll('[data-id]').forEach((b) => b.addEventListener('click', () => {
         const id = b.dataset.id; close();
+        if (spec.addFav) {   // Home's favourites (the automatic ones become a list of your own)
+          return this._save((o) => {
+            o.home = o.home || {};
+            o.home.favorites = [...new Set([...asList(o.home.favorites ?? spec.roomIds), id])];
+            o.exclude_entities = asList(o.exclude_entities).filter((x) => x !== id);
+          });
+        }
         this._save((o) => {
           o.rooms = o.rooms || {};
           const rc = (o.rooms[spec.room] = o.rooms[spec.room] || {});

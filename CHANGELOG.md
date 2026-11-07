@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- **Move tiles in edit mode.** Drag a favourite on Home, or a device tile in a room (Living, a
+  person's page, a room's page), to a new place. Mouse: drag; touch: hold a moment, then drag, so a
+  quick swipe still scrolls. Saved as `home.favorites` or the room's `entities:` list.
+- **Add a favourite in edit mode:** a dashed **+ Add a favourite** tile after Home's favourites
+  (search any entity); the filled ★ takes one off.
+- Personal details removed from the README, a code comment and the screenshots' file names.
+
 ## 0.8.19 — 2026-11-07
 
 - **Faster swiping.** Measured on a phone-speed CPU: first visits to a page are 13–54% quicker

@@ -240,6 +240,14 @@ comes from its device, or one past the first few, gets a tile, e.g. a TV on a ch
 A room you've added or removed tiles in keeps that list (`rooms.<area>.entities`); a person's page
 shows it too.
 
+**Move tiles:** drag a favourite on Home, or a device tile in a room (Living, a person's page, a
+room's page), to a new place. With a mouse, just drag; on a touch screen, hold the tile a moment,
+then drag (a quick swipe still scrolls the page). The new order is saved as `home.favorites` or the
+room's `entities:` list.
+
+**Favourites:** the dashed **+ Add a favourite** tile after Home's favourites searches any entity
+and adds it; the filled ★ on a favourite takes it off.
+
 **The Warnings pill** shows in edit mode even when nothing is wrong ("Warnings · 4", or
 "+ Warnings"). Tap it (without dragging) to list the warnings: change each one's level (Critical /
 Notice) or remove it, and **+ Add** one from any entity. A switch or plug warns when it isn't on, with
