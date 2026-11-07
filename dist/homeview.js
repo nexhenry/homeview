@@ -143,7 +143,11 @@ const UNAVAILABLE = ['unavailable', 'unknown'];
 const domainOf = (id) => id.split('.')[0];
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };
-const fmt = (v, d = 0) => (v === null || v === undefined ? '—' : Number(v).toLocaleString(undefined, { maximumFractionDigits: d, minimumFractionDigits: d }));
+// one number format per decimal count (toLocaleString with options builds a new one each call,
+// and numbers are formatted on every header / tile redraw)
+const _numFmts = new Map();
+const numFmt = (d) => { let f = _numFmts.get(d); if (!f) { f = new Intl.NumberFormat(undefined, { maximumFractionDigits: d, minimumFractionDigits: d }); _numFmts.set(d, f); } return f; };
+const fmt = (v, d = 0) => (v === null || v === undefined ? '—' : numFmt(d).format(Number(v)));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const asList = (v) => (v === undefined || v === null ? [] : Array.isArray(v) ? v : [v]);
 
@@ -533,6 +537,25 @@ function shortName(hass, id, areaName) {
   return full;
 }
 
+// Pages are built one by one as you swipe, each from the same entities / areas / devices and the
+// same settings: build the model once and share it (rebuilt when any of those change)
+let _modelCache = null;
+function sharedModel(hass, cfg) {
+  const c = _modelCache;
+  const n = hvStateCount(hass);
+  if (c && c.cfg === cfg && c.ents === hass.entities && c.areas === hass.areas && c.devs === hass.devices && c.n === n && c.floors === hass.floors) return c.model;
+  const model = buildModel(hass, cfg);
+  _modelCache = { cfg, ents: hass.entities, areas: hass.areas, devs: hass.devices, floors: hass.floors, n, model };
+  return model;
+}
+// how many states there are (entities added / removed): counted at most once a second — every state
+// change sends a new hass, and counting a thousand keys each time adds up
+let _stateCount = { states: null, n: 0, at: 0 };
+function hvStateCount(hass) {
+  const sc = _stateCount;
+  if (sc.states !== hass.states && Date.now() - sc.at > 1000) { sc.states = hass.states; sc.n = Object.keys(hass.states).length; sc.at = Date.now(); }
+  return sc.n;
+}
 function buildModel(hass, cfg) {
   const exclude = new Set(asList(cfg.exclude_entities));
   for (const [id, c] of Object.entries(cfg.customize || {})) if (c?.hidden) exclude.add(id);
@@ -1294,19 +1317,32 @@ function adopt(root) {
   }
 }
 
-/** Replace <i data-e="entity"> / <i data-i="mdi:x"> placeholders with HA's icon elements. */
-function fillIcons(root, hass) {
+/** The icon elements a redraw is about to replace, by what they show: fillIcons reuses them.
+ *  A tile redraws on every change of its entity and the header on every pill change; a new
+ *  ha-icon looks its icon up again (async, HA's icon store) each time, a reused one doesn't. */
+function iconPool(root) {
+  const pool = new Map();
+  root.querySelectorAll?.('[data-hvk]').forEach((el) => { const k = el.dataset.hvk; if (!pool.has(k)) pool.set(k, []); pool.get(k).push(el); });
+  return pool;
+}
+/** Replace <i data-e="entity"> / <i data-i="mdi:x"> placeholders with HA's icon elements
+ *  (from `pool`, the previous draw's, when one shows the same thing). */
+function fillIcons(root, hass, pool) {
   root.querySelectorAll('i[data-e], i[data-i]').forEach((ph) => {
-    let el;
-    const ent = ph.dataset.e;
-    if (ent && customElements.get('ha-state-icon')) {
+    const ent = ph.dataset.e, ic = ph.dataset.i || '';
+    const k = `${ent || ''}|${ic}`;
+    let el = pool?.get(k)?.pop();
+    if (el) {
+      if (el.localName === 'ha-state-icon') { el.hass = hass; el.stateObj = hass.states[ent]; }
+    } else if (ent && customElements.get('ha-state-icon')) {
       el = document.createElement('ha-state-icon');
       el.hass = hass; el.stateObj = hass.states[ent];
-      if (ph.dataset.i) el.icon = ph.dataset.i;
+      if (ic) el.icon = ic;
     } else {
       el = document.createElement('ha-icon');
-      el.icon = ph.dataset.i || hass.states[ent]?.attributes?.icon || 'mdi:help-circle-outline';
+      el.icon = ic || hass.states[ent]?.attributes?.icon || 'mdi:help-circle-outline';
     }
+    el.dataset.hvk = k;
     ph.replaceWith(el);
   });
 }
@@ -1343,7 +1379,7 @@ function toWatts(st) {
   return v * ({ w: 1, kw: 1000, mw: 1e6 }[u] ?? 1);
 }
 /** 720 -> "0.72 kW", 2 -> "0.002 kW", 1015 -> "1.02 kW" */
-const fmtKw = (w) => { const k = w / 1000; return `${k.toLocaleString(undefined, { maximumFractionDigits: k < 0.01 ? 3 : 2, minimumFractionDigits: k < 0.01 ? 3 : 2 })} kW`; };
+const fmtKw = (w) => { const k = w / 1000; return `${numFmt(k < 0.01 ? 3 : 2).format(k)} kW`; };
 const NAMED_TONES = () => ({ green: HV_TONES.ok, amber: HV_TONES.warn, red: HV_TONES.alert, orange: HV_TONES.on, blue: HV_TONES.cool });
 const toneColor = (c) => (c ? NAMED_TONES()[c] || HV_TONES[c] || c : null);
 /** A pill-shaped tile (layout: pills / keypad): icon, name and (info pills) the state. */
@@ -2619,11 +2655,12 @@ class HomeViewTile extends HTMLElement {
     const key = r.key(this._hass, this._spec) + (this._edit ? '|edit' + this._edit.actions.join() : '');
     if (key === this._key) return;
     this._key = key;
+    const pool = iconPool(this._wrap);
     this._wrap.innerHTML = r.html(this._hass, this._spec, this) + this._editHtml();
     const card = this._wrap.firstElementChild;
     if (card && this._spec.bare) card.classList.add('bare');
     if (card && this._spec.row && card.classList.contains('flex')) card.classList.add('row-t');
-    fillIcons(this._wrap, this._hass);
+    fillIcons(this._wrap, this._hass, pool);
     if (r.update) r.update(this._hass, this._spec, this);
     // size: … x auto on a HomeView widget (an agenda list …): the rows its content needs, measured
     // after drawing (as cards are); grows with the content, never clipped
@@ -3785,13 +3822,18 @@ class HomeViewPage extends HTMLElement {
     if (this.isConnected && Date.now() - (this._kAt || 0) > 2500) { this._kAt = Date.now(); applyKiosk(kioskMode(this._config?.options)); hvScreensaver.update(this); }
     const sig = this._signature(h);
     if (sig !== this._sig) { this._sig = sig; this.rebuild(); return; }
+    // a page HA keeps for later (not on screen): catch up when it's shown again
+    if (!this.isConnected) { this._stale = true; return; }
     this._tiles.forEach((t) => { t.hass = h; });
-    this._renderHead();
+    // several updates often arrive within one frame: one header redraw for them
+    if (!this._headRaf) this._headRaf = requestAnimationFrame(() => { this._headRaf = null; this._renderHead(); });
   }
 
   connectedCallback() {
     if (!this._ro) {
-      this._ro = new ResizeObserver(() => this._layout());
+      // the layout depends on the width (and the screen height, which window resize covers);
+      // the page's own height changes as tiles fill in, and must not lay it out again each time
+      this._ro = new ResizeObserver((es) => { const w = Math.round(es[0]?.contentRect?.width || 0); if (w !== this._roW) { this._roW = w; this._layout(); } });
       this._ro.observe(this);
     }
     hvPagesOnScreen++;
@@ -3805,6 +3847,7 @@ class HomeViewPage extends HTMLElement {
       window.addEventListener('homeview-editing', this._onEditing);
     }
     if (this._builtEditing !== undefined && this._builtEditing !== this._editing) this.rebuild();
+    else if (this._stale && this._hass) { this._stale = false; this._tiles.forEach((t) => { t.hass = this._hass; }); this._renderHead(); }
   }
   disconnectedCallback() {
     this._ro?.disconnect(); this._ro = null;
@@ -3824,9 +3867,9 @@ class HomeViewPage extends HTMLElement {
 
   // rebuild the page when entities / areas / devices change (not on every state change)
   _signature(h) {
-    if (this._ents !== h.entities || this._areas !== h.areas || this._devs !== h.devices || this._nStates !== Object.keys(h.states).length
+    if (this._ents !== h.entities || this._areas !== h.areas || this._devs !== h.devices || this._nStates !== hvStateCount(h)
         || this._dark !== isDark(h, this._config.options)) {
-      this._ents = h.entities; this._areas = h.areas; this._devs = h.devices; this._nStates = Object.keys(h.states).length;
+      this._ents = h.entities; this._areas = h.areas; this._devs = h.devices; this._nStates = hvStateCount(h);
       this._dark = isDark(h, this._config.options);
       this._gen = (this._gen || 0) + 1;
     }
@@ -3852,7 +3895,7 @@ class HomeViewPage extends HTMLElement {
       const rooms = Object.fromEntries(Object.entries(cfg.rooms || {}).map(([id, c]) => [id, c?.hidden ? { ...c, hidden: false } : c]));
       mcfg = { ...cfg, exclude_entities: [], hide_rooms: [], customize, rooms };
     }
-    this._model = buildModel(h, mcfg);
+    this._model = mcfg === cfg ? sharedModel(h, cfg) : buildModel(h, mcfg);   // edit mode (hidden shown): its own
     const builder = PAGES[this._config.page];
     const page = builder ? builder(h, this._model, mcfg, this._config, this) : { title: '?', sections: [] };
     if (editing) {
@@ -4520,6 +4563,7 @@ class HomeViewPage extends HTMLElement {
     }
     // lists (a room's devices): sizes set in edit mode span the list's columns (as many as it has)
     for (const g of this._root.querySelectorAll('.grid.rows')) {
+      if (![...g.children].some((t) => t._hvRowSpan)) continue;   // reading the columns forces a layout
       const n = getComputedStyle(g).gridTemplateColumns.split(' ').filter(Boolean).length || 1;
       for (const t of g.children) {
         if (!t._hvRowSpan) continue;
@@ -4618,6 +4662,7 @@ class HomeViewPage extends HTMLElement {
     // edit mode's bar: on every page while editing (Widgets too, which has no title)
     const editbar = editing ? `<div class="editbar"><span><b>Editing</b> · <ha-icon icon="mdi:star-outline"></ha-icon> on Home · <ha-icon icon="mdi:resize"></ha-icon> size · <ha-icon icon="mdi:rename-outline"></ha-icon> name · <ha-icon icon="mdi:eye-off-outline"></ha-icon> hide · <ha-icon icon="mdi:palette-outline"></ha-icon> room colour · drag pills and chips to move them</span>
           <span class="eb">${canReload ? `<button class="txt" data-reload-pages title="${yamlDash ? 'Read the dashboard\'s files again — after adding or editing a page in homeview/custom_pages/' : 'Read this dashboard\'s saved config again — after editing it in the raw configuration editor'}"><ha-icon icon="mdi:file-refresh-outline"></ha-icon> Reload pages</button>` : ''}<button class="txt" data-settings><ha-icon icon="mdi:cog-outline"></ha-icon> Settings</button><button class="txt primary" data-edit-off>Done</button></span></div>` : '';
+    const headIcons = iconPool(head);
     head.innerHTML = page.minimalHead ? `${topbar}${editbar}` : `${topbar}<div>
         <div class="date">${esc(today)}</div>
         <div class="title">${menuBtn}${updBtn}${page.back ? '<button class="back" data-back><ha-icon icon="mdi:chevron-left"></ha-icon></button>' : ''}<span class="tt"${titleHold || (canEdit && !editing) ? ' data-title' : ''}${titleHold ? ' data-title-hold' : ''}${canEdit && !editing ? ' title="Double-tap to edit"' : ''}>${esc(this._phone && page.greet && h.user?.name && !editing ? `Hi ${h.user.name.split(' ')[0]}` : page.title)}</span>${editing && canEdit ? '<button class="back hb" data-rename title="Rename this page" aria-label="Rename this page"><ha-icon icon="mdi:rename-outline"></ha-icon></button>' : ''}${roomSub ? `<span class="sub">${esc(roomSub)}</span>` : ''}</div>
@@ -4635,10 +4680,10 @@ class HomeViewPage extends HTMLElement {
         }).join('')}</div>` : ''}
       </div>
       ${page.close ? '<button class="back xclose" data-close-page title="Close" aria-label="Close"><ha-icon icon="mdi:close"></ha-icon></button>' : ''}
-      ${pills.length ? `<div class="pills">${pills.map(([id, p]) => `<button class="pill${p.alert ? ' alert' : p.tone ? ` t-${p.tone}` : p.active ? ' t-on' : ''}" data-pill="${id}"><ha-icon icon="${p.icon}"></ha-icon>${esc(p.text)}${p.popup ? '<ha-icon icon="mdi:chevron-right" style="--mdc-icon-size:15px;opacity:.6"></ha-icon>' : ''}</button>`).join('')}</div>` : ''}`;
+      ${pills.length ? `<div class="pills">${pills.map(([id, p]) => `<button class="pill${p.alert ? ' alert' : p.tone ? ` t-${p.tone}` : p.active ? ' t-on' : ''}" data-pill="${id}"><i data-i="${esc(p.icon)}"></i>${esc(p.text)}${p.popup ? '<ha-icon icon="mdi:chevron-right" style="--mdc-icon-size:15px;opacity:.6"></ha-icon>' : ''}</button>`).join('')}</div>` : ''}`;
     head.querySelector('[data-back]')?.addEventListener('click', () => (history.length > 1 ? history.back() : navigate('living')));
     head.querySelector('[data-close-page]')?.addEventListener('click', () => (history.length > 1 ? history.back() : navigate('home')));
-    fillIcons(head, h);
+    fillIcons(head, h, headIcons);
     if (editing && canEdit) {
       const cb = head.querySelector('.chips'), pb = head.querySelector('.pills');
       if (cb) this._sortable(cb, '[data-chip]', 'chip', (order) => this._saveChipOrder(chips, order));

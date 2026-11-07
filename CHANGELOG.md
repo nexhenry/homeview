@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+- **Faster swiping.** Measured on a phone-speed CPU: first visits to a page are 13–54% quicker
+  (Cameras 1.0 → 0.47 s, Lucy 1.0 → 0.76 s, Widgets 1.4 → 1.1 s, Living 1.6 → 1.3 s), and
+  HomeView does about 40% less work while a page sits idle.
+  - All pages share one model of the house (entities, rooms, people), built once instead of per
+    page. Rebuilding a page takes 28–80 ms instead of 100–170 ms.
+  - Icons are reused when a tile or the header redraws, instead of making new ones. A new icon
+    looks itself up again in Home Assistant's icon store; tiles redraw on every change of their
+    entity, and the header on every pill change.
+  - Number formats are made once (they were built on every redraw).
+  - Layout runs when the width changes, not every time the page grows as tiles fill in, and only
+    reads a list's columns when a tile there needs them (each read forced the browser to lay the
+    page out).
+  - Several Home Assistant updates within one frame redraw the header once; a page that isn't on
+    screen waits and catches up when it's shown; states are counted at most once a second.
+
 ## 0.8.18 — 2026-11-07
 
 - **Edit the warnings in edit mode.** While editing, the Warnings pill always shows on Home ("Warnings ·
