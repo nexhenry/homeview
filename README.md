@@ -241,6 +241,12 @@ comes from its device, or one past the first few, gets a tile, e.g. a TV on a ch
 A room you've added or removed tiles in keeps that list (`rooms.<area>.entities`); a person's page
 shows it too.
 
+**The Warnings pill** shows in edit mode even when nothing is wrong ("Warnings · 4", or
+"+ Warnings"). Tap it (without dragging) to list the warnings: change each one's level (Critical /
+Notice) or remove it, and **+ Add** one from any entity. A switch or plug warns when it isn't on, with
+its power reading in the pop-up; a leak, smoke or problem sensor warns when it's on. Saved as
+`warnings:`.
+
 **Drag a pill or chip** to move it (they wiggle in edit mode; a tap doesn't act while you edit).
 The new order is saved as `pills:` or `home.chips:`. A custom page's own pill (e.g. Pond) can move
 too: it's saved as `{ page_pill: pond }`, and its look still comes from the page file. Pills that
@@ -478,7 +484,8 @@ strategy:
         not_on: switch.kitchen_fridge, entities: [switch.kitchen_fridge, sensor.kitchen_fridge_power] }
     - { text: Water shut off, level: notice, off: switch.water_valve }
                                   # rules: not_on / on / off / all_off: [ids]; critical = red, notice = amber;
-                                  # tap = a pop-up with each warning's entities (default: the ones in its rule)
+                                  # tap = a pop-up with each warning's entities (default: the ones in its rule);
+                                  # edit mode: tap the Warnings pill to add / remove them (see "On the dashboard")
   battery_low: 20                 # % under which a battery counts as low
   screensaver: auto               # big clock after 2 min idle: auto = touch tablets only; true; false;
                                   # or { idle: 120, color: '#4D7DB8', pages: [home, living] }
