@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.8.14 — 2026-11-07
 
 - **Widgets page: the weather is centred.** The location, temperature, condition and high / low
   were aligned left in their corner; now they're centred like the date. The ° no longer pulls the
