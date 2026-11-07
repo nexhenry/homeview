@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.8.16 — 2026-11-07
 
 - **Pill pop-ups open at the top.** Locks, Lights, Doors & Windows and the other pill sheets now
   sit at the top of the screen on tablets and phones, near the pill that opened them. A short list
