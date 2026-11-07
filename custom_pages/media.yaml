@@ -1,26 +1,60 @@
-# media.yaml — TV, soundbar and speakers. Opened by holding the TV tile:
+# media.yaml — the TV: sources, a remote, and sound levels. Opened by holding the TV tile:
 #   customize:
 #     media_player.living_room_tv: { hold: media }
-# Change the vars: block to your own entities (Developer tools → States), then double-tap the page title → Reload pages.
+# Change the vars: block to your own entities (Developer tools → States), then double-tap the
+# page title → Reload pages.
 path: media
 title: Media
 icon: mdi:television
-color: indigo
+color: orange
 subview: true
 
 vars:
   tv: media_player.living_room_tv
-  tv_remote: remote.living_room_tv
+  tv_remote: remote.living_room_tv          # a Samsung TV's remote (KEY_… commands)
   soundbar: media_player.soundbar
   speakers: [media_player.kitchen_speaker, media_player.bedroom_speaker]
+  music_level: input_number.music_volume    # a level to slide (input_number or number)
+  music_mute: input_boolean.music_muted     # optional: tap the fader's icon to mute
 
 sections:
-  - title: TV
+  # buttons as pills: tap runs `action` (with data / target) or toggles `toggle`; lit in `color`
+  # while `watch` is `when` (or while `toggle` is on)
+  - title: Watch
+    icon: mdi:television-play
+    width: half                              # two sections side by side on tablets
+    layout: pills
     tiles:
-      - card: { type: media-control, entity: $tv }
-        size: 3x2
-      - { entity: $tv_remote, name: Power, icon: mdi:power }
-      - { entity: $soundbar, name: Soundbar, size: 2x1 }
+      - { type: button, name: TV, icon: mdi:television, icon_off: mdi:television-off, color: green, toggle: $tv }
+      - { type: button, name: Netflix, icon: mdi:netflix, color: red, watch: $tv, attribute: source, when: Netflix,
+          action: media_player.select_source, target: $tv, data: { source: Netflix } }
+      - { type: button, name: YouTube, icon: mdi:youtube, color: red, watch: $tv, attribute: source, when: YouTube,
+          action: media_player.select_source, target: $tv, data: { source: YouTube } }
+      - { entity: $soundbar, name: Soundbar }
+  # a keypad: icon buttons in `columns` columns; '.' leaves a key empty
+  - title: Remote
+    icon: mdi:remote-tv
+    width: half
+    layout: keypad
+    columns: 3
+    tiles:
+      - { type: button, name: Power, icon: mdi:power, action: remote.send_command, target: $tv_remote, data: { command: KEY_POWER } }
+      - { type: button, name: Up, icon: mdi:chevron-up, action: remote.send_command, target: $tv_remote, data: { command: KEY_UP } }
+      - { type: button, name: Vol +, icon: mdi:volume-plus, action: remote.send_command, target: $tv_remote, data: { command: KEY_VOLUP } }
+      - { type: button, name: Left, icon: mdi:chevron-left, action: remote.send_command, target: $tv_remote, data: { command: KEY_LEFT } }
+      - { type: button, name: OK, icon: mdi:checkbox-blank-circle-outline, action: remote.send_command, target: $tv_remote, data: { command: KEY_ENTER } }
+      - { type: button, name: Right, icon: mdi:chevron-right, action: remote.send_command, target: $tv_remote, data: { command: KEY_RIGHT } }
+      - { type: button, name: Back, icon: mdi:arrow-u-left-top, action: remote.send_command, target: $tv_remote, data: { command: KEY_RETURN } }
+      - { type: button, name: Down, icon: mdi:chevron-down, action: remote.send_command, target: $tv_remote, data: { command: KEY_DOWN } }
+      - { type: button, name: Vol −, icon: mdi:volume-minus, action: remote.send_command, target: $tv_remote, data: { command: KEY_VOLDOWN } }
   - title: Speakers
+    icon: mdi:speaker-multiple
+    layout: pills
     tiles:
       - $speakers
+  # faders: slide = the level; tap the icon = mute / unmute (MUTED while muted)
+  - title: Levels
+    icon: mdi:tune-vertical
+    layout: faders
+    tiles:
+      - { type: fader, entity: $music_level, mute: $music_mute, name: Music, icon: mdi:music, color: green }

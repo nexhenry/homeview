@@ -114,6 +114,10 @@ admin_only: false            # true: only viewers who see every page (admins, or
 pills: false                 # true: the status pills, as on Home
 pill: { entity: media_player.living_room_tv, name: TV }   # optional: this page's own pill on Home
 hold: another-page           # hold this page's title to open another page (optional)
+columns: 6                   # optional: tiles per row on tablets (5 by default)
+show_room: false             # optional: tiles show their state ("On · 0.72 kW"), not their room
+alerts:                      # optional: warnings at the top of the page, and on its pill
+  - { text: Pump off, level: critical, not_on: switch.pump }
 
 vars:                        # the entities the page uses: the only part to change
   tv: media_player.living_room_tv
@@ -149,6 +153,36 @@ of it, so `full x 3` is the full width and 3 rows tall. Sizes shrink to fit on p
 `phone_size` sets a tile's size on phones yourself: 2 columns, rows of 64 px. For example,
 `phone_size: 2x5` gives a graph the full width and 320 px. Without it, HomeView works the size
 out from `size`, which can leave a short card with a lot of empty space.
+
+## Sections and tiles for control pages
+
+For pages like a pond, a mixer or a TV remote (see [`pond.yaml`](pond.yaml) and
+[`media.yaml`](media.yaml)):
+
+| Section option | What it does |
+|---|---|
+| `layout: pills` | The tiles as small pills in a row: an entity's icon and name (sensors: and their value), lit while on |
+| `layout: keypad` + `columns: 4` | Icon buttons in a grid, e.g. a TV remote. `.` in `tiles:` leaves a key empty |
+| `layout: faders` | Sliders, two per row on tablets |
+| `layout: rows` | A list, one row per tile |
+| `width: half` | Two sections side by side on tablets (stacked on phones) |
+| `icon: mdi:x` | An icon before the section's title |
+
+| Tile | Example |
+|---|---|
+| A button | `{ type: button, name: Plex, icon: mdi:plex, color: orange, action: script.tv_source, data: { source: Plex }, watch: input_select.tv_source, when: Plex }`: tap runs `action` (a script or any service, with `data` and `target`), or toggles `toggle: <entity>`. It's lit in `color` while `watch` is `when` (`attribute:` watches an attribute instead, e.g. a TV's `source`), or while `toggle` is on. `name_off` / `icon_off` while it isn't lit; `dim: <entity>` shows a lit button as an outline while that entity is off; `confirm: true` asks first; `hold:` a page or `{ action, data, target }` |
+| A fader | `{ type: fader, entity: input_number.music, mute: input_boolean.music_muted, name: Music, icon: mdi:music, color: green }`: slide to set the level (`input_number` or `number`); tap the icon to mute. Muted faders are grey with **MUTED** |
+| An entity, with its power | `{ entity: switch.pump, power: sensor.pump_power, confirm: true }`: "On · 0.72 kW" while it draws power; `confirm` asks before switching |
+| A value in kW | `{ entity: sensor.pond_power, unit: kW }` in a pill row (W, kW or MW) |
+
+**`alerts:`** (page option). Each entry is a warning that shows while it's true:
+`all_off: [ids]` (every one off), `on: id`, `off: id`, or `not_on: id` (anything but on; `text_offline`
+when it isn't reporting). Write `'on'` in quotes: a bare `on` is YAML for true. `level: critical`
+gives a red, pulsing banner; `level: notice` an amber one. The page's own pill on Home follows them,
+red or amber, like the other pills.
+
+**A page's pill:** `pill: { entity: sensor.pond_power, name: '', icon: mdi:fish, unit: kW }`
+shows the icon and "1.02 kW". `name: ''` leaves out the name.
 
 ## Taps and holds
 

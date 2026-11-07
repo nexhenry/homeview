@@ -1,35 +1,58 @@
-# pond.yaml — pumps, filter and water for a pond (or a pool, a fish tank, a garden: rename it).
-# Its own pill on Home (pill: below) opens it: tap = this page, hold = the water temperature's
-# details. Nothing to add in dashboard.yaml.
+# pond.yaml — pumps, air, filter and water for a pond (or a pool, a fish tank: rename it).
+# Its own pill on Home (pill: below): the fish and the pond's power in kW. It turns red while a
+# critical alert below is active and amber for a notice, as the other pills warn.
+# Tap = this page, hold = the power's details. Nothing to add in dashboard.yaml.
 # Change the vars: block to your own entities, then double-tap the page title → Reload pages.
 path: pond
 title: Pond
 icon: mdi:fish
-color: teal
+color: orange
 subview: true
-pill: { entity: $water_temp, name: Pond, icon: mdi:fish }   # a pill on Home while this page exists
+columns: 6                     # tiles per row on tablets
+show_room: false               # tiles show "On · 0.72 kW", not the room
+pill: { entity: $power, name: '', icon: mdi:fish, unit: kW }   # name '' = the icon and the value only
 
 vars:
-  pumps: [switch.pond_pump, switch.pond_air_pump]
+  power: sensor.pond_power                 # the whole pond (W or kW)
+  current: sensor.pond_current
+  main_pump: switch.pond_pump
+  main_pump_power: sensor.pond_pump_power
+  air_pump: switch.pond_air_pump
+  air_pump_power: sensor.pond_air_pump_power
   filter: switch.pond_filter
   uv_light: switch.pond_uv_light
-  pond_light: light.pond_light
+  refill: switch.pond_refill
+  leak: binary_sensor.pond_leak
   water_temp: sensor.pond_water_temperature
-  pump_power: sensor.pond_pump_power
+
+# shown at the top while true, and on the pill: critical (red) or notice (amber)
+#   all_off: [ids] every one off · on: id · off: id · not_on: id (anything but on;
+#   text_offline when it isn't reporting)
+alerts:
+  - { text: Main pump off, text_offline: Main pump offline, level: critical, not_on: $main_pump }
+  - { text: Air pump off, level: critical, off: $air_pump }
+  - { text: Water leak, level: critical, 'on': $leak }       # 'on' in quotes: bare on is YAML for true
+  - { text: Refill running, level: notice, 'on': $refill }
 
 sections:
-  - title: Pumps & filter
+  - title: Now
+    icon: mdi:lightning-bolt
+    layout: pills                          # small pills in a row
     tiles:
-      - $pumps
-      - { entity: $filter, name: Filter }
-      - { entity: $uv_light, name: UV light }
-      - { entity: $pond_light, name: Light }
+      - { entity: $current, name: Current }
+      - { entity: $power, name: Power, unit: kW }
+      - { entity: $water_temp, name: Water }
+  - title: Pumps
+    tiles:
+      - { entity: $main_pump, name: Main pump, icon: mdi:pump, power: $main_pump_power, confirm: true }   # asks first
+      - { entity: $air_pump, name: Air pump, icon: mdi:weather-windy, power: $air_pump_power, confirm: true }
+      - { entity: $filter, name: Filter, icon: mdi:air-filter }
+      - { entity: $uv_light, name: UV light, icon: mdi:lightbulb-fluorescent-tube }
   - title: Water
     tiles:
-      - { entity: $water_temp, name: Water }
-      - { entity: $pump_power, name: Pumps }
+      - { entity: $refill, name: Refill, icon: mdi:water-plus, confirm: true }
       - card:
           type: history-graph
           hours_to_show: 48
           entities: [$water_temp]
-        size: full x 2
+        size: half x 2

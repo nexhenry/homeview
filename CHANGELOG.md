@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+- **Control pages.** Custom pages can now be laid out like a hand-made control panel:
+  - Sections: `layout: pills` (small pills in a row), `layout: keypad` with `columns:` (an icon
+    grid, e.g. a TV remote; `.` = an empty key), `layout: faders`, `width: half` (two sections side
+    by side on tablets), and `icon:` before the title.
+  - `type: button`: runs a script or service (`action`, `data`, `target`), or toggles `toggle`.
+    It's lit in `color` while `watch` is `when` (or its `attribute`). Also `dim`, `name_off` /
+    `icon_off`, `confirm` and `hold`.
+  - `type: fader`: slide to set an `input_number` / `number`; tap its icon to mute (`mute:`).
+  - Entity tiles: `power:` shows "On · 0.72 kW"; `confirm: true` asks before switching; `unit: kW`
+    in pill rows.
+  - Page options: `columns:`, `show_room: false` (tiles show their state, not their room), and
+    `alerts:`, warnings at the top of the page (critical red and pulsing, notice amber).
+- **A page's pill warns.** A custom page's pill on Home turns red for a critical alert and amber
+  for a notice, as the other pills do. `unit: kW` shows a power sensor in kW; `name: ''` shows only
+  the icon and the value.
+- **A sensor that isn't reporting** shows its name and "—", not "Unavailable" as its name.
+- The sample `pond.yaml` and `media.yaml` use all of this.
+
 ## 0.8.12 — 2026-11-07
 
 - **Edit a room's tiles.** In edit mode, Living, a person's page and a room's page get a dashed

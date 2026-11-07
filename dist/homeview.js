@@ -1078,6 +1078,34 @@ const TILE_CSS = `
 .edit button[data-edit=unfav] { background:#FF9F0A; }
 .edit.rowed { align-content:center; padding:0 12px; }
 .t.bare { background:transparent; border:none; box-shadow:none; }
+/* pills (layout: pills / keypad) */
+.t.pl { height:auto; min-height:40px; display:flex; flex-direction:row; align-items:center; justify-content:center; gap:7px; padding:9px 14px;
+  border-radius:999px; background:var(--hv-pill, var(--hv-tile)); border:none; box-shadow:none; font-size:14.5px; white-space:nowrap; cursor:pointer; }
+.t.pl .ic { --mdc-icon-size:20px; color:var(--hv-fg2); display:flex; }
+.t.pl b { font-weight:650; }
+.t.pl .pv { color:var(--hv-fg2); font-weight:500; }
+.t.pl.on { background:color-mix(in srgb, var(--pc) 22%, var(--hv-tile)); }
+.t.pl.on .ic, .t.pl.dim .ic { color:var(--pc); }
+.t.pl.dim { box-shadow:inset 0 0 0 1.5px var(--pc); }
+.t.pl.io { height:100%; border-radius:18px; padding:0; }
+.t.pl.io .ic { --mdc-icon-size:24px; color:var(--hv-fg); }
+.t.pl.io.on .ic { color:var(--pc); }
+.t.pl.na { opacity:.55; }
+.t.gap { background:transparent; border:none; box-shadow:none; cursor:default; }
+/* faders */
+.t.fader { height:100%; display:flex; flex-direction:row; align-items:center; justify-content:flex-start; text-align:left; gap:12px; padding:6px 8px; border-radius:999px; cursor:default; }
+.fd-ic { flex:none; width:38px; height:38px; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer;
+  --mdc-icon-size:20px; color:var(--fc); background:color-mix(in srgb, var(--fc) 18%, transparent); }
+.fd-tx { flex:0 0 34%; min-width:0; display:flex; flex-direction:column; line-height:1.25; }
+.fd-tx b { font-size:14.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.fd-tx span { font-size:12.5px; color:var(--hv-fg2); font-variant-numeric:tabular-nums; }
+.fd-bar { position:relative; flex:1; height:36px; border-radius:10px; overflow:hidden; cursor:pointer; touch-action:none;
+  background:color-mix(in srgb, var(--fc) 22%, transparent); }
+.fd-fill { position:absolute; inset:0 auto 0 0; background:var(--fc); border-radius:10px 0 0 10px; }
+.fd-m { position:absolute; top:4px; right:6px; font-size:10px; font-weight:700; letter-spacing:.05em; padding:2px 7px; border-radius:999px;
+  background:color-mix(in srgb, var(--hv-fg) 30%, transparent); color:#fff; }
+.t.fader.muted { opacity:.6; }
+.t.fader.muted .fd-ic, .t.fader.muted .fd-fill { filter:grayscale(1); }
 .fc-hl { display:none; font-weight:600; font-size:clamp(12px, 9cqh, 18px); }
 @container (max-height: 300px) { .fc-rows { display:none; } .fc-hl { display:block; } }
 .ag-list { overflow:hidden; flex:1; min-height:0; -webkit-mask-image:linear-gradient(#000 78%, transparent); mask-image:linear-gradient(#000 78%, transparent); }
@@ -1221,9 +1249,138 @@ R.add = {
   html: () => `<div class="t flex add" data-edit="add" style="border:1.5px dashed var(--hv-line);background:transparent;cursor:pointer">
     <div class="ic" style="color:var(--hv-accent)"><i data-i="mdi:plus"></i></div><div class="tx"><div class="nm">Add</div><div class="sb">a tile here</div></div></div>`,
 };
-R.entity = {
-  key: (h, s) => { const st = h.states[s.entity]; return st ? st.last_updated + st.state + (st.attributes.brightness || '') : 'x'; },
+// ---- power, pills, buttons, faders (custom pages) -------------------------------------------
+/** A power sensor's value in W (W / kW / MW), or null. */
+function toWatts(st) {
+  const v = num(st?.state);
+  if (v === null) return null;
+  const u = String(st.attributes?.unit_of_measurement || 'W').toLowerCase();
+  return v * ({ w: 1, kw: 1000, mw: 1e6 }[u] ?? 1);
+}
+/** 720 -> "0.72 kW", 2 -> "0.002 kW", 1015 -> "1.02 kW" */
+const fmtKw = (w) => { const k = w / 1000; return `${k.toLocaleString(undefined, { maximumFractionDigits: k < 0.01 ? 3 : 2, minimumFractionDigits: k < 0.01 ? 3 : 2 })} kW`; };
+const NAMED_TONES = () => ({ green: HV_TONES.ok, amber: HV_TONES.warn, red: HV_TONES.alert, orange: HV_TONES.on, blue: HV_TONES.cool });
+const toneColor = (c) => (c ? NAMED_TONES()[c] || HV_TONES[c] || c : null);
+/** A pill-shaped tile (layout: pills / keypad): icon, name and (info pills) the state. */
+function pillHtml({ icon, entity, name, value, color, active, dim, iconOnly, na }) {
+  const c = color || 'var(--hv-accent)';
+  return `<div class="t pl${active ? ' on' : ''}${dim ? ' dim' : ''}${iconOnly ? ' io' : ''}${na ? ' na' : ''}" style="--pc:${esc(c)}">
+    <span class="ic">${entity ? `<i data-e="${esc(entity)}"${icon ? ` data-i="${esc(icon)}"` : ''}></i>` : `<i data-i="${esc(icon || 'mdi:circle-small')}"></i>`}</span>${iconOnly ? '' : `<b>${esc(name || '')}</b>`}${value !== undefined && !iconOnly ? `<span class="pv">${esc(value)}</span>` : ''}</div>`;
+}
+function entityPillTile(h, s) {
+  const st = h.states[s.entity];
+  if (!st) return pillHtml({ icon: 'mdi:help-circle-outline', name: s.name || s.entity, value: 'Not found', na: true });
+  const d = domainOf(s.entity), na = UNAVAILABLE.includes(st.state);
+  const info = ['sensor', 'binary_sensor', 'weather', 'sun', 'input_number', 'number', 'input_select', 'select', 'input_text'].includes(d);
+  const on = isActive(st);
+  const icon = (on ? s.icon_on : s.icon_off) || s.icon || null;   // none: the entity's own (data-e)
+  const name = (!on && s.name_off) || s.name || shortName(h, s.entity, s.areaName);
+  const w = s.unit && ['w', 'kw'].includes(String(s.unit).toLowerCase()) ? toWatts(st) : null;   // unit: kW
+  const value = w !== null ? (String(s.unit).toLowerCase() === 'kw' ? fmtKw(w) : `${fmt(w, 0)} W`) : stateText(h, st);
+  return pillHtml({ icon, entity: s.entity, name, value: info ? value : undefined, color: toneColor(s.color) || activeColor(st), active: !info && on, iconOnly: s.iconOnly, na });
+}
+// type: button — a pill that runs an action: { type: button, name, icon, color, action: script.x |
+// domain.service, data, target, toggle: entity (tap toggles it, lit while on), watch + when (lit while
+// that entity is in that state; attribute: watch one of its attributes), dim (a lit pill shows only an outline while this entity is off),
+// name_off / icon_off (while not lit), confirm, hold: a page | { action, data, target } }
+R.button = {
+  key: (h, s) => [s.watch, s.toggle, s.dim].map((id) => (id ? h.states[id]?.state ?? '' : '')).join('|') + (s.attribute ? `|${h.states[s.watch]?.attributes?.[s.attribute]}` : ''),
+  lit(h, s) {
+    // attribute: source — watch an attribute of `watch` (a TV's source …) instead of its state
+    if (s.watch) return asList(s.when ?? 'on').map(String).includes(String(s.attribute ? h.states[s.watch]?.attributes?.[s.attribute] : h.states[s.watch]?.state));
+    if (s.toggle) return isActive(h.states[s.toggle]);
+    return false;
+  },
   html(h, s) {
+    const lit = R.button.lit(h, s);
+    const dim = lit && s.dim && h.states[s.dim]?.state !== 'on';
+    const icon = (!lit && s.icon_off) || s.icon || 'mdi:gesture-tap-button';
+    const name = (!lit && s.name_off) || s.name || '';
+    if (!s.pillish) {
+      return `<div class="t flex${lit ? ' on' : ''}" style="--hv-ic-on:${esc(toneColor(s.color) || 'var(--hv-accent)')}"><div class="ic"><i data-i="${esc(icon)}"></i></div>
+        <div class="tx"><div class="nm">${esc(name)}</div></div></div>`;
+    }
+    return pillHtml({ icon, name, color: toneColor(s.color), active: lit && !dim, dim, iconOnly: s.iconOnly });
+  },
+  action(h, s, tile, kind) {
+    if (kind === 'hold') {
+      const hd = s.hold;
+      if (hd && typeof hd === 'object' && hd.action) return callAction(h, hd.action, hd.data, hd.target);
+      const id = s.toggle || s.watch;
+      return id ? moreInfo(tile, id) : null;
+    }
+    if (s.confirm && !window.confirm(`${s.name || 'Run this'}?`)) return null;
+    if (s.action) return callAction(h, s.action, s.data, s.target);
+    if (s.toggle) return h.callService('homeassistant', 'toggle', {}, { entity_id: s.toggle });
+    return null;
+  },
+};
+/** "script.x" / "light.turn_on" with data and a target (entity id(s) or { entity_id, area_id … }) */
+function callAction(h, action, data, target) {
+  const [dom, svc] = String(action).split('.');
+  if (!dom || !svc) return null;
+  const tg = target ? (typeof target === 'object' && !Array.isArray(target) ? target : { entity_id: target }) : undefined;
+  return h.callService(dom, svc, data || {}, tg);
+}
+// an empty cell (keypad layouts: '.')
+R.gap = { key: () => 'gap', html: () => '<div class="t gap"></div>' };
+// type: fader — { type: fader, entity: input_number.x | number.x, mute: input_boolean.x, name, icon,
+// color }: slide the bar to set the level, tap the icon to mute / unmute (greyed, MUTED, while muted)
+R.fader = {
+  key: (h, s) => `${h.states[s.entity]?.state}|${s.mute ? h.states[s.mute]?.state : ''}`,
+  html(h, s) {
+    const st = h.states[s.entity];
+    const a = st?.attributes || {};
+    const v = num(st?.state), min = Number(a.min ?? 0), max = Number(a.max ?? 100);
+    const pct = v === null ? 0 : clamp(((v - min) / ((max - min) || 1)) * 100, 0, 100);
+    const muted = !!s.mute && h.states[s.mute]?.state === 'on';
+    const unit = a.unit_of_measurement || '';
+    return `<div class="t fader${muted ? ' muted' : ''}${!st ? ' na' : ''}" style="--fc:${esc(toneColor(s.color) || 'var(--hv-accent)')}">
+      <span class="fd-ic" data-act="mute" title="${muted ? 'Unmute' : 'Mute'}"><i data-i="${esc(s.icon || 'mdi:tune-vertical-variant')}"></i></span>
+      <span class="fd-tx"><b>${esc(s.name || a.friendly_name || s.entity)}</b><span>${v === null ? '—' : `${fmt(v, Number.isInteger(v) ? 0 : 1)}${unit}`}</span></span>
+      <span class="fd-bar" data-act="bar"><span class="fd-fill" style="width:${pct}%"></span>${muted ? '<span class="fd-m">MUTED</span>' : ''}</span></div>`;
+  },
+  // the bar: drag (or tap) sets the level, sent once on release
+  update(h, s, tile) {
+    const bar = tile.shadowRoot?.querySelector('.fd-bar');
+    if (!bar || bar._hv) return;
+    bar._hv = true;
+    const st = () => (hvHass || h).states[s.entity];
+    const valAt = (x) => {
+      const r = bar.getBoundingClientRect(), a = st()?.attributes || {};
+      const min = Number(a.min ?? 0), max = Number(a.max ?? 100), step = Number(a.step ?? 1) || 1;
+      const v = min + clamp((x - r.left) / r.width, 0, 1) * (max - min);
+      return Math.round(v / step) * step;
+    };
+    bar.addEventListener('pointerdown', (e) => {
+      if (e.button > 0) return;
+      e.stopPropagation(); e.preventDefault();
+      bar.setPointerCapture?.(e.pointerId);
+      const fill = bar.querySelector('.fd-fill'), a = st()?.attributes || {};
+      const min = Number(a.min ?? 0), max = Number(a.max ?? 100);
+      let v = valAt(e.clientX);
+      const show = () => { fill.style.width = `${clamp(((v - min) / ((max - min) || 1)) * 100, 0, 100)}%`; };
+      show();
+      const move = (ev) => { v = valAt(ev.clientX); show(); };
+      const up = () => {
+        bar.removeEventListener('pointermove', move); bar.removeEventListener('pointerup', up); bar.removeEventListener('pointercancel', up);
+        const dom = domainOf(s.entity);
+        (hvHass || h).callService(dom === 'number' ? 'number' : 'input_number', 'set_value', { value: v }, { entity_id: s.entity });
+      };
+      bar.addEventListener('pointermove', move); bar.addEventListener('pointerup', up); bar.addEventListener('pointercancel', up);
+    });
+  },
+  action(h, s, tile, kind, ev) {
+    if (kind === 'hold') return moreInfo(tile, s.entity);
+    if (ev?.target?.closest?.('[data-act]')?.dataset?.act === 'mute' && s.mute) return h.callService('homeassistant', 'toggle', {}, { entity_id: s.mute });
+    return null;
+  },
+};
+
+R.entity = {
+  key: (h, s) => { const st = h.states[s.entity]; return (st ? st.last_updated + st.state + (st.attributes.brightness || '') : 'x') + (s.power ? `|${h.states[s.power]?.state}` : ''); },
+  html(h, s) {
+    if (s.pillish) return entityPillTile(h, s);
     const st = h.states[s.entity];
     if (!st) return `<div class="t na"><div class="ic"><i data-i="mdi:help-circle-outline"></i></div><div class="tx"><div class="nm">${esc(s.name || s.entity)}</div><div class="sb">Not found</div></div></div>`;
     const on = isActive(st), alert = isAlert(st), na = UNAVAILABLE.includes(st.state);
@@ -1231,6 +1388,13 @@ R.entity = {
     const name = s.name || shortName(h, s.entity, s.areaName);
     let sub = s.sub !== undefined ? s.sub : (s.showRoom && s.areaName ? s.areaName : stateText(h, st));
     if (s.showRoom && (d === 'climate' || d === 'media_player' || d === 'cover')) sub = stateText(h, st);
+    // power: sensor.x — "On · 0.72 kW" while it draws power
+    if (s.power && s.sub === undefined) { const w = toWatts(h.states[s.power]); sub = stateText(h, st) + (w !== null && w >= 1 ? ` · ${fmtKw(w)}` : ''); }
+    // a sensor that isn't reporting: its name, and a dash
+    if (d === 'sensor' && !s.sub && na) {
+      return `<div class="t flex na"><div class="ic"><i data-e="${esc(s.entity)}"${s.icon ? ` data-i="${esc(s.icon)}"` : ''}></i></div>
+        <div class="tx"><div class="nm">${esc(name)}</div><div class="sb">—</div></div></div>`;
+    }
     if (d === 'sensor' && !s.sub) {
       return `<div class="t flex${na ? ' na' : ''}"><div class="ic"><i data-e="${esc(s.entity)}"></i></div>
         <div class="tx"><div class="nm">${esc(stateText(h, st))}</div><div class="sb">${esc(name)}</div></div></div>`;
@@ -1256,6 +1420,8 @@ R.entity = {
   async action(h, s, tile, kind, ev) {
     const st = h.states[s.entity];
     if (!st) return;
+    // confirm: true — ask before switching (pumps …)
+    if (kind === 'tap' && s.confirm && s.tap !== 'more-info' && !window.confirm(`${isActive(st) ? 'Turn off' : 'Turn on'} ${s.name || shortName(h, s.entity)}?`)) return;
     const act = ev?.target?.closest?.('[data-act]')?.dataset?.act;
     if (act && kind === 'tap') {
       const step = st.attributes.target_temp_step || (h.config.unit_system?.temperature === '°C' ? 0.5 : 1);
@@ -2582,13 +2748,42 @@ const PILLS = {
 };
 const DEFAULT_PILLS = ['alarm', 'climate', 'energy', 'lights', 'locks', 'openings', 'safety', 'batteries', 'media'];
 /** A pill of your own: { entity, name?, icon?, alert?: [states], tap?, hold? } — its state, tap = more-info. */
+/**
+ * A custom page's alerts: [{ text, level: critical | notice, all_off: [ids] (every one off),
+ * on: id (on), off: id (off), not_on: id (anything but on; text_offline when it isn't reporting) }]
+ * -> the ones active now: [{ text, level }]. They show at the top of the page and colour its pill
+ * (critical: red, notice: amber), as the other pills warn.
+ */
+function pageAlerts(h, list) {
+  const st = (id) => h.states[id]?.state;
+  const out = [];
+  for (const a of asList(list)) {
+    if (!a || typeof a !== 'object') continue;
+    let on = false, text = a.text || 'Check this';
+    if (a.all_off) on = asList(a.all_off).length > 0 && asList(a.all_off).every((id) => st(id) === 'off');
+    else if (a.not_on) {
+      const s = st(a.not_on);
+      on = s !== 'on';
+      if (on && (s === undefined || UNAVAILABLE.includes(s)) && a.text_offline) text = a.text_offline;
+    } else if (a.on) on = st(a.on) === 'on';
+    else if (a.off) on = st(a.off) === 'off';
+    if (on) out.push({ text, level: a.level === 'notice' ? 'notice' : 'critical' });
+  }
+  return out;
+}
 function entityPill(h, d) {
-  if (!d.entity && d.page) return { icon: d.icon || 'mdi:view-grid-outline', text: d.name || d.page };   // a page's pill without an entity
+  const warn = pageAlerts(h, d.alerts);
+  const crit = warn.some((a) => a.level === 'critical');
+  if (!d.entity && d.page) return { icon: d.icon || 'mdi:view-grid-outline', text: d.name || d.page, alert: crit, tone: warn.length ? 'warn' : null };   // a page's pill without an entity
   const st = h.states[d.entity];
   if (!st) return null;
-  const alert = asList(d.alert).map(String).includes(st.state);
-  return { icon: d.icon || st.attributes.icon || 'mdi:information-outline', text: `${d.name ? `${d.name} ` : ''}${hassState(h, st)}`,
-    alert, tone: secureTone(st) || (UNAVAILABLE.includes(st.state) ? 'warn' : isActive(st) ? 'on' : null), more: d.entity };
+  const alert = asList(d.alert).map(String).includes(st.state) || crit;
+  // unit: kW (or W / MW) — a power sensor's value in that unit
+  const u = String(d.unit || '').toLowerCase();
+  const w = u && ['w', 'kw', 'mw'].includes(u) ? toWatts(st) : null;
+  const val = w === null ? hassState(h, st) : u === 'kw' ? fmtKw(w) : u === 'mw' ? `${fmt(w / 1e6, 2)} MW` : `${fmt(w, 0)} W`;
+  return { icon: d.icon || st.attributes.icon || 'mdi:information-outline', text: `${d.name ? `${d.name} ` : ''}${val}`,
+    alert, tone: warn.length ? 'warn' : secureTone(st) || (UNAVAILABLE.includes(st.state) ? 'warn' : isActive(st) ? 'on' : null), more: d.entity };
 }
 
 /* ============================================================================================
@@ -2786,7 +2981,8 @@ function userTileBase(def, h, m) {
   }
   if (def.entity) {
     const room = m.areaById[entityArea(h, def.entity)];
-    return entTile(def.entity, { name: def.name, icon: def.icon, icon_on: def.icon_on, icon_off: def.icon_off, color_on: def.color_on, color_off: def.color_off, tap: def.tap, hold: def.hold, size: size || [1, 1], showRoom: true, areaName: room?.name, user: true });
+    return entTile(def.entity, { name: def.name, icon: def.icon, icon_on: def.icon_on, icon_off: def.icon_off, color_on: def.color_on, color_off: def.color_off, tap: def.tap, hold: def.hold, size: size || [1, 1], showRoom: def.show_room !== false, areaName: room?.name, user: true,
+      power: def.power, color: def.color, confirm: def.confirm, name_off: def.name_off, unit: def.unit });
   }
   return null;
 }
@@ -2839,9 +3035,15 @@ function missingEntities(h, page) {
 const ACTION_WORDS = ['more-info', 'toggle', 'none', 'default', 'lights', 'room'];
 const pageLink = (v) => (typeof v === 'string' && v && !ACTION_WORDS.includes(v) ? v : null);
 
+// a section of your own: layout: pills (compact pills in a row) | keypad (icon buttons in
+// `columns` columns; '.' = an empty cell, e.g. a TV remote) | faders (sliders, two per row on
+// tablets) | rows (a list); width: half (two sections side by side on tablets); icon: by the title
+const SECTION_LAYOUTS = ['pills', 'keypad', 'faders', 'rows'];
 const userSections = (list, h, m) => asList(list).map((sec) => ({
   title: sec.title, position: sec.position, hue: sec.color !== undefined ? hueOf(sec.color, undefined) : undefined,
-  tiles: asList(sec.tiles).map((t) => userTile(t, h, m)).filter(Boolean),
+  layout: SECTION_LAYOUTS.includes(sec.layout) ? sec.layout : undefined, half: sec.width === 'half', icon: sec.icon,
+  keyCols: Number(sec.columns) || 4, iconsOnly: !!sec.icons_only,
+  tiles: asList(sec.tiles).map((t) => (t === '.' || t === null ? { kind: 'gap', size: [1, 1] } : userTile(t, h, m))).filter(Boolean),
 }));
 
 const rowTile = (id, extra = {}) => entTile(id, { row: true, ...extra });
@@ -3218,7 +3420,8 @@ const PAGES = {
   // custom_pages: [{ path, title, icon, color, pills, sections: [{ title, tiles: [...] }] }]
   custom(h, m, cfg, opts) {
     const d = customPages(cfg)[opts.custom] || {};
-    return { title: d.title || 'Page', hue: hueOf(d.color, 200), pills: !!d.pills, close: !!d.subview, hold: d.hold, sections: [] };
+    return { title: d.title || 'Page', hue: hueOf(d.color, 200), pills: !!d.pills, close: !!d.subview, hold: d.hold, sections: [],
+      columns: Number(d.columns) || undefined, alerts: d.alerts };
   },
 };
 
@@ -3293,6 +3496,23 @@ const PAGE_CSS = `
 .sec { margin-bottom:calc(var(--hv-gap) * 1.6); }
 .sec.compact { margin-bottom:var(--hv-gap); }
 .sec-h { display:flex; align-items:baseline; gap:10px; margin:0 2px 10px; font-size:19px; font-weight:700; }
+.sec-h.wi { align-items:center; gap:8px; font-size:15px; letter-spacing:.05em; text-transform:uppercase; }
+.sec-h.wi ha-icon { --mdc-icon-size:19px; display:flex; }
+/* custom pages: two sections side by side, pills, a keypad, faders, alerts */
+.secrow { display:grid; grid-template-columns:1fr 1fr; gap:0 calc(var(--hv-gap) * 2); align-items:start; }
+.grid.pills { display:flex; flex-wrap:wrap; gap:10px; justify-content:flex-start; align-items:center; }
+.grid.pills > homeview-tile { height:auto; container-type:normal; }
+.grid.keypad { grid-template-columns:repeat(var(--kc, 4), minmax(0, 1fr)); grid-auto-rows:46px; gap:10px; max-width:560px; }
+.grid.faders { grid-template-columns:repeat(auto-fill, minmax(min(100%, 460px), 1fr)); grid-auto-rows:54px; gap:16px 24px; }
+.palerts { display:flex; flex-direction:column; gap:8px; margin:0 0 calc(var(--hv-gap) * 1.2); }
+.palerts:empty { display:none; }
+.palert { display:flex; align-items:center; gap:10px; padding:12px 16px; border-radius:16px; font-size:15px; font-weight:600;
+  background:var(--hv-tile); --mdc-icon-size:22px; }
+.palert.critical { box-shadow:inset 0 0 0 1.5px ${HV_TONES.alert}; animation:hv-alert-pulse 1.6s ease-in-out infinite; }
+.palert.critical ha-icon { color:${HV_TONES.alert}; }
+.palert.notice { box-shadow:inset 0 0 0 1.5px ${HV_TONES.warn}; }
+.palert.notice ha-icon { color:${HV_TONES.warn}; }
+@keyframes hv-alert-pulse { 50% { box-shadow:inset 0 0 0 1.5px ${HV_TONES.alert}, 0 0 0 4px color-mix(in srgb, ${HV_TONES.alert} 22%, transparent); } }
 .sec-h .sub { font-size:13px; color:var(--hv-fg2); font-weight:500; }
 .sec-h .more { margin-left:auto; font-size:14px; font-weight:600; color:var(--hv-accent); cursor:pointer; }
 .compact .sec-h { display:none; }
@@ -3511,6 +3731,8 @@ class HomeViewPage extends HTMLElement {
     const extra = custom ? custom.sections
       : this._config.page === 'room' ? cfg.rooms?.[this._config.area]?.sections : pageCfg.sections;
     for (const sec of userSections(extra, h, this._model)) {
+      // show_room: false (a custom page) — tiles show their state, not their room
+      if (custom?.show_room === false) sec.tiles = sec.tiles.map((t) => (t.kind === 'entity' ? { ...t, showRoom: false } : t));
       if (sec.position === 'top') page.sections.unshift(sec); else page.sections.push(sec);
     }
     // (hidden entities / rooms are marked in place above while editing)
@@ -3523,6 +3745,9 @@ class HomeViewPage extends HTMLElement {
     const head = document.createElement('div'); head.className = 'head' + (this._config.page === 'home' ? ' home' : '');
     frag.appendChild(head);
     this._head = head; this._headKey = null;
+    // alerts: (a custom page's warnings) — slim banners under the title, kept live with the header
+    this._alertsEl = null; this._alertsKey = null;
+    if (page.alerts) { const al = document.createElement('div'); al.className = 'palerts'; frag.appendChild(al); this._alertsEl = al; }
     const notes = [];
     if (page.note) notes.push(page.note);
     if (custom && h.user?.is_admin) {
@@ -3557,19 +3782,23 @@ class HomeViewPage extends HTMLElement {
       }
       frag.appendChild(b);
     }
+    let halfRow = null;   // width: half — two sections side by side (tablets)
     for (const sec of page.sections) {
       if (!sec.tiles.length) continue;
       const s = document.createElement('div');
       s.className = 'sec' + (page.compactSections && !editing && sec.layout !== 'favs' ? ' compact' : '') + (sec.hidden ? ' hidden-sec' : '');
       if (sec.title) {
-        s.insertAdjacentHTML('beforeend', `<div class="sec-h">${esc(sec.title)}${sec.sub ? `<span class="sub">${esc(sec.sub)}</span>` : ''}${sec.link ? `<span class="more" data-nav="${esc(sec.link)}">See all ›</span>` : ''}</div>`);
+        s.insertAdjacentHTML('beforeend', `<div class="sec-h${sec.icon ? ' wi' : ''}">${sec.icon ? `<ha-icon icon="${esc(sec.icon)}"></ha-icon>` : ''}${esc(sec.title)}${sec.sub ? `<span class="sub">${esc(sec.sub)}</span>` : ''}${sec.link ? `<span class="more" data-nav="${esc(sec.link)}">See all ›</span>` : ''}</div>`);
         // a room's title: hold (or tap) = the room's details page
         if (sec.room && !editing) { const hd = s.lastElementChild; hd.style.cursor = 'pointer'; const go = () => navigate(`room-${sec.room}`);
           bindPress(hd, () => { const l = roomMainLight(this._hass, this._model.areaById[sec.room]); if (l) this._hass.callService('light', 'toggle', {}, { entity_id: l }); else go(); }, go); }
       }
       const g = document.createElement('div'); g.className = 'grid' + (sec.layout ? ` ${sec.layout}` : '') + (sec.loads ? ' loads' : '');
       if (sec.hue !== undefined) g.setAttribute('style', styleVars(palette(sec.hue, dark)));
-      for (const spec of sec.tiles) {
+      if (sec.layout === 'keypad') g.style.setProperty('--kc', sec.keyCols);
+      const pillish = sec.layout === 'pills' || sec.layout === 'keypad';
+      for (const spec0 of sec.tiles) {
+        const spec = pillish && spec0.kind !== 'gap' ? { ...spec0, pillish: true, iconOnly: sec.layout === 'keypad' || sec.iconsOnly || spec0.iconOnly } : spec0;
         if (spec.editOnly && !(editing && h.user?.is_admin)) continue;
         // a size set in edit mode (customize.<id>.size) counts in a list too: it spans list columns / rows,
         // and a tile two rows tall is drawn as a full tile, not a list row
@@ -3582,7 +3811,10 @@ class HomeViewPage extends HTMLElement {
         g.appendChild(t);
       }
       s.appendChild(g);
-      frag.appendChild(s);
+      if (sec.half && !this._phone) {
+        if (!halfRow || halfRow.childElementCount >= 2) { halfRow = document.createElement('div'); halfRow.className = 'secrow'; frag.appendChild(halfRow); }
+        halfRow.appendChild(s);
+      } else { halfRow = null; frag.appendChild(s); }
     }
     this._root.replaceChildren(frag);
     this._root.querySelectorAll('[data-nav]').forEach((el) => el.addEventListener('click', () => navigate(el.dataset.nav)));
@@ -3979,7 +4211,7 @@ class HomeViewPage extends HTMLElement {
     const w = this.clientWidth || window.innerWidth;
     const cfg = this._config.options || {};
     const phone = w < 600;
-    const pageCols = PAGE_COLUMNS[this._config.page] || 5;
+    const pageCols = this._page?.columns || PAGE_COLUMNS[this._config.page] || 5;   // custom pages: columns:
     let cols, pad, gap, aspect;
     if (phone !== !!this._phone && this._page) { this._phone = phone; this.rebuild(); return; }
     if (phone) {
@@ -4069,9 +4301,20 @@ class HomeViewPage extends HTMLElement {
     this._cols = cols;
   }
 
+  _renderAlerts() {
+    const el = this._alertsEl, h = this._hass;
+    if (!el || !h) return;
+    const list = pageAlerts(h, this._page?.alerts);
+    const key = JSON.stringify(list);
+    if (key === this._alertsKey) return;
+    this._alertsKey = key;
+    el.innerHTML = list.map((a) => `<div class="palert ${a.level}"><ha-icon icon="${a.level === 'critical' ? 'mdi:alert-circle' : 'mdi:information'}"></ha-icon>${esc(a.text)}</div>`).join('');
+  }
+
   _renderHead() {
     const h = this._hass, page = this._page, head = this._head;
     if (!h || !page || !head) return;
+    this._renderAlerts();
     if (this._dragging) { this._headKey = null; return; }   // not under a finger mid-drag: after it
     const cfg = this._config.options || {};
     const m = this._model;
@@ -4691,7 +4934,7 @@ class HomeViewStrategy extends HTMLElement {
     // a custom page's own pill (pill: { entity, name, icon, alert } or pill: true) joins Home's
     // pills for everyone the page is made for: tap = the page, hold = the entity's details
     const pagePills = customs.filter((c) => c.pill && allowed(c.path)).map((c) => ({
-      ...(typeof c.pill === 'object' ? c.pill : {}), page: c.path,
+      ...(typeof c.pill === 'object' ? c.pill : {}), page: c.path, alerts: c.alerts,
       icon: (typeof c.pill === 'object' && c.pill.icon) || c.icon || 'mdi:view-grid-outline',
       name: typeof c.pill === 'object' && 'name' in c.pill ? c.pill.name : (c.title || c.path) }));
     views.forEach((v) => { v.cards[0].nav = nav; v.cards[0].popups = popups; v.cards[0].pagePills = pagePills; delete v.letter; delete v.avatar; });
