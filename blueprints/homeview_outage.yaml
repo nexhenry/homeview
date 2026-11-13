@@ -16,8 +16,10 @@ blueprint:
           domain: [binary_sensor, sensor]
     down_states:
       name: States that mean "grid down"
-      description: For a binary sensor that is on while the grid is up, leave "off".
-      default: ["off", "off_grid", "islanded", "disconnected", "down", "on_battery"]
+      description: >-
+        For a binary sensor that is on while the grid is up, leave "off". "inactive" is a Powerwall's
+        grid status while it is off the grid.
+      default: ["off", "off_grid", "islanded", "disconnected", "down", "on_battery", "inactive"]
       selector:
         text:
           multiple: true

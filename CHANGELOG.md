@@ -1,5 +1,236 @@
 # Changelog
 
+## 0.9.0 — 2026-11-13
+
+**A new foundation.** One bad tile or setting can no longer take a page down; on-screen edits can't
+be lost to a failed read; a registry change rebuilds only what it affects and keeps open sheets and
+your scroll; every option lives in one schema (`schema/options.json`) that the README, the full
+example and the tests are built from; and CI runs a syntax check, 116 tests and a privacy gate
+before any release. On top: conditions (`show_when`), confirm everywhere, patterns, time pills and
+section defaults; a night face and a guest view; Home Assistant's own cards follow HomeView's light,
+dark and night look; offline devices stay in place with a badge; brighter "on" vs quieter "off"
+tiles with WCAG contrast in light mode; problems-first pills; page dots; an in-app confirm and
+rename sheet; and the Energy page's outage list on one Home Assistant label, run through your own
+script if you like.
+
+- **`show_when:` on tiles, sections and pills.** A tile, a section, a pill of your own or a page's
+  pill shows only while a condition holds, and follows the state live (no page reload): an entity
+  that's on, `{ entity, state / state_not }`, `{ entity, above / below }` (numbers or entities), an
+  `attribute:`, `{ user: [...] }`, `{ admin: true }`, combined with `or:` / `and:` / `not:`. Home
+  Assistant's own visibility conditions (`condition: state | numeric_state | user | screen | and | or |
+  not`) work too. A section whose tiles are all hidden hides as well; edit mode shows everything,
+  the hidden ones faded. Example: a forecast only on a rainy day, a vacuum's controls only while it
+  cleans.
+- **Patterns instead of long lists.** `exclude_entities` and a section's tiles take globs
+  (`sensor.*_linkquality`, `light.kids_room_*`) and filters (`{ domain, area, label, device_class,
+  integration, entity_id, not }`; area and label by id or name, a device's label counts). In tiles,
+  `{ match: <pattern>, …options }` makes one tile per entity, and `state:` in its filter shows each
+  only while it's in that state (a live "open doors" list). Entities hidden in Home Assistant never
+  match; diagnostic ones only when named by id.
+- **Times and attributes on tiles and pills.** `format: time | date | datetime | relative | until |
+  since` for `input_datetime` helpers, date / time entities, timestamp sensors and attributes ("Wake
+  in 9 h 20 min", "5 minutes ago"); `relative` / `until` / `since` update every 30 s.
+  `attribute: battery_level` (any attribute, or `last_changed`) shows an attribute instead of the
+  state. `input_datetime` helpers are value pills in `layout: pills` (they showed only their name).
+- **`confirm:` everywhere an entity is switched.** `customize.<entity>.confirm` asks wherever that
+  entity can be switched (its tiles on every page, the pills' pop-ups, a chip, a button that toggles
+  it); a tile's own `confirm:` wins. `confirm:` takes `true`, `turn_on` / `turn_off` (only before
+  that, e.g. before sounding a siren but not before stopping it), your question, or `{ text, only,
+  action }`, in HomeView's own sheet. Locks and garage doors still ask every time; a `confirm:` gives
+  them your words. `hold: toggle` on an entity tile now switches it on a hold (it
+  opened the details), so `tap: more-info` + `hold: toggle` keeps a stray tap from setting something
+  off; `confirm:` follows the gesture that switches.
+- **Section `defaults:`**: tile options every tile of a section gets (a tile's own keys win), e.g. a
+  remote's `{ type: button, action: remote.send_command, target: … }` once. The Media page file's
+  remote uses it.
+- Admins get a note for typos in these: an unknown key in a section, a `customize` entry, a
+  condition, a filter or `confirm:`, an unknown `format:`, a pattern that matches nothing, a
+  `show_when` entity Home Assistant doesn't have. The settings editor keeps patterns in
+  `exclude_entities` as they are (its entity picker shows the plain ids).
+
+- **One bad tile no longer takes a page down.** A tile that can't be drawn (odd data, a renderer
+  error) shows a small "Tile error" placeholder (admins see why) and the rest of the page keeps
+  working. If rebuilding a page fails, the page on screen stays and keeps updating instead of
+  freezing or being replaced by Home Assistant's error card; a page's own tiles failing still leaves
+  its header and your sections.
+- **Page files accept only the tile types meant for them** (entity, room, clock, weather, forecast,
+  date, next_event, agenda, camera, person, chart, button, fader, air, energy_now, energy_flow, and
+  `card:`). HomeView's internal types used to be accepted and could throw. An unknown type, or a room
+  tile for an area that doesn't exist, is left out with a note for admins instead of vanishing.
+  `energy_now` / `energy_flow` on a page find the live power sensors themselves.
+- **On-screen edits can't be wiped by a dropped connection.** Saving reads the dashboard's saved
+  edits first; if that read fails for any reason but "there are none yet", nothing is saved and a
+  message says so. Before, a failed read counted as "no edits" and the save overwrote every earlier
+  edit.
+- **The Settings sheet on a YAML dashboard starts from what the dashboard shows** (the YAML plus
+  the on-screen edits). Before, it started from the YAML alone, and saving it dropped the edits made
+  in edit mode.
+- **Alerts and warnings never fail silently.** New rule `none_on: [ids]`: none of them is on (off,
+  offline and missing all count), e.g. "both pumps off". A rule that can't be checked because its
+  entity is offline shows "<name> not reporting" in amber, a missing one "Can't check: <text>" (or
+  `text_offline`), instead of nothing. A bare YAML `on:` / `off:` key works too. Admins' missing-entity note now also covers a
+  page's `pill:` and `alerts:`.
+- **Tiles away from their room say the state and the room**: on Home, in the pills' sheets and in
+  the phone favourites the front lock reads "Locked · Entry" (it used to show only the room, never
+  "Locked"); two "Leak Battery" rows become "Leak Battery · Kitchen" / "· Bathroom"; a name that
+  says nothing on its own ("Light") gets its full name there. The Lights tile reads "2 on · Kitchen".
+  Inside a room nothing changes.
+- **Offline devices keep their place.** They used to vanish from Home's chips and favourites, Living,
+  person pages and the phone favourites, or fade like "off". Now they stay, at full strength, with
+  an amber "!" on the icon and the word "Offline" (one word everywhere); a tap opens the details. A
+  scene or button that has never run isn't offline any more.
+- **Readable colours in light mode.** Comfort words, "Offline", an open door's "Open", Live and
+  similar words use darker shades of the same colours (4.5 : 1 on every room tint, also on lit
+  tiles); grey state words and the Widgets board's text are darker; the weekday on Widgets is a
+  deeper orange; red pills and chips are a deeper red for their white text. Icons, fills and dark
+  mode are unchanged.
+- **Desktop browser windows taller than wide** (no touch screen, at least 1000 px wide) lay out like
+  a landscape tablet: a 1280 × 1350 window gets the same columns and tile shape as a 1280 × 800
+  tablet, and Widgets keeps its landscape board at the top. `desktop_layout: fill` keeps the old
+  behaviour. Touch screens are unchanged.
+- **HomeView's own "are you sure?" sheet** for locks, garage doors, `confirm:` tiles, buttons and
+  chips, and the outage list, instead of the browser's dialog (which a kiosk browser can block): it
+  says what the device is doing now ("Locked · Entry · since 7:12 PM", or what a pump draws), with
+  48 px buttons; Esc cancels, Enter confirms.
+- **Bigger touch targets:** pills, chips, avatars, the page bar, sheet buttons, edit-mode buttons,
+  thermostat −/+, fader mute and the outage list's buttons respond to at least 44 × 44 px.
+- **Widgets' "Up next" fits its space:** it shows the events that fit, keeps its title, never ends on
+  a lone day heading, and says "+2 more".
+- **Status pills: problems first on every screen.** The pills that need attention come first — red,
+  then amber — and the rest keep their order, on tablets and in a browser too (it was phones only;
+  edit mode keeps the saved order, to drag). A pill names the one thing that needs a look
+  ("Back Door open", "Side Door offline", "Kitchen Leak") and counts several ("2 open", "2 locks
+  offline", "1 battery low · 1 offline"); the thermostat's pill is "70° · Heating" while it runs and
+  "70°" otherwise. Pills are 40 px tall on tablets. The Locks, Doors & Windows and Leaks sheets list
+  what needs a look first, in groups, as Batteries did.
+- **Guest view** (`guest: input_boolean.guests_here`): while the helper is on, shared screens leave out the
+  person pages, People, Cameras and admin-only pages (swipe order, page dots, page bar; a link to one
+  goes to Home), the people on Home, and every camera, person and calendar tile; Widgets drops the
+  agenda and shows the sample photos (or `guest.slideshow`). Controls, scenes, weather and the Energy
+  pill stay, and a "Guest" label says why. Every screen but admins', or `screens:` names the logins
+  (no entity: always for those); `hide:` adds pages. It hides, it doesn't secure.
+- **Renaming a tile or a page uses HomeView's own sheet** (a text field, Save / Cancel, Enter / Esc)
+  instead of the browser's prompt, which some kiosk browsers block. In edit mode the edit bar is a row
+  of its own under the title and the pills, so the pills no longer squeeze into one column.
+- **Cameras: up to nine on one screen** on tablets and in a browser (up to 3 across, 16:9, no
+  scrolling), like Apple's camera face; an offline camera shows an amber badge and "Offline".
+- **Who's home, without colour alone:** someone away is faded with a location pin under Home's title;
+  a person's page says where they are by its title ("● Home", "Away · 2 h"). A room summary shows the
+  temperature once, big, and below it how the room feels and its humidity. Home's weather tile names
+  the home instead of repeating the time and date. The next event reads "Up next · <calendar>".
+- **Rooms:** a small › on a room's tile and phone bar opens its details page (a tap elsewhere still
+  switches its lights). **Chips:** `label:` puts a word beside a chip's icon on tablets ("Auto
+  lights"); a `'|'` in `home.chips` starts a new group.
+- **Values that didn't refresh now do:** a room page's temperature by its title; comfort words when
+  the comfort band comes from entities (`comfort: { cold, warm }`, `comfort_margin`, `comfort_limits`);
+  picks that depend on a state — people with a location, the thermostat comfort follows, Home's
+  camera, a room page's live tiles — follow a device going offline or coming back (after 2 s), not the
+  next registry change.
+- **Lighter while it runs:** the clock tile is drawn once a minute and its hands turn by themselves (it
+  redrew about 75 parts every second); the full-screen check no longer fires a resize event every
+  2.5 s; the Energy page reads today's statistics in two requests a minute instead of one per meter,
+  finds each device's sensors in an index instead of scanning every entity, and the Energy settings
+  are read once for everything; the slideshow and the data cache no longer grow for weeks on a tablet
+  that's always on.
+- **Page files:** `$$` is a plain `$` in a page's text ("Price: $$5"), never an unset var; a page
+  without `path:` gets a note for admins (its address is its place in the list).
+- Smaller: with reduce motion the screensaver's hands move on the minute and it appears without a
+  fade; Widgets without an agenda (no calendars, or the guest view) gives the photo its place; the
+  energy and reading colours come from one place.
+- **Reduce motion and keyboards:** with reduce motion set, nothing wiggles, pulses or flows (a
+  critical banner gets a steady ring). Tiles, pills and chips work with a keyboard (Enter / Space;
+  Shift+Enter holds) and tiles are named for screen readers.
+- **Power outages: one list, your own script, and nothing switched without asking.** The ticks on
+  the Energy page are an HA label ("Outage: turn off", or `energy.outage.label`), the one list that
+  HomeView, the blueprint and your own automations read. New `energy.outage` options:
+  `off_action` / `on_action` run your script for **Turn off ticked** / **Turn back on** (it gets
+  `entities`, the ticked switches, and `on_entities`) instead of a plain turn off / on — so a script
+  that keeps a pump running is the one that runs; `on_label` adds a second tick, "turn on in an
+  outage"; `switches` pairs a device by hand; `outage: false` keeps only the devices list. Both buttons
+  and each row's On / Off now ask first (what it switches, what it draws) and are for admins only;
+  a row's button turns off what it said rather than toggling.
+- **The grid's state in plain words.** The outage header said "grid on" when the grid-status sensor
+  was unknown, unavailable or reported a battery's "Inactive". Now "grid on" only when the sensor says
+  so, "GRID DOWN" for the usual down words (Inactive, off_grid, islanded, on_battery …), "grid status
+  unknown" in amber, and any other state as it is. `grid_status: { entity, up: [...] }` or
+  `{ entity, down: [...] }` names your sensor's states. The blueprint's default down states include
+  `inactive` too.
+- **Each outage row switches the right device.** A row used the first switch on the energy meter's
+  device, which on a multi-channel plug (or one with a "metering only" switch) was the wrong one. Now
+  the switch named like the energy sensor (`sensor.pump_energy` → `switch.pump`, also on another
+  device), else the device's only switch, else none (no button); power and current the same way.
+  Rows line up: a row without a tick (no switch; for everyone but admins, one that isn't ticked)
+  keeps an empty slot, so icons and names stay in one column.
+- **No more "-0.00 kWh" or "-0 W":** a number that rounds to zero shows without a minus sign (a meter
+  that stepped back a little, a plug idling just below zero), and negative kW values show two
+  decimals like positive ones.
+- **A little less work on slow tablets:** the first page no longer forces the browser to lay out the
+  whole dashboard while it is being put on screen (asking where the window is scrolled did; about
+  0.15 s of a wall tablet's first load), the check for devices that went offline runs at most once a
+  second instead of on every state change, and rooms' comfort keys read the comfort settings once
+  per update instead of once per room.
+- **On and off at a glance (light mode):** a tile that's on is bright, almost white with a soft
+  shadow; one that's off is recessed into the room's tint (they were nearly the same colour in some
+  rooms). An alert tile is tinted red instead. Dark mode is unchanged.
+- **"On" and "needs a look" no longer look alike:** "on" icons are a warm yellow, "needs a look" a
+  deeper amber in light mode (the two were the same orange), and an offline chip keeps its own icon
+  with the amber "!" badge instead of looking lit.
+- **Page dots in full screen:** a row of dots at the bottom says there are other pages and which
+  one you're on; tap a dot to go there, the current one (on a phone, the dots) for the pages by name.
+  The page's name shows for a moment when you arrive; on Widgets the dots fade after 5 s. `page_dots:
+  false` turns them off.
+- **Phones: the controls first, and they open on Home.** Home on a phone starts with the favourites
+  and Lights, then the scenes two to a row, then a one-line weather, the camera, the next event and air
+  quality (the weather and air used to fill the first screen). The status pills wrap onto more lines
+  with problems first, and chips and people share a row (the chips wrap too): nothing on Home scrolls
+  sideways, so a sideways swipe there always changes the page. Phones open on Home, tablets on
+  the first page (Widgets); a link to a page is kept. `start: { phone: …, tablet: … }` changes it.
+- **A night face** (`night: <entity> | auto | { from, to }`): the dark look in warm, quiet colours,
+  photos dimmed, a black screensaver with a dim clock and no seconds hand, and on Widgets "Tonight"
+  (the alarm, locks, doors and windows, tomorrow's first event) instead of Up next. With reduce
+  motion, the screensaver's hands move once a minute.
+- **Swipes between pages aren't lost.** A swipe was timed by when the page got round to it, so a
+  page busy for a moment (a camera still, a rebuild) took a quick swipe for a slow drag; and when the
+  tile under the finger redrew mid-swipe (the clock does every second), the swipe never reached the
+  page. Now the touch's own time counts (up to a second), and the end of a swipe is heard on the
+  element it started on too. A slider, a fader, an edit-mode drag or a card's own content that scrolls
+  sideways keeps its drag instead of changing the page.
+- **Room details pages close with ✕** (hold a room's tile, bar or title): the same floating ✕ as the
+  pop-up pages, top right and clear of the notch, and Esc; it goes back to where you opened the page
+  (else Living). The ‹ before the title is gone.
+- **A registry change no longer rebuilds the dashboard under you.** Home Assistant built a HomeView
+  dashboard again whenever anything in its entity, device, area or floor registry changed, also what
+  HomeView doesn't use (a label, a device's firmware version), and HomeView rebuilt the page on top of
+  that: an open sheet closed, the page jumped to the top and every other page was built again on its
+  next visit. Now a page rebuilds only when something it reads changed (an entity's room, device, name
+  or icon, a room's name, icon or floor …), and the dashboard is built again only when the pages
+  themselves change (a room or a person's page comes or goes, a page's name or icon; Home Assistant
+  2026.7 or newer), once. Neither happens while a sheet is open or a tile is being dragged: it waits
+  until that's done. Every rebuild keeps the scroll position, also when Home Assistant replaces a page,
+  and ticking an outage row only redraws the row.
+- **Home Assistant's cards follow HomeView's look: light, dark or night.** With HomeView dark (the night
+  face, `theme: dark`) and Home Assistant light, the Energy cards' table was white with grey text, a
+  chart's legend dark on the dark card, its grid lines invisible and the "Now" chip light blue; in
+  plain dark mode the table rows were a different grey than the card. HomeView now sets Home
+  Assistant's theme variables on its pages from its own colours (backgrounds, text, dividers, tables,
+  text fields, HA's newer colour tokens for buttons and chips, in the page's accent) and gives
+  embedded cards its mode, so charts, tables, buttons and the settings form match the page. Table
+  rows are the card's own colour.
+- Smaller: the Air tile's temperature is plain text (it was green because the air was good), a room's
+  temperature chart is orange, the weather tile's 💧 is an icon, "Favourites" on phones, and switch-like
+  tiles and chips tell screen readers whether they're on (`aria-pressed`).
+- **Every option documented, from one table.** README → All options is now a table per topic with
+  each option's type, default and the version it came in, nested keys included (`home.chips`,
+  `energy.outage`, `warnings` rules …); `custom_pages/README.md` → Every key lists every key of a
+  page file, a section and a tile; `examples/full.yaml` has every option with an example value (it
+  had 20). All three are generated from `schema/options.json`, and the tests fail when an option has
+  no row there. `scripts/check-config.mjs` lists a config's unknown or misspelt keys at any depth.
+- Development: `scripts/test.sh` (headless tests in Node, no dependencies) and
+  `scripts/privacy-check.sh` (a privacy gate for this public repository); CI now runs
+  `scripts/check.sh` (the file as an ES module, as browsers load it), the tests and the gate, and a
+  release is only published when they pass. A development copy (`scripts/dev-build.sh`) no longer
+  shows admins the "an older copy is cached" icon all the time.
+
 ## 0.8.20 — 2026-11-07
 
 - **Move tiles in edit mode.** Drag a favourite on Home, or a device tile in a room (Living, a

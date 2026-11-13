@@ -18,17 +18,26 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Check the version
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Check the version, syntax and tests
         run: |
           v="${GITHUB_REF_NAME#v}"
           grep -q "const HV_VERSION = '$v';" dist/homeview.js || { echo "dist/homeview.js HV_VERSION is not $v"; exit 1; }
-          node --check dist/homeview.js
+          sh scripts/check.sh
+          sh scripts/test.sh
       - name: Release notes from CHANGELOG.md
         run: |
           v="${GITHUB_REF_NAME#v}"
           awk -v v="$v" '$0 ~ "^## "v"( |$)" {on=1; next} /^## / && on {exit} on' CHANGELOG.md > notes.md
           [ -s notes.md ] || echo "HomeView $v" > notes.md
           cat notes.md
+      # nothing is published when the files or the notes name a real home (see scripts/privacy-check.mjs)
+      - name: Privacy gate (files and release notes)
+        env:
+          HOMEVIEW_DENYLIST: ${{ secrets.HOMEVIEW_DENYLIST }}
+        run: sh scripts/privacy-check.sh --notes notes.md
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}

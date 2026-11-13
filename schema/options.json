@@ -1,0 +1,731 @@
+{
+  "$comment": [
+    "HomeView's options, kept in one place. scripts/gen-docs.mjs writes README.md's option tables,",
+    "custom_pages/README.md's page-file tables and examples/full.yaml from this file, and",
+    "test/schema.test.mjs checks it against dist/homeview.js (KNOWN_OPTIONS, the editor, the keys the code",
+    "reads). Edit it here, then run scripts/gen-docs.sh. Row fields: name, type (tokens below), values,",
+    "default (a fixed value) or auto (what HomeView does by itself, in words), since (a version, or",
+    "unreleased), description (Markdown, without the default), example (a JSON value for full.yaml), alt",
+    "(other forms, shown as comments), keys (an object's keys), entry (a map's entries: rooms.<area>), item",
+    "(a list's items; ref = one of defs), editor (in the settings editor), for (tile types), alias_of (an old",
+    "or second name: accepted, not shown), internal (written by HomeView), todo (expected from a branch",
+    "that isn't merged yet: not shown; the test fails once the code reads it, so the row gets filled).",
+    "Type tokens: string number boolean entity area page color size time icon action any object map",
+    "list, a list of x as x[], literals true / false / null and the values listed in values."
+  ],
+  "version": 1,
+  "groups": [
+    { "id": "general", "title": "General" },
+    { "id": "rooms", "title": "Rooms" },
+    { "id": "show", "title": "What to show" },
+    { "id": "people", "title": "People, and who sees what" },
+    { "id": "home", "title": "Home, Widgets, pills and warnings" },
+    { "id": "comfort", "title": "Comfort words" },
+    { "id": "energy", "title": "Energy" },
+    { "id": "screens", "title": "Screens: full screen, start page, screensaver, night" },
+    { "id": "pages", "title": "Your own pages" },
+    { "id": "layout", "title": "Layout and editing" }
+  ],
+  "options": [
+    {
+      "name": "type", "group": "general", "type": "string", "values": ["custom:homeview", "custom:homeview-dev"], "required": true, "since": "0.1.0",
+      "description": "The dashboard strategy. The only line you need; every other option is optional. (`custom:homeview-dev`: a development copy made by `scripts/dev-build.sh`.)",
+      "example": "custom:homeview"
+    },
+    {
+      "name": "title", "group": "general", "type": "string", "auto": "your home's name (Settings → System → General)", "since": "0.1.0", "editor": true,
+      "description": "The Home page's title and the dashboard's name.",
+      "example": "Our Home"
+    },
+    {
+      "name": "theme", "group": "general", "type": "string", "values": ["auto", "light", "dark"], "default": "auto", "since": "0.1.0", "editor": true,
+      "description": "Light or dark; `auto` follows Home Assistant on each screen. Home Assistant's cards on HomeView's pages take HomeView's look too: light, dark or the night face.",
+      "example": "auto"
+    },
+    {
+      "name": "pages", "group": "general", "type": "page[]", "default": ["widgets", "home", "living", "rooms", "energy", "cameras"], "since": "0.1.0", "editor": true,
+      "description": "Which pages, in this order (also the swipe order). `rooms` = a page per family member's room (with no member rooms, the all-rooms directory). Also `all_rooms`, `people` and your own pages' paths. Old names still work: `family` = `living`, `members` = `rooms`. A page with nothing to show is left out.",
+      "example": ["widgets", "home", "living", "rooms", "energy", "cameras"]
+    },
+    {
+      "name": "pages_config", "group": "general", "type": "map", "since": "0.1.0",
+      "description": "Per page: a page id (`home`, `living` …), a person page's path (`member-zoe`) or your own page's path.",
+      "entry": {
+        "name": "<page>", "type": "object",
+        "keys": [
+          { "name": "title", "type": "string", "since": "0.1.0", "description": "The page's title and its name in the page bar (✎ in edit mode)." },
+          { "name": "icon", "type": "icon", "since": "0.1.0", "description": "The page's icon in the page bar." },
+          { "name": "color", "type": "color", "since": "0.1.0", "description": "The page's tint: a colour name (red, orange, amber, yellow, lime, green, teal, cyan, blue, indigo, purple, pink, brown, grey …) or a hue 0–360." },
+          { "name": "sections", "type": "object[]", "item": { "ref": "section" }, "since": "0.2.0", "description": "Your own sections on this page (see [Your own tiles, cards and pages](#your-own-tiles-cards-and-pages))." },
+          { "name": "hold", "type": "page", "since": "0.8.8", "description": "Hold the page's title to open this page (a path), e.g. `admin`." },
+          { "name": "popup", "type": "boolean", "default": false, "since": "0.8.9", "description": "A built-in page as a pop-up: not in the page bar or the swipe order, opened from its pill (Energy); ✕ goes back." }
+        ]
+      },
+      "example": {
+        "home": { "color": "orange", "hold": "admin" },
+        "energy": { "popup": true },
+        "rooms": { "title": "House", "icon": "mdi:floor-plan" }
+      }
+    },
+    {
+      "name": "font", "group": "general", "type": "string | object", "auto": "each screen's system font", "since": "0.8.15",
+      "description": "The whole dashboard in a font of your own, served by your Home Assistant: `geist` or `inter` (put the font file in place, see [Fonts](#fonts)), a font the screens already have (`Georgia`), or `{ family, url, weight }`. The clock keeps the system font.",
+      "keys": [
+        { "name": "family", "type": "string", "since": "0.8.15", "description": "The font's name." },
+        { "name": "url", "type": "string", "since": "0.8.15", "description": "Where to load it from, e.g. `/local/fonts/myfont.woff2`." },
+        { "name": "weight", "type": "string | number", "default": "100 900", "since": "0.8.15", "description": "The weights the file has." }
+      ],
+      "example": "geist",
+      "alt": [ { "example": { "family": "My Font", "url": "/local/fonts/myfont.woff2", "weight": "100 900" }, "note": "a font of your own" } ]
+    },
+
+    {
+      "name": "room_order", "group": "rooms", "type": "area[]", "auto": "by floor, then by name", "since": "0.1.0", "editor": true,
+      "description": "These rooms (area ids) first, in this order; the rest after.",
+      "example": ["living_room", "kitchen", "bedroom"]
+    },
+    {
+      "name": "living_rooms", "group": "rooms", "type": "area[]", "auto": "the shared indoor rooms (not bedrooms, bathrooms, outdoor rooms or a family member's room), living spaces first", "since": "0.5.0", "editor": true,
+      "description": "The rooms on the Living page, in this order.",
+      "example": ["living_room", "kitchen", "dining_room"]
+    },
+    {
+      "name": "hide_rooms", "group": "rooms", "type": "area[]", "since": "0.1.0", "editor": true,
+      "description": "Rooms (areas) to leave out everywhere.",
+      "example": ["garage_attic"]
+    },
+    {
+      "name": "rooms", "group": "rooms", "type": "map", "since": "0.1.0", "editor": true,
+      "description": "Per room, by its area id.",
+      "entry": {
+        "name": "<area>", "type": "object",
+        "keys": [
+          { "name": "name", "type": "string", "auto": "the area's name", "since": "0.1.0", "editor": true, "description": "The room's name everywhere (✎ in edit mode)." },
+          { "name": "icon", "type": "icon", "auto": "the area's icon, else one that fits its name", "since": "0.1.0", "editor": true, "description": "The room's icon." },
+          { "name": "color", "type": "color", "auto": "one of ten tints, in turn", "since": "0.1.0", "editor": true, "description": "The room's tint: a colour name or a hue 0–360 (🎨 in edit mode); a person's page takes their room's colour." },
+          { "name": "temperature", "type": "entity", "auto": "the area's own setting, else its first temperature sensor", "since": "0.1.0", "editor": true, "description": "The room's temperature sensor." },
+          { "name": "humidity", "type": "entity", "auto": "the area's own setting, else its first humidity sensor", "since": "0.1.0", "editor": true, "description": "The room's humidity sensor." },
+          { "name": "entities", "type": "entity[]", "since": "0.1.0", "editor": true, "description": "Show these first, in this order: on Living, a person's page and the room's page. Edit mode's + Add, ⊖ and dragging save it here." },
+          { "name": "hidden", "type": "boolean", "default": false, "since": "0.1.0", "description": "Leave the room out, like `hide_rooms`." },
+          { "name": "sections", "type": "object[]", "item": { "ref": "section" }, "since": "0.2.0", "description": "Your own sections on the room's page." }
+        ]
+      },
+      "example": {
+        "living_room": {
+          "name": "Lounge", "icon": "mdi:sofa", "color": "blue",
+          "temperature": "sensor.living_room_temperature", "humidity": "sensor.living_room_humidity",
+          "entities": ["light.lounge", "media_player.tv"]
+        },
+        "garden": { "sections": [ { "title": "Watering", "tiles": ["switch.sprinkler_front", { "card": { "type": "history-graph", "entities": ["sensor.soil_moisture"] }, "size": "4x2" }] } ] },
+        "shed": { "hidden": true }
+      }
+    },
+
+    {
+      "name": "exclude_entities", "group": "show", "type": "list", "item": { "ref": "filter" }, "since": "0.1.0", "editor": true,
+      "description": "Never show these anywhere (👁 in edit mode does the same): entity ids, globs (`sensor.*_linkquality`; `*` any text, `?` one character) or filters (`{ label: not_on_dashboard }`, `{ integration: zha, domain: sensor }`; every key: [custom_pages/README.md](custom_pages/README.md#an-entity-filter-exclude_entities-match)). Hidden, disabled, configuration and diagnostic entities are left out anyway. The settings editor keeps the patterns as they are.",
+      "example": ["switch.child_lock", "light.status_led", "sensor.*_linkquality", { "label": "not_on_dashboard" }]
+    },
+    {
+      "name": "customize", "group": "show", "type": "map", "since": "0.2.0",
+      "description": "Per entity, wherever its tile appears.",
+      "entry": {
+        "name": "<entity>", "type": "object",
+        "keys": [
+          { "name": "name", "type": "string", "since": "0.2.0", "description": "The tile's name (✎ in edit mode)." },
+          { "name": "icon", "type": "icon", "since": "0.2.0", "description": "The tile's icon (◇ in edit mode)." },
+          { "name": "icon_on", "type": "icon", "since": "0.8.10", "description": "The icon while it's on (open, unlocked …)." },
+          { "name": "icon_off", "type": "icon", "since": "0.8.10", "description": "The icon while it's off." },
+          { "name": "color_on", "type": "color", "since": "0.8.10", "description": "The icon's colour while on: `green`, `amber`, `red`, `orange`, `blue` (the [colour code](#colours)) or any CSS colour." },
+          { "name": "color_off", "type": "color", "since": "0.8.10", "description": "The icon's colour while off." },
+          { "name": "size", "type": "size", "since": "0.2.0", "description": "`WxH` in grid cells: `1x1`, `2x1`, `2x2` … (⤢ in edit mode)." },
+          { "name": "tap", "type": "string", "since": "0.2.0", "description": "`more-info`, `toggle`, `none`, or a page path to open." },
+          { "name": "hold", "type": "string", "since": "0.8.8", "description": "`more-info`, `toggle` (switch it on a hold), `none`, or a page path to open (the TV tile → a Media page). `tap: more-info` + `hold: toggle`: a stray tap can't switch it." },
+          { "name": "hidden", "type": "boolean", "default": false, "since": "0.2.0", "description": "Hide it everywhere (👁 in edit mode)." },
+          { "name": "confirm", "type": "boolean | string | object", "keys_ref": "confirm", "since": "0.9.0", "description": "Ask first wherever this entity can be switched (its tiles on every page, the pills' pop-ups, a chip, a button that toggles it): `true`, `turn_on` / `turn_off` (only before that: a lock's unlocking, a cover's opening), your question, or `{ text, only, action }`. A tile's or chip's own `confirm:` wins; locks and garage doors always ask, `confirm:` gives them your words." }
+        ]
+      },
+      "example": {
+        "light.lamp_3": { "name": "Reading lamp", "icon": "mdi:floor-lamp", "size": "2x1" },
+        "cover.garage_door": { "icon_on": "mdi:garage-open", "icon_off": "mdi:garage", "color_on": "red", "color_off": "green" },
+        "media_player.tv": { "tap": "more-info", "hold": "admin" },
+        "lock.back_door": { "confirm": "turn_on" },
+        "switch.old_plug": { "hidden": true }
+      }
+    },
+    {
+      "name": "people", "group": "show", "type": "entity[]", "auto": "everyone with a phone or tracker", "since": "0.1.0", "editor": true,
+      "description": "The people HomeView shows (avatars, who's home).",
+      "example": ["person.sam", "person.alex"]
+    },
+    {
+      "name": "calendars", "group": "show", "type": "entity[]", "auto": "every calendar", "since": "0.1.0", "editor": true,
+      "description": "The calendars for Next, Up next and the agenda.",
+      "example": ["calendar.family"]
+    },
+    {
+      "name": "weather", "group": "show", "type": "entity", "auto": "the first weather entity", "since": "0.1.0", "editor": true,
+      "description": "The weather entity.",
+      "example": "weather.home"
+    },
+    {
+      "name": "cameras", "group": "show", "type": "entity[]", "auto": "every camera", "since": "0.1.0", "editor": true,
+      "description": "The cameras on the Cameras page.",
+      "example": ["camera.front_door", "camera.garden"]
+    },
+
+    {
+      "name": "access", "group": "people", "type": "map", "auto": "admins every page; everyone else the shared pages and only their own person page", "since": "0.8.2",
+      "description": "Who sees which pages: a person entity or a login name → `all` (every page, every person page) or a list of pages (`rooms` = their own person page, `all_members` = every person page). Pages someone may not see aren't built for them; it hides, it doesn't secure.",
+      "entry": { "name": "<person or login>", "type": "page[] | string", "values": ["all"], "description": "`all` or a list of pages." },
+      "example": {
+        "person.alex": ["widgets", "home", "living", "rooms", "energy", "cameras"],
+        "person.wall_tablet": "all",
+        "guest": ["widgets", "home"]
+      }
+    },
+    {
+      "name": "members", "group": "people", "type": "entity[] | object[] | map | false", "auto": "everyone whose first name is in a room's name (Bedroom Zoe, Alex's room), alphabetically", "since": "0.4.0",
+      "description": "Person pages, in this order; `false` = none. By hand: `{ person.zoe: { area, calendars, name } }`.",
+      "entry": {
+        "name": "<person>", "type": "object",
+        "keys": [
+          { "name": "area", "type": "area", "since": "0.4.0", "description": "The person's room." },
+          { "name": "calendars", "type": "entity[]", "auto": "calendars with the person's name in them", "since": "0.4.0", "description": "Their calendars, for their next event." },
+          { "name": "name", "type": "string", "auto": "the person's first name", "since": "0.4.0", "description": "The name their page goes by." }
+        ]
+      },
+      "item": {
+        "keys": [
+          { "name": "person", "type": "entity", "since": "0.4.0", "description": "The person (in a list of objects)." },
+          { "name": "area", "type": "area", "since": "0.4.0", "description": "The person's room." },
+          { "name": "calendars", "type": "entity[]", "since": "0.4.0", "description": "Their calendars." },
+          { "name": "name", "type": "string", "since": "0.4.0", "description": "The name their page goes by." }
+        ]
+      },
+      "example": ["person.mia", "person.alex", "person.zoe"],
+      "alt": [ { "example": { "person.zoe": { "area": "bedroom_zoe", "calendars": ["calendar.zoe_school"] } }, "note": "by hand" } ]
+    },
+    {
+      "name": "people_chips", "group": "people", "type": "boolean", "default": true, "since": "0.1.0", "editor": true,
+      "description": "The people's avatars under the Home title.",
+      "example": true
+    },
+    {
+      "name": "phone_favorites", "group": "people", "type": "entity[] | map", "auto": "the main rooms' lights, then the locks (six at most)", "since": "0.7.0",
+      "description": "The favourites strip on phones (Living, a person's page): one list, or one per login name with `default` for everyone else.",
+      "entry": { "name": "<login>", "type": "entity[]", "description": "That login's favourites; `default`: everyone without a list." },
+      "example": ["light.kitchen", "light.living_room", "lock.front_door"],
+      "alt": [ { "example": { "alex": ["light.kitchen", "lock.front_door"], "default": ["light.living_room"] }, "note": "per login" } ]
+    },
+    {
+      "name": "avatars", "group": "people", "type": "string | map", "values": ["samples", "initials"], "default": "samples", "since": "0.6.0", "editor": true,
+      "description": "People without a picture: `samples` (anime-style avatars from DiceBear, the same one each time; no names are sent) or `initials` (no internet request). Per person: `man`, `woman`, `boy`, `girl` or a picture's URL. A picture set on the person in Home Assistant always wins.",
+      "entry": { "name": "<person>", "type": "string", "description": "`man`, `woman`, `boy`, `girl` or a picture's URL." },
+      "example": "samples",
+      "alt": [ { "example": { "person.alex": "man", "person.zoe": "woman", "person.kai": "/local/kai.jpg" }, "note": "per person" } ]
+    },
+    {
+      "name": "guest", "group": "people", "type": "entity | object", "auto": "off", "since": "0.9.0",
+      "description": "The guest view (see [Guest view](#guest-view)): while the entity is on, shared screens leave out the person pages, People, Cameras and admin-only pages (out of the swipe order, the page dots and the page bar), the people on Home and every camera, person and calendar tile; Widgets drops the agenda and shows the sample photos. A \"Guest\" label by the title says why. Every screen but admins', unless `screens` names them. It hides, it doesn't secure.",
+      "keys": [
+        { "name": "entity", "type": "entity", "since": "0.9.0", "description": "The helper that turns it on (on = guests are here). Without one, the `screens` listed always show the guest view." },
+        { "name": "screens", "type": "string[]", "auto": "every screen but admins'", "since": "0.9.0", "description": "Only these logins: a person entity or a login's name (admins too, when listed)." },
+        { "name": "hide", "type": "page[]", "default": [], "since": "0.9.0", "description": "More pages to hide (person pages, People, Cameras and admin-only pages always are)." },
+        { "name": "slideshow", "type": "string | false", "default": "samples", "since": "0.9.0", "description": "The photos on Widgets in the guest view: a media folder, `samples`, or `false` for none." }
+      ],
+      "example": "input_boolean.guests_here",
+      "alt": [ { "example": { "entity": "input_boolean.guests_here", "screens": ["person.wall_tablet"], "hide": ["media"], "slideshow": false }, "note": "only the wall tablet" } ]
+    },
+
+    {
+      "name": "widgets", "group": "home", "type": "object", "since": "0.5.0",
+      "description": "The Widgets page.",
+      "keys": [
+        { "name": "slideshow", "type": "string | false", "auto": "the first media folder named Photos, Pictures, Slideshow …, else sample photos (from picsum.photos)", "since": "0.5.0", "editor": true, "description": "The photo folder (`media-source://…`), `samples`, or `false` for none.", "example": "media-source://media_source/local/Photos" },
+        { "name": "slideshow_interval", "type": "number", "default": 60, "since": "0.5.0", "editor": true, "description": "Seconds per photo.", "example": 60 },
+        { "name": "slideshow_thumbnail", "type": "string", "since": "0.5.0", "editor": true, "description": "A smaller copy to try first, e.g. `{dir}/.@__thumb/s800{name}` on a QNAP NAS; falls back to the full photo.", "example": "{dir}/.@__thumb/s800{name}" },
+        { "name": "camera", "type": "entity", "since": "0.5.0", "editor": true, "description": "A camera here instead of the photos (the camera is on Home).", "alt": [ { "example": "camera.front_door", "note": "instead of the photos" } ] },
+        { "name": "font", "type": "string | object", "since": "0.8.15", "description": "The Widgets page alone in a font of your own (see `font`).", "example": "geist" }
+      ]
+    },
+    {
+      "name": "home", "group": "home", "type": "object", "since": "0.1.0", "editor": true,
+      "description": "The Home page.",
+      "keys": [
+        { "name": "favorites", "type": "entity[]", "auto": "two that HomeView picks, doors first (locks, garage)", "since": "0.1.0", "editor": true, "description": "Tiles near the top of Home; `[]` = none. In edit mode ★ adds or removes one and a drag moves it.", "example": ["alarm_control_panel.home", "lock.front_door", "cover.garage", "climate.hallway"] },
+        { "name": "max_favorites", "type": "number", "default": 2, "since": "0.6.0", "description": "How many favourites HomeView picks by itself.", "example": 2 },
+        { "name": "light_rooms", "type": "area[]", "auto": "the two main rooms with lights", "since": "0.4.0", "description": "Rooms with a Lights tile on Home (tap = all on / off, hold = the room).", "example": ["living_room", "kitchen"] },
+        { "name": "max_light_rooms", "type": "number", "default": 2, "since": "0.4.0", "description": "How many Lights tiles HomeView picks by itself.", "example": 2 },
+        {
+          "name": "chips", "type": "list | false", "auto": "the alarm, garage doors and gates, locks and a water shut-off valve", "since": "0.6.0", "editor": true,
+          "description": "Round control chips under the title: an entity, or an object with the keys below; `'|'` between two starts a new group (a gap before the next chip); `false` = none. Drag them in edit mode to reorder.",
+          "item": {
+            "keys": [
+              { "name": "entity", "type": "entity", "since": "0.6.0", "description": "The entity." },
+              { "name": "name", "type": "string", "since": "0.6.0", "description": "Its name (in the confirm sheet)." },
+              { "name": "icon_on", "type": "icon", "since": "0.6.0", "description": "The icon while on." },
+              { "name": "icon_off", "type": "icon", "since": "0.6.0", "description": "The icon while off." },
+              { "name": "color", "type": "color", "default": "security", "since": "0.8.8", "description": "A switch's colour while on: `security` (green), `light` (orange), `climate` (blue) or a CSS colour." },
+              { "name": "confirm", "type": "boolean | string | object", "keys_ref": "confirm", "since": "0.6.0", "description": "Ask first (locks, garage doors and the water valve always do): `true`, `turn_on` / `turn_off`, your question, or `{ text, only, action }` (see `customize.<entity>.confirm`)." },
+              { "name": "off_warn", "type": "boolean", "since": "0.6.0", "description": "Amber while off (something that should stay on)." },
+              { "name": "tap", "type": "string", "values": ["more-info"], "since": "0.6.0", "description": "`more-info`: open the details instead of switching." },
+              { "name": "label", "type": "string", "since": "0.9.0", "description": "A short word beside the icon on tablets and in a browser (\"Auto lights\"), so a mode switch says what it is; phones show the icon only. The chip's own word (Open, Offline …) takes its place while there is one." }
+            ]
+          },
+          "example": [
+            "alarm_control_panel.house",
+            { "entity": "cover.garage_door", "confirm": true },
+            { "entity": "input_boolean.auto_lights", "color": "light", "icon_on": "mdi:lightbulb-auto", "icon_off": "mdi:lightbulb-auto-outline" },
+            { "entity": "automation.night_alert", "name": "Night alert", "off_warn": true, "confirm": true },
+            "|",
+            { "entity": "input_boolean.auto_climate", "label": "Auto climate" }
+          ]
+        },
+        { "name": "camera", "type": "entity | false", "auto": "the first camera", "since": "0.4.0", "description": "The camera on Home; `false` = none.", "example": "camera.front_door" },
+        { "name": "air", "type": "boolean", "default": true, "since": "0.4.0", "description": "The air-quality tile, when there's an AQI, PM2.5, CO₂ or VOC sensor.", "example": true },
+        { "name": "rooms", "type": "boolean", "default": false, "since": "0.1.0", "editor": true, "description": "Room tiles on Home (they're on Living and each room's page).", "example": false },
+        { "name": "scenes", "type": "boolean", "default": true, "since": "0.1.0", "editor": true, "description": "The scenes on Home.", "example": true },
+        { "name": "max_scenes", "type": "number", "default": 8, "since": "0.1.0", "editor": true, "description": "The most scenes on Home.", "example": 8 }
+      ]
+    },
+    {
+      "name": "pills", "group": "home", "type": "list | false", "default": ["alarm", "climate", "energy", "lights", "locks", "openings", "safety", "batteries", "media"], "since": "0.1.0", "editor": true,
+      "description": "The status pills on Home, in this order: `alarm`, `climate`, `energy`, `lights`, `locks`, `openings`, `safety`, `batteries`, `media`, `warnings`, or an object with the keys below; `false` = none. Drag them in edit mode to reorder.",
+      "item": {
+        "keys": [
+          { "name": "pill", "type": "string", "since": "0.8.8", "description": "A built-in pill with a `hold:` (or `tap:`) of its own: `{ pill: energy, hold: energy-history }`." },
+          { "name": "entity", "type": "entity", "since": "0.8.8", "description": "A pill of your own: this entity's state." },
+          { "name": "name", "type": "string", "since": "0.8.8", "description": "Its name, before the state; `''` = the state alone." },
+          { "name": "icon", "type": "icon", "since": "0.8.8", "description": "Its icon." },
+          { "name": "alert", "type": "string | string[]", "since": "0.8.8", "description": "States that turn it red." },
+          { "name": "unit", "type": "string", "values": ["W", "kW", "MW"], "since": "0.8.13", "description": "A power sensor's value in this unit." },
+          { "name": "format", "type": "string", "values": ["time", "date", "datetime", "relative", "until", "since"], "since": "0.9.0", "description": "Show a time in this format (an `input_datetime`, a date / time entity, a timestamp sensor, or the `attribute` that holds one): \"in 2 hours\", \"2 h 5 min\" … (see the tile key `format`)." },
+          { "name": "attribute", "type": "string", "since": "0.9.0", "description": "Show this attribute instead of the state (`last_changed`: when the state last changed)." },
+          { "name": "show_when", "type": "entity | object | list | boolean", "keys_ref": "condition", "item": { "ref": "condition" }, "since": "0.9.0", "description": "Show the pill only while this condition holds (see the tile key `show_when`)." },
+          { "name": "tap", "type": "string", "since": "0.8.8", "description": "A page path to open on a tap." },
+          { "name": "hold", "type": "string", "since": "0.8.8", "description": "A page path to open on a hold." },
+          { "name": "page_pill", "type": "page", "since": "0.8.12", "description": "Where your own page's pill (`pill:` in its file) goes in the order; its look comes from the page file." }
+        ]
+      },
+      "example": ["alarm", "climate", { "pill": "energy", "hold": "energy-history" }, "lights", "locks", "openings", "safety", "batteries", "media", { "entity": "sensor.water_heater_temp", "name": "Hot water", "icon": "mdi:water-boiler" }]
+    },
+    {
+      "name": "warnings", "group": "home", "type": "object[]", "since": "0.8.17",
+      "description": "A Warnings pill, first on Home, only while one of these rules is true; tap = a pop-up with each warning's entities. In edit mode tap the pill to add or remove warnings.",
+      "item": { "ref": "alert" },
+      "example": [
+        { "text": "Kitchen fridge off", "text_offline": "Kitchen fridge offline", "level": "critical", "not_on": "switch.kitchen_fridge", "entities": ["switch.kitchen_fridge", "sensor.kitchen_fridge_power"] },
+        { "text": "Water shut off", "level": "notice", "off": "switch.water_valve" }
+      ]
+    },
+    {
+      "name": "battery_low", "group": "home", "type": "number", "default": 20, "since": "0.1.0", "editor": true,
+      "description": "A battery under this % counts as low (the Batteries pill).",
+      "example": 20
+    },
+
+    {
+      "name": "comfort", "group": "comfort", "type": "string | object", "values": ["thermostat", "fixed"], "default": "thermostat", "since": "0.8.5",
+      "description": "When a room is Comfy (Too cold · Cold · Comfy · Warm · Hot on room tiles). `thermostat`: the room's thermostat (its own, else the house's), from its heat setting − margin to its cool setting + margin, so a cooler night setting reads Comfy at night. `fixed`: 66–77 °F (19–25 °C). Or `{ cold, warm }`.",
+      "keys": [
+        { "name": "cold", "type": "number | entity", "since": "0.8.8", "description": "Cold below this (a number or an entity whose state is one)." },
+        { "name": "warm", "type": "number | entity", "since": "0.8.8", "description": "Warm above this." },
+        { "name": "hot", "alias_of": "warm" }
+      ],
+      "example": "thermostat",
+      "alt": [ { "example": { "cold": "sensor.comfort_low", "warm": "sensor.comfort_high" }, "note": "numbers or entities" } ]
+    },
+    {
+      "name": "comfort_thermostat", "group": "comfort", "type": "entity", "auto": "the first thermostat with a setting", "since": "0.8.5",
+      "description": "The house's thermostat, for rooms without their own.",
+      "example": "climate.hallway"
+    },
+    {
+      "name": "comfort_margin", "group": "comfort", "type": "number | entity", "auto": "1 °F (0.5 °C)", "since": "0.8.5",
+      "description": "How far either side of the thermostat's settings still counts as Comfy (a number or an entity).",
+      "example": 1
+    },
+    {
+      "name": "comfort_limits", "group": "comfort", "type": "object", "since": "0.8.8",
+      "description": "The outer grades: numbers or entities (`input_number` helpers). A room is Comfy only when its temperature and humidity both are.",
+      "keys": [
+        { "name": "too_cold", "type": "number | entity", "auto": "65 °F (18 °C)", "since": "0.8.8", "description": "Too cold below this; never closer than 3 °F (1.5 °C) to Comfy.", "example": 65 },
+        { "name": "hot", "type": "number | entity", "auto": "83 °F (28 °C)", "since": "0.8.8", "description": "Hot above this; Cold and Warm come from `comfort`.", "example": 83 },
+        { "name": "too_hot", "alias_of": "hot" },
+        { "name": "too_dry", "type": "number | entity", "default": 30, "since": "0.8.8", "description": "Humidity %: Too dry below this.", "example": 30 },
+        { "name": "dry", "type": "number | entity", "default": 40, "since": "0.8.8", "description": "Dry below this.", "example": 40 },
+        { "name": "humid", "type": "number | entity", "default": 55, "since": "0.8.8", "description": "Humid above this.", "example": 55 },
+        { "name": "too_humid", "type": "number | entity", "default": 65, "since": "0.8.8", "description": "Too humid above this.", "example": 65 }
+      ]
+    },
+
+    {
+      "name": "energy", "group": "energy", "type": "object", "since": "0.1.0", "editor": true,
+      "description": "The Energy page and live power, when Home Assistant's Energy settings don't say. Otherwise HomeView finds the sensors itself: a net sensor on the meter's own device first, a split pair if that's all there is, never an average.",
+      "keys": [
+        {
+          "name": "windows", "type": "object[]", "since": "0.8.0",
+          "description": "Off-grid share in time windows (peak hours …), from hourly statistics: `{ name, start, end, days }`, or `hours:` with several spans, each with its own days.",
+          "item": {
+            "keys": [
+              { "name": "name", "type": "string", "since": "0.8.0", "description": "The window's name." },
+              { "name": "start", "type": "time", "since": "0.8.0", "description": "From (`'16:00'`)." },
+              { "name": "end", "type": "time", "since": "0.8.0", "description": "Until (`'24:00'` = midnight)." },
+              { "name": "days", "type": "string | string[] | number[]", "auto": "every day", "since": "0.8.0", "description": "`weekdays`, `weekends`, `daily`, or days (`mon`, `tue` … or 0–6)." },
+              {
+                "name": "hours", "type": "object[]", "since": "0.8.0", "description": "Several spans instead of `start` / `end`, each with its own `days`.",
+                "item": {
+                  "keys": [
+                    { "name": "start", "type": "time", "since": "0.8.0", "description": "From." },
+                    { "name": "end", "type": "time", "since": "0.8.0", "description": "Until." },
+                    { "name": "days", "type": "string | string[] | number[]", "since": "0.8.0", "description": "The days of this span." }
+                  ]
+                }
+              }
+            ]
+          },
+          "example": [
+            { "name": "Peak", "start": "16:00", "end": "21:00", "days": "weekdays" },
+            { "name": "Partial-peak", "hours": [ { "start": "15:00", "end": "16:00", "days": "weekdays" }, { "start": "21:00", "end": "24:00", "days": "weekdays" }, { "start": "15:00", "end": "24:00", "days": "weekends" } ] }
+          ]
+        },
+        { "name": "battery_energy", "type": "entity", "auto": "an energy-storage sensor", "since": "0.8.0", "description": "kWh left in the battery.", "example": "sensor.battery_remaining" },
+        { "name": "battery_capacity", "type": "number", "since": "0.8.0", "description": "The battery's size in kWh, when there's no energy-left sensor (× the battery level).", "example": 13.5 },
+        {
+          "name": "grid_status", "type": "entity | object", "auto": "a sensor named like grid status", "since": "0.8.0",
+          "description": "The grid's state, for the outage list. With unusual states: `{ entity, up: [states] }` (anything else is down) or `{ entity, down: [states] }`. Unknown or unavailable reads \"grid status unknown\", never \"grid on\".",
+          "keys": [
+            { "name": "entity", "type": "entity", "since": "0.9.0", "description": "The grid-status entity." },
+            { "name": "up", "type": "string[]", "since": "0.9.0", "description": "Its states that mean the grid is up." },
+            { "name": "down", "type": "string[]", "since": "0.9.0", "description": "Its states that mean the grid is down." }
+          ],
+          "example": "binary_sensor.grid_status",
+          "alt": [ { "example": { "entity": "sensor.grid_status", "up": ["Active"] }, "note": "or { entity, down: [islanded] }" } ]
+        },
+        {
+          "name": "outage", "type": "object | false", "since": "0.9.0",
+          "description": "The power-outage list (see [Power outages](#power-outages)); `false` = the devices only.",
+          "keys": [
+            { "name": "label", "type": "string", "default": "Outage: turn off", "since": "0.9.0", "description": "The Home Assistant label that holds the ticks (a name or an id).", "example": "Outage: turn off" },
+            { "name": "on_label", "type": "string", "since": "0.9.0", "description": "A second tick: turn on in an outage.", "example": "Outage: turn on" },
+            { "name": "off_action", "type": "action", "since": "0.9.0", "description": "**Turn off ticked** runs this instead of `homeassistant.turn_off`: a script gets `entities` (the ticked switches) and `on_entities`; or `{ action, data, target }`.", "example": "script.outage_shed" },
+            { "name": "on_action", "type": "action", "since": "0.9.0", "description": "**Turn back on** runs this instead of `homeassistant.turn_on`.", "example": "script.outage_restore" },
+            { "name": "switches", "type": "map", "entry": { "name": "<energy sensor>", "type": "entity | null", "description": "Its switch; `null` = none." }, "since": "0.9.0", "description": "A device's switch by hand: `{ <energy sensor>: <switch> }`.", "example": { "sensor.kettle_energy": "switch.kitchen_plug" } }
+          ]
+        },
+        { "name": "home_current", "type": "entity", "auto": "on the home power sensor's device", "since": "0.8.0", "description": "The current for the \"A at V\" line.", "example": "sensor.mains_current" },
+        { "name": "voltage", "type": "entity", "auto": "on the home power sensor's device", "since": "0.8.0", "description": "The voltage for the \"A at V\" line.", "example": "sensor.mains_voltage" },
+        { "name": "flow_card", "type": "string", "values": ["auto", "homeview"], "default": "auto", "since": "0.8.2", "description": "`auto` = Power Flow Card Plus when it's installed (HACS), else HomeView's own; `homeview` = always HomeView's own.", "example": "auto" },
+        { "name": "flow_devices", "type": "number", "default": 0, "since": "0.8.2", "description": "Devices shown as their own circles in Power Flow Card Plus.", "example": 0 },
+        { "name": "flow_card_options", "type": "object", "since": "0.8.2", "description": "Anything else for Power Flow Card Plus.", "example": {} },
+        { "name": "solar_power", "type": "entity", "auto": "the Energy settings' power sensor, else one named like it", "since": "0.1.0", "editor": true, "description": "Solar power now.", "example": "sensor.solar_power" },
+        { "name": "grid_power", "type": "entity", "auto": "the Energy settings' power sensor, else a net sensor named like it", "since": "0.1.0", "editor": true, "description": "Grid power now: + import, − export (a net sensor).", "example": "sensor.grid_power" },
+        { "name": "grid_import_power", "type": "entity", "since": "0.8.3", "description": "Without a net sensor: a split pair, both positive (import).", "alt": [ { "example": "sensor.grid_import_power", "note": "with grid_export_power: a split pair, both positive" } ] },
+        { "name": "grid_export_power", "type": "entity", "since": "0.8.3", "description": "The split pair's export side." },
+        { "name": "battery_power", "type": "entity", "auto": "the Energy settings' power sensor, else a net sensor named like it", "since": "0.1.0", "editor": true, "description": "Battery power now: + discharge, − charge (a net sensor).", "example": "sensor.battery_power" },
+        { "name": "battery_discharge_power", "type": "entity", "since": "0.8.3", "description": "Without a net sensor: a split pair, both positive (discharge).", "alt": [ { "example": "sensor.battery_discharge_power", "note": "with battery_charge_power: a split pair" } ] },
+        { "name": "battery_charge_power", "type": "entity", "since": "0.8.3", "description": "The split pair's charge side." },
+        { "name": "battery_level", "type": "entity", "auto": "the % sensor on the battery's device, or named like it", "since": "0.1.0", "editor": true, "description": "The home battery's charge %.", "example": "sensor.battery_level" },
+        { "name": "home_power", "type": "entity", "auto": "solar + grid + battery", "since": "0.1.0", "editor": true, "description": "The home's power now.", "example": "sensor.home_power" },
+        { "name": "devices", "type": "number", "default": 10, "since": "0.1.0", "editor": true, "description": "How many devices under \"Devices today\".", "example": 12 },
+        { "name": "mode_entities", "type": "entity[]", "todo": "possible (architect F9: battery mode / reserve as pills on the Energy page): only if a branch adds it" }
+      ]
+    },
+
+    {
+      "name": "kiosk", "group": "screens", "type": "boolean", "default": true, "since": "0.3.0", "editor": true,
+      "description": "Full screen: hide Home Assistant's header and sidebar. The Menu chip shows them until the page reloads; `?kiosk=off` in the address too.",
+      "example": true
+    },
+    {
+      "name": "kiosk_chip", "group": "screens", "type": "boolean", "default": true, "since": "0.3.0", "editor": true,
+      "description": "The Menu / Full screen chip. Turn it off on a wall tablet so nobody leaves full screen by accident.",
+      "example": true
+    },
+    {
+      "name": "page_dots", "group": "screens", "type": "boolean", "default": true, "since": "0.9.0",
+      "description": "Page dots at the bottom in full screen: where you are, and a tap goes to another page.",
+      "example": true
+    },
+    {
+      "name": "start", "group": "screens", "type": "page | object", "auto": "phones open on Home, tablets and browsers on the first page", "since": "0.9.0",
+      "description": "The page a session opens on (a link to a page is kept): one page for every screen, or `{ phone, tablet }`.",
+      "keys": [
+        { "name": "phone", "type": "page", "default": "home", "since": "0.9.0", "description": "Phones (narrower than 600 px)." },
+        { "name": "tablet", "type": "page", "auto": "the first page", "since": "0.9.0", "description": "Tablets and browsers." }
+      ],
+      "example": { "phone": "home" },
+      "alt": [ { "example": "home", "note": "every screen" } ]
+    },
+    {
+      "name": "desktop_layout", "group": "screens", "type": "string", "values": ["tablet", "fill"], "default": "tablet", "since": "0.9.0",
+      "description": "A desktop browser window (no touch screen, at least 1000 px wide) lays out like a landscape tablet even when it's taller than wide; `fill` = the whole window height. Touch screens aren't changed.",
+      "example": "tablet"
+    },
+    {
+      "name": "screensaver", "group": "screens", "type": "string | boolean | object", "values": ["auto"], "default": "auto", "since": "0.8.5",
+      "description": "A big clock after 2 minutes without a touch: `auto` = touch tablets only, `true` = every screen, `false` = never, or the keys below.",
+      "keys": [
+        { "name": "idle", "type": "number", "default": 120, "since": "0.8.5", "description": "Seconds without a touch (at least 10)." },
+        { "name": "color", "type": "string", "default": "#4D7DB8", "since": "0.8.5", "description": "The clock's colour." },
+        { "name": "pages", "type": "page[]", "auto": "every page but Cameras", "since": "0.8.5", "description": "Only on these pages." },
+        { "name": "enabled", "type": "boolean", "default": true, "since": "0.8.5", "description": "`false` = off." }
+      ],
+      "example": "auto",
+      "alt": [ { "example": { "idle": 120, "color": "#4D7DB8", "pages": ["home", "living"] } } ]
+    },
+    {
+      "name": "night", "group": "screens", "type": "entity | string | object | false", "values": ["auto"], "default": false, "since": "0.9.0",
+      "description": "The night face (see [Night](#night)): an entity (night while it's on), `auto` (the sun is down and it's 9 pm or later, until morning), or `{ from, to }` every day.",
+      "keys": [
+        { "name": "from", "type": "time", "since": "0.9.0", "description": "Night from (`'21:30'`)." },
+        { "name": "to", "type": "time", "since": "0.9.0", "description": "Until (`'06:30'`)." }
+      ],
+      "example": "input_boolean.night_mode",
+      "alt": [ { "example": { "from": "21:30", "to": "06:30" }, "note": "every day" } ]
+    },
+
+    {
+      "name": "custom_pages", "group": "pages", "type": "object[]", "item": { "ref": "page" }, "since": "0.2.0",
+      "description": "Pages of your own, usually one file each: `custom_pages: !include_dir_list custom_pages`. Every key of a page, a section and a tile is in [custom_pages/README.md](custom_pages/README.md#every-key).",
+      "example": [
+        {
+          "path": "admin", "title": "Admin", "icon": "mdi:cog", "subview": true, "admin_only": true,
+          "sections": [
+            { "title": "Modes", "layout": "pills", "tiles": ["input_boolean.guest_mode", "input_boolean.vacation_mode", { "entity": "input_datetime.wake_up", "name": "Wake", "format": "until" }] },
+            { "title": "Now", "tiles": [ { "type": "chart", "entity": "sensor.living_room_temperature", "size": "2x1" }, { "type": "agenda", "size": "2x2" }, { "type": "forecast", "size": "2x2", "show_when": "binary_sensor.rain_expected" } ] },
+            { "title": "Open doors", "tiles": [ { "match": { "domain": "binary_sensor", "device_class": "door", "state": "on" }, "tap": "more-info" } ] },
+            { "title": "Robot", "show_when": { "entity": "vacuum.robot", "state": ["cleaning", "returning"] }, "layout": "pills", "defaults": { "type": "button", "target": "vacuum.robot" },
+              "tiles": [ { "name": "Stop", "icon": "mdi:stop", "action": "vacuum.stop" }, { "name": "Send home", "icon": "mdi:home-import-outline", "action": "vacuum.return_to_base", "confirm": "Send the robot home?" } ] }
+          ]
+        }
+      ]
+    },
+
+    {
+      "name": "tile_size", "group": "layout", "type": "number", "auto": "the tile formula: columns 110–300 px wide, 4 rows on a screen", "since": "0.1.0", "editor": true,
+      "description": "Instead of the standard grid: as many columns as fit tiles at least this wide (px).",
+      "example": 175
+    },
+    {
+      "name": "max_columns", "group": "layout", "type": "number", "since": "0.1.0", "editor": true,
+      "description": "Never more columns than this.",
+      "example": 8
+    },
+    {
+      "name": "rows_on_screen", "group": "layout", "type": "number | map", "default": 4, "since": "0.8.10",
+      "description": "Rows a page fits on one tablet or browser screen (tiles stay between square and 1.35 : 1): one number, or `{ <page>: n }`; `0` = square tiles. Energy keeps its own rows.",
+      "entry": { "name": "<page>", "type": "number", "description": "That page's rows." },
+      "example": 4,
+      "alt": [ { "example": { "home": 4, "living": 5 }, "note": "per page" } ]
+    },
+    {
+      "name": "swipe", "group": "layout", "type": "boolean", "default": true, "since": "0.1.0", "editor": true,
+      "description": "Swipe between pages. HomeView turns the swipe-navigation plugin off on this dashboard, so one swipe is one page; `false` = leave swiping to it.",
+      "example": true
+    },
+    {
+      "name": "edit_button", "group": "layout", "type": "boolean", "default": true, "since": "0.2.0", "editor": true,
+      "description": "Double-tap a page title for edit mode (admins only).",
+      "example": true
+    },
+    {
+      "name": "update_notice", "group": "layout", "type": "boolean", "default": true, "since": "0.2.1", "editor": true,
+      "description": "An update icon for admins when HACS has a newer HomeView.",
+      "example": true
+    },
+    {
+      "name": "ui_edits", "group": "layout", "type": "boolean", "default": true, "since": "0.8.11",
+      "description": "On a YAML dashboard, keep what you change on screen in a hidden companion dashboard, `<dashboard>-edits`; `false` = show the YAML to paste instead.",
+      "example": true
+    },
+    {
+      "name": "from", "group": "layout", "type": "string", "since": "0.8.14",
+      "description": "Mirror another HomeView dashboard (its address): its settings, pages and on-screen edits, read each time it loads. The mirror's own changes are kept in `edits:` and never touch the original.",
+      "alt": [ { "example": "home-view", "note": "on a second dashboard: the first one's address" } ]
+    },
+    {
+      "name": "edits", "group": "layout", "type": "object", "internal": true, "since": "0.8.14",
+      "description": "Written by HomeView on a `from:` mirror: its own changes, laid over the source's settings. Not for editing by hand."
+    }
+  ],
+
+  "defs": {
+    "page": {
+      "own_table": true,
+      "title": "A page file (custom_pages)",
+      "anchor": "page-keys",
+      "keys": [
+        { "name": "path", "type": "string", "auto": "page-<n>", "since": "0.2.0", "description": "The page's address, `/<dashboard>/<path>`, and the word a `hold:` or `tap:` names. Keep it the file's name." },
+        { "name": "title", "type": "string", "default": "Page", "since": "0.2.0", "description": "The big title at the top." },
+        { "name": "icon", "type": "icon", "default": "mdi:view-grid-outline", "since": "0.2.0", "description": "The icon in the page bar." },
+        { "name": "color", "type": "color", "auto": "a blue-grey tint (hue 200)", "since": "0.2.0", "description": "The page's tint: a colour name or a hue 0–360." },
+        { "name": "subview", "type": "boolean", "default": false, "since": "0.8.8", "description": "Not in the page bar or the swipe order: opened by a hold (or tap) that names it, with a ✕ that goes back." },
+        { "name": "admin_only", "type": "boolean", "default": false, "since": "0.8.8", "description": "Only for viewers who see every page: admins (unless `access` gives them a list) and logins with `access: all`." },
+        { "name": "pills", "type": "boolean", "default": false, "since": "0.2.0", "description": "The status pills at the top, as on Home." },
+        {
+          "name": "pill", "type": "boolean | object", "since": "0.8.9",
+          "description": "A pill on Home, for everyone who gets the page: tap = this page, hold = the entity's details. `true` = the page's title and icon.",
+          "keys": [
+            { "name": "entity", "type": "entity", "since": "0.8.9", "description": "The entity whose state it shows." },
+            { "name": "name", "type": "string", "auto": "the page's title", "since": "0.8.9", "description": "Its name; `''` = the state alone." },
+            { "name": "icon", "type": "icon", "auto": "the page's icon", "since": "0.8.9", "description": "Its icon." },
+            { "name": "alert", "type": "string | string[]", "since": "0.8.9", "description": "States that turn it red." },
+            { "name": "unit", "type": "string", "values": ["W", "kW", "MW"], "since": "0.8.13", "description": "A power sensor's value in this unit." },
+            { "name": "format", "type": "string", "values": ["time", "date", "datetime", "relative", "until", "since"], "since": "0.9.0", "description": "A time in this format (see the tile key `format`)." },
+            { "name": "attribute", "type": "string", "since": "0.9.0", "description": "Show this attribute instead of the state." },
+            { "name": "show_when", "type": "entity | object | list | boolean", "keys_ref": "condition", "item": { "ref": "condition" }, "since": "0.9.0", "description": "Show the pill only while this condition holds." }
+          ]
+        },
+        { "name": "hold", "type": "page", "since": "0.8.8", "description": "Hold this page's title to open another page." },
+        { "name": "columns", "type": "number", "auto": "5 on tablets (more on wide screens)", "since": "0.8.13", "description": "Columns on tablets and browsers." },
+        { "name": "show_room", "type": "boolean", "default": true, "since": "0.8.13", "description": "`false` = tiles show their state, not their room." },
+        { "name": "alerts", "type": "object[]", "item": { "ref": "alert" }, "since": "0.8.13", "description": "A banner while a rule is true (the rules of `warnings:`); the page's pill on Home warns too." },
+        { "name": "vars", "type": "map", "entry": { "name": "<name>", "type": "any", "description": "Its value: an entity, a list, any text." }, "since": "0.8.8", "description": "The entities the page uses: `$name` anywhere below becomes its value; a list stays a list and is spread inside a `tiles:` list." },
+        { "name": "sections", "type": "object[]", "item": { "ref": "section" }, "since": "0.2.0", "description": "The page's sections." }
+      ]
+    },
+    "section": {
+      "own_table": true,
+      "title": "A section",
+      "anchor": "section-keys",
+      "keys": [
+        { "name": "title", "type": "string", "since": "0.2.0", "description": "A heading; leave it out for none." },
+        { "name": "position", "type": "string", "values": ["top", "bottom"], "default": "bottom", "since": "0.2.0", "description": "On a built-in page or a room's page: `top` = above HomeView's own tiles." },
+        { "name": "color", "type": "color", "since": "0.2.0", "description": "The section's own tint." },
+        { "name": "icon", "type": "icon", "since": "0.8.13", "description": "An icon before the title." },
+        { "name": "layout", "type": "string", "values": ["pills", "keypad", "faders", "rows"], "auto": "tiles", "since": "0.8.13", "description": "`pills`: small pills in a row (sensors with their value); `keypad`: icon buttons in a grid (a remote); `faders`: sliders, two per row on tablets; `rows`: a list." },
+        { "name": "width", "type": "string", "values": ["half"], "since": "0.8.13", "description": "`half`: two sections side by side on tablets (stacked on phones)." },
+        { "name": "columns", "type": "number", "default": 4, "since": "0.8.13", "description": "A keypad's columns." },
+        { "name": "icons_only", "type": "boolean", "default": false, "since": "0.8.13", "description": "Pills without their names (a keypad always is)." },
+        { "name": "tiles", "type": "list", "item": { "ref": "tile" }, "since": "0.2.0", "description": "The tiles: an entity id, a glob (`light.kids_room_*`: one tile per entity, by name), `{ … }` (the keys below; `match:` for a filter), or `.` for an empty key in a keypad." },
+        { "name": "show_when", "type": "entity | object | list | boolean", "keys_ref": "condition", "item": { "ref": "condition" }, "since": "0.9.0", "description": "Show the section only while this condition holds (keys: [A condition](#a-condition-show_when)). A section whose tiles are all hidden hides too." },
+        { "name": "defaults", "type": "object", "keys_ref": "tile", "since": "0.9.0", "description": "Tile keys every tile of the section gets (a tile's own keys win), e.g. a remote's `{ type: button, action: remote.send_command, target: remote.tv }` once." }
+      ]
+    },
+    "tile": {
+      "own_table": true,
+      "title": "A tile",
+      "anchor": "tile-keys",
+      "keys": [
+        { "name": "entity", "type": "entity", "since": "0.2.0", "for": "entity, camera, person, chart, fader, weather, forecast", "description": "The entity (a tile that's only an entity can be written as its id)." },
+        { "name": "type", "type": "string", "values": ["entity", "room", "clock", "weather", "forecast", "date", "next_event", "agenda", "camera", "person", "chart", "button", "fader", "air", "energy_now", "energy_flow"], "default": "entity", "since": "0.2.0", "description": "The tile's kind. An unknown type is left out with a note for admins." },
+        { "name": "card", "type": "object", "since": "0.2.0", "for": "card", "description": "Any Lovelace card's config, HACS cards included: `{ card: { type: thermostat, entity: climate.hallway } }`." },
+        { "name": "area", "type": "area", "since": "0.2.0", "for": "room", "description": "The room's area id." },
+        { "name": "size", "type": "size", "auto": "1x1 (widgets and cards: their own)", "since": "0.2.0", "description": "`WxH` in grid cells (`2x1`, `4x2` …), or `full` / `half` the page's width with a height (`full x 3`); a height of `auto` fits a card's content. It shrinks on narrow screens." },
+        { "name": "phone_size", "type": "size", "since": "0.8.9", "description": "The size on phones (2 columns, 64 px rows), e.g. `2x5`." },
+        { "name": "name", "type": "string", "since": "0.2.0", "for": "entity, camera, button, fader", "description": "Its name." },
+        { "name": "icon", "type": "icon", "since": "0.2.0", "for": "entity, button, fader, chart, agenda, next_event", "description": "Its icon." },
+        { "name": "icon_on", "type": "icon", "since": "0.8.10", "for": "entity", "description": "The icon while on." },
+        { "name": "icon_off", "type": "icon", "since": "0.8.10", "for": "entity, button", "description": "The icon while off (a button: while it isn't lit)." },
+        { "name": "color_on", "type": "color", "since": "0.8.10", "for": "entity", "description": "The icon's colour while on (the colour code or CSS)." },
+        { "name": "color_off", "type": "color", "since": "0.8.10", "for": "entity", "description": "The icon's colour while off." },
+        { "name": "color", "type": "color", "since": "0.8.13", "for": "entity (pills), button, fader, chart", "description": "Its colour while lit (a chart: its line)." },
+        { "name": "name_off", "type": "string", "since": "0.8.13", "for": "entity (pills), button", "description": "Its name while it isn't on." },
+        { "name": "tap", "type": "string", "since": "0.2.0", "for": "entity", "description": "`more-info`, `toggle`, `none`, or a page path." },
+        { "name": "hold", "type": "string | action", "since": "0.8.8", "for": "entity, button", "description": "`more-info`, `toggle` (switch it on a hold), `none`, a page path, or (a button) `{ action, data, target }`. `tap: more-info` + `hold: toggle`: a stray tap can't switch it." },
+        { "name": "show_room", "type": "boolean", "default": true, "since": "0.8.13", "for": "entity", "description": "`false` = its state instead of its room, where tiles show rooms." },
+        { "name": "power", "type": "entity", "since": "0.8.13", "for": "entity", "description": "A power sensor: \"On · 0.72 kW\" while it draws." },
+        { "name": "confirm", "type": "boolean | string | object", "keys_ref": "confirm", "since": "0.8.13", "for": "entity, button", "description": "Ask first, in HomeView's own sheet: `true`, `turn_on` / `turn_off` (only before that), your question, or `{ text, only, action }`. It guards the gesture that switches (the tap, or the hold with `hold: toggle`)." },
+        { "name": "unit", "type": "string", "values": ["W", "kW", "MW"], "since": "0.8.13", "for": "entity (pills)", "description": "A power sensor's value in this unit." },
+        { "name": "more", "type": "object", "since": "0.8.17", "for": "card", "description": "A \"Show all\" button on the card that switches it to these settings (`null` removes one) and back." },
+        { "name": "more_label", "type": "string", "since": "0.8.17", "for": "card", "description": "The button's words; `{energy_devices}` = how many devices your Energy settings track." },
+        { "name": "less_label", "type": "string", "since": "0.8.17", "for": "card", "description": "The words to switch back." },
+        { "name": "legend_more", "type": "boolean", "default": true, "since": "0.8.17", "for": "card", "description": "`false` hides a chart's own \"More (n)\" legend chip." },
+        { "name": "calendars", "type": "entity[]", "auto": "every calendar", "since": "0.2.0", "for": "agenda, next_event", "description": "Its calendars." },
+        { "name": "days", "type": "number", "auto": "agenda 7, next_event 14", "since": "0.2.0", "for": "agenda, next_event, forecast", "description": "Days ahead." },
+        { "name": "max", "type": "number", "auto": "8 (a list: 30)", "since": "0.2.0", "for": "agenda", "description": "The most events." },
+        { "name": "match", "type": "string | object", "keys_ref": "filter", "since": "0.8.12", "for": "entity (a pattern), agenda, next_event", "description": "An entity tile: a glob or a filter (keys: [An entity filter](#an-entity-filter-exclude_entities-match)), one tile per entity with the other keys; `state:` in the filter shows each only while it's in that state. Agenda and next event: only events whose title matches (a regular expression, any case), e.g. `'no school|break'`." },
+        { "name": "all_day", "type": "boolean", "since": "0.8.12", "for": "agenda, next_event", "description": "Only all-day events." },
+        { "name": "strip", "type": "string", "since": "0.8.12", "for": "agenda", "description": "Text removed from the titles." },
+        { "name": "join_weekends", "type": "boolean", "since": "0.8.12", "for": "agenda", "description": "Adds the weekend right before or after a day off and joins breaks that then touch." },
+        { "name": "layout", "type": "string", "values": ["list"], "since": "0.8.12", "for": "agenda", "description": "`list`: one row per event with its dates and length." },
+        { "name": "weekday_word", "type": "string", "default": "school", "since": "0.8.12", "for": "agenda (list)", "description": "The word in the list's total: \"3 school days off\"." },
+        { "name": "long_icon", "type": "icon", "since": "0.8.12", "for": "agenda (list)", "description": "The icon of a break longer than a day." },
+        { "name": "event_icon", "type": "icon", "since": "0.8.12", "for": "agenda (list)", "description": "The icon of a one-day event." },
+        { "name": "title", "type": "string", "since": "0.2.0", "for": "agenda, next_event, chart", "description": "Its heading." },
+        { "name": "decimals", "type": "number", "default": 1, "since": "0.4.0", "for": "chart", "description": "Decimals of the value." },
+        { "name": "stale_minutes", "type": "number", "default": 10, "since": "0.8.1", "for": "energy_now", "description": "Minutes after which a reading counts as old." },
+        { "name": "battery", "type": "entity", "auto": "the person's phone battery", "since": "0.4.0", "for": "person", "description": "The battery shown with the person." },
+        { "name": "action", "type": "string", "since": "0.8.13", "for": "button", "description": "What a tap runs: a script or any action (`script.tv_source`, `light.turn_on` …)." },
+        { "name": "data", "type": "object", "since": "0.8.13", "for": "button", "description": "The action's data." },
+        { "name": "target", "type": "entity | entity[] | object", "since": "0.8.13", "for": "button", "description": "The action's target: an entity id, a list of them, or `{ entity_id, area_id … }`." },
+        { "name": "toggle", "type": "entity", "since": "0.8.13", "for": "button", "description": "Instead of `action`: toggle this entity; lit while it's on." },
+        { "name": "watch", "type": "entity", "since": "0.8.13", "for": "button", "description": "Lit while this entity's state (or `attribute`) is `when`." },
+        { "name": "when", "type": "string | number | string[]", "since": "0.8.13", "for": "button", "description": "The state (or a list of states) that lights it." },
+        { "name": "attribute", "type": "string", "since": "0.8.13", "for": "entity, button", "description": "An entity tile shows this attribute instead of the state (`battery_level`; `last_changed`: when it last changed); a button watches it instead of the state (a TV's `source`)." },
+        { "name": "format", "type": "string", "values": ["time", "date", "datetime", "relative", "until", "since"], "since": "0.9.0", "for": "entity, entity (pills)", "description": "Show a time (an `input_datetime`, a date / time entity, a timestamp sensor, or the `attribute` that holds one) as `time` \"6:30 AM\", `date` \"Thu, Nov 13\", `datetime`, `relative` \"in 2 hours\", `until` \"2 h 5 min\" or `since` \"3 h 20 min\" (the last three redraw every 30 s)." },
+        { "name": "dim", "type": "entity", "since": "0.8.13", "for": "button", "description": "A lit button shows as an outline while this entity is off." },
+        { "name": "mute", "type": "entity", "since": "0.8.13", "for": "fader", "description": "An `input_boolean` that mutes it (tap the icon); muted faders are grey with MUTED." },
+        { "name": "show_when", "type": "entity | object | list | boolean", "keys_ref": "condition", "item": { "ref": "condition" }, "since": "0.9.0", "description": "Show the tile only while this condition holds, live: an entity (while it's on), `{ entity, state / state_not }`, `{ entity, above / below }`, `{ user: [...] }`, `{ admin: true }`, `and:` / `or:` / `not:` (a list = all of them), or Home Assistant's own `condition:` shapes (keys: [A condition](#a-condition-show_when)). Edit mode shows the hidden ones faded." }
+      ]
+    },
+    "condition": {
+      "own_table": true,
+      "title": "A condition (show_when)",
+      "anchor": "condition-keys",
+      "keys": [
+        { "name": "entity", "type": "entity", "since": "0.9.0", "description": "The entity it reads. Alone: while it's on (a lock: unlocked, a cover: open, a person: home, media: playing)." },
+        { "name": "attribute", "type": "string", "since": "0.9.0", "description": "Read this attribute instead of the state (alone: while it's set)." },
+        { "name": "state", "type": "string | number | boolean | string[]", "since": "0.9.0", "description": "Its state is one of these." },
+        { "name": "state_not", "type": "string | number | boolean | string[]", "since": "0.9.0", "description": "Its state is none of these." },
+        { "name": "above", "type": "number | entity", "since": "0.9.0", "description": "Its value is above this (a number or an entity's value)." },
+        { "name": "below", "type": "number | entity", "since": "0.9.0", "description": "Its value is below this." },
+        { "name": "user", "type": "string | string[]", "since": "0.9.0", "description": "Who's looking: a login name (or its first word), a user id or a person entity linked to the login." },
+        { "name": "users", "type": "string | string[]", "since": "0.9.0", "description": "The same as `user` (Home Assistant's `condition: user` writes it this way)." },
+        { "name": "admin", "type": "boolean", "since": "0.9.0", "description": "`true`: admins only; `false`: everyone else." },
+        { "name": "and", "type": "entity | object | list", "keys_ref": "condition", "item": { "ref": "condition" }, "since": "0.9.0", "description": "All of these conditions." },
+        { "name": "or", "type": "entity | object | list", "keys_ref": "condition", "item": { "ref": "condition" }, "since": "0.9.0", "description": "Any of these conditions." },
+        { "name": "not", "type": "entity | object | list", "keys_ref": "condition", "item": { "ref": "condition" }, "since": "0.9.0", "description": "None of these conditions." },
+        { "name": "condition", "type": "string", "values": ["state", "numeric_state", "user", "screen", "and", "or", "not"], "since": "0.9.0", "description": "Home Assistant's own visibility shape, with its keys (`entity`, `state`, `above`, `users`, `conditions`, `media_query`)." },
+        { "name": "conditions", "type": "list", "item": { "ref": "condition" }, "since": "0.9.0", "description": "The conditions of Home Assistant's `and` / `or` / `not`." },
+        { "name": "media_query", "type": "string", "since": "0.9.0", "description": "`condition: screen`: a CSS media query, e.g. `'(min-width: 600px)'`." }
+      ]
+    },
+    "filter": {
+      "own_table": true,
+      "title": "An entity filter (exclude_entities, match:)",
+      "anchor": "filter-keys",
+      "keys": [
+        { "name": "entity_id", "type": "string | string[]", "since": "0.9.0", "description": "Ids or globs (`light.kids_room_*`). Diagnostic entities match only when named this way (or with `diagnostic: true`)." },
+        { "name": "domain", "type": "string | string[]", "since": "0.9.0", "description": "Domains: `light`, `sensor` …" },
+        { "name": "area", "type": "string | string[]", "since": "0.9.0", "description": "Areas, by id or name." },
+        { "name": "label", "type": "string | string[]", "since": "0.9.0", "description": "Labels, by id or name (a label on the device counts)." },
+        { "name": "device_class", "type": "string | string[]", "since": "0.9.0", "description": "Device classes: `door`, `battery` …" },
+        { "name": "integration", "type": "string | string[]", "since": "0.9.0", "description": "Integrations: `zha`, `mqtt` …" },
+        { "name": "not", "type": "string | object | list", "keys_ref": "filter", "item": { "ref": "filter" }, "since": "0.9.0", "description": "But not these (ids, globs or filters)." },
+        { "name": "diagnostic", "type": "boolean", "default": false, "since": "0.9.0", "description": "Match diagnostic and settings entities too." },
+        { "name": "state", "type": "string | number | boolean | string[]", "since": "0.9.0", "description": "A tile's `match:` only: each tile shows only while its entity is in one of these states (live)." },
+        { "name": "state_not", "type": "string | number | boolean | string[]", "since": "0.9.0", "description": "A tile's `match:` only: each tile shows only while its entity is in none of these states." }
+      ]
+    },
+    "confirm": {
+      "own_table": true,
+      "title": "A confirm (confirm: { … })",
+      "anchor": "confirm-keys",
+      "keys": [
+        { "name": "text", "type": "string", "since": "0.9.0", "description": "The question." },
+        { "name": "only", "type": "string", "values": ["turn_on", "turn_off"], "since": "0.9.0", "description": "Ask only before switching it on (a lock: unlocking, a cover: opening) or off." },
+        { "name": "action", "type": "string", "since": "0.9.0", "description": "The button's word, e.g. `Sound`." }
+      ]
+    },
+    "alert": {
+      "title": "A warning or alert rule (warnings:, a page's alerts:)",
+      "anchor": "alert-keys",
+      "keys": [
+        { "name": "text", "type": "string", "default": "Check this", "since": "0.8.13", "description": "What it says." },
+        { "name": "level", "type": "string", "values": ["critical", "notice"], "default": "critical", "since": "0.8.13", "description": "`critical` = red, `notice` = amber." },
+        { "name": "not_on", "type": "entity | entity[]", "since": "0.8.13", "description": "Rule: true while it isn't on (off, offline or missing)." },
+        { "name": "on", "type": "entity | entity[]", "since": "0.8.13", "description": "Rule: true while every one is on." },
+        { "name": "off", "type": "entity | entity[]", "since": "0.8.13", "description": "Rule: true while every one is off." },
+        { "name": "all_off", "type": "entity | entity[]", "since": "0.8.13", "description": "Rule: true while all of them are off." },
+        { "name": "none_on", "type": "entity | entity[]", "since": "0.9.0", "description": "Rule: true while none is confirmed on (off, offline and missing all count), e.g. both pumps off." },
+        { "name": "true", "alias_of": "on" },
+        { "name": "false", "alias_of": "off" },
+        { "name": "text_offline", "type": "string", "auto": "\"<name> not reporting\", or \"Can't check: <text>\" for a missing entity", "since": "0.8.13", "description": "What it says, in amber, while the rule can't be checked." },
+        { "name": "entities", "type": "entity[]", "auto": "the rule's entities", "since": "0.8.17", "description": "What the Warnings pop-up lists." }
+      ]
+    }
+  }
+}

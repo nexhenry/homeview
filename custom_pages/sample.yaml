@@ -25,6 +25,8 @@ vars:
   thermostat: climate.thermostat
   outdoor_temp: sensor.outdoor_temperature
   doors: [binary_sensor.front_door, binary_sensor.back_door]
+  rain: binary_sensor.rain_expected
+  wake: input_datetime.wake_up
 
 sections:
   - title: Entities               # a heading; leave it out for a section without one
@@ -54,3 +56,18 @@ sections:
         size: full x 2
       - card: { type: markdown, content: "Hello from **sample.yaml** — edit me." }
         size: 2x1
+
+  # show_when / match / format / confirm / defaults (custom_pages/README.md has them all)
+  - title: Only when it matters
+    show_when: $rain                                    # the whole section only while it's on (live)
+    tiles:
+      - { type: forecast, size: 2x2 }
+  - title: Patterns and times
+    layout: pills
+    defaults: { tap: more-info }                        # every tile below gets these (its own keys win)
+    tiles:
+      - 'light.living_room_*'                           # a glob: one tile per matching light
+      - { match: { domain: binary_sensor, device_class: [door, window], state: 'on' } }   # only the open ones
+      - { entity: $wake, name: Wake, format: until }    # "Wake 9 h 20 min" (also time, date, relative, since)
+      - { entity: $main_light, name: Changed, attribute: last_changed, format: since }
+      - { entity: $main_light, tap: toggle, confirm: turn_off, show_when: { admin: true } }   # asks before off; admins only

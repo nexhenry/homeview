@@ -17,11 +17,22 @@ jobs:
           category: plugin
 
   syntax:
-    name: Syntax
+    name: Syntax, tests, privacy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: node --check dist/homeview.js
+      # as a classic script and as an ES module: browsers load it as a module, and some mistakes
+      # only fail there (a plain `node --check` passed a file every browser rejected)
+      - name: Syntax
+        run: sh scripts/check.sh
+      - name: Tests
+        run: sh scripts/test.sh
+      # private network addresses, tokens, e-mail addresses, and (when the repository secret
+      # HOMEVIEW_DENYLIST is set) the maintainer's private deny-list; matches never print the word
+      - name: Privacy gate
+        env:
+          HOMEVIEW_DENYLIST: ${{ secrets.HOMEVIEW_DENYLIST }}
+        run: sh scripts/privacy-check.sh

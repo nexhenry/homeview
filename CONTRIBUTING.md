@@ -10,8 +10,12 @@ settings) and keep config optional.
   `<homeview-page>` and the strategy.
 - A new tile type = a renderer in `R` (`key`, `html`, optional `tick`, `update`, `action`).
   A new page = a builder in `PAGES` and an entry in `PAGE_DEFS`.
-- Run `./scripts/check.sh` before opening a pull request, and try it on phone, tablet and
-  desktop widths, in light and dark.
+- A new option = a row in `schema/options.json` (type, default, since, description, example),
+  then `./scripts/gen-docs.sh`: it writes the README's option tables, the key tables in
+  `custom_pages/README.md` and `examples/full.yaml`. The tests check that the code, the schema and
+  the docs agree.
+- Run `./scripts/check.sh` and `./scripts/test.sh` before opening a pull request, and try it on
+  phone, tablet and desktop widths, in light and dark.
 - Describe what you changed in `CHANGELOG.md` under the unreleased version.
 
 ## Issues

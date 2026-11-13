@@ -1,37 +1,429 @@
-# Every option, with example values. All of them are optional.
+# Every HomeView option, with an example value. All of them are optional: a dashboard needs only
+# `type: custom:homeview`. What each one does, its default and the version it came in: README.md →
+# All options (page files: custom_pages/README.md → Every key).
+# Generated from schema/options.json by scripts/gen-docs.mjs: change the schema, not this file.
 strategy:
-  type: custom:homeview
-  title: Our Home
-  theme: auto
-  pages: [home, widgets, family, rooms, energy, cameras]
-  pages_config:
-    home: { color: orange }
-    widgets: { title: Clock, icon: mdi:clock-outline }
-  room_order: [living_room, kitchen, bedroom, kids_room, bathroom]
-  hide_rooms: [attic]
-  rooms:
+
+  # General
+  type: custom:homeview           # The dashboard strategy. The only line you need; every other option is
+                                  # optional. (custom:homeview-dev: a development copy made by
+                                  # scripts/dev-build.sh.) (required)
+  title: Our Home                 # The Home page's title and the dashboard's name (default: your home's name
+                                  # (Settings → System → General))
+  theme: auto                     # Light or dark; auto follows Home Assistant on each screen. Home
+                                  # Assistant's cards on HomeView's pages take HomeView's look too: light,
+                                  # dark or the night face
+  # Which pages, in this order (also the swipe order). rooms = a page per family member's room (with no member
+  # rooms, the all-rooms directory). Also all_rooms, people and your own pages' paths. Old names still work:
+  # family = living, members = rooms. A page with nothing to show is left out
+  pages: [widgets, home, living, rooms, energy, cameras]
+  pages_config:                   # Per page: a page id (home, living …), a person page's path (member-zoe) or
+                                  # your own page's path
+    home:
+      color: orange               # The page's tint: a colour name (red, orange, amber, yellow, lime, green,
+                                  # teal, cyan, blue, indigo, purple, pink, brown, grey …) or a hue 0–360
+      hold: admin                 # Hold the page's title to open this page (a path), e.g. admin
+    energy:
+      popup: true                 # A built-in page as a pop-up: not in the page bar or the swipe order,
+                                  # opened from its pill (Energy); ✕ goes back (default: false)
+    rooms:
+      title: House                # The page's title and its name in the page bar (✎ in edit mode)
+      icon: mdi:floor-plan        # The page's icon in the page bar
+  font: geist                     # The whole dashboard in a font of your own, served by your Home Assistant:
+                                  # geist or inter (put the font file in place, see Fonts), a font the screens
+                                  # already have (Georgia), or { family, url, weight }. The clock keeps the
+                                  # system font (default: each screen's system font)
+  # a font of your own
+  # font: { family: My Font, url: /local/fonts/myfont.woff2, weight: 100 900 }
+
+  # Rooms
+  room_order: [living_room, kitchen, bedroom]   # These rooms (area ids) first, in this order; the rest after
+                                                # (default: by floor, then by name)
+  # The rooms on the Living page, in this order (default: the shared indoor rooms (not bedrooms, bathrooms,
+  # outdoor rooms or a family member's room), living spaces first)
+  living_rooms: [living_room, kitchen, dining_room]
+  hide_rooms: [garage_attic]      # Rooms (areas) to leave out everywhere
+  rooms:                          # Per room, by its area id
     living_room:
-      name: Lounge
-      color: blue
-      entities: [light.lounge_ceiling, light.lounge_lamp, media_player.tv, climate.lounge]
-    garage: { icon: mdi:garage-variant }
-  exclude_entities: [light.router_led, switch.child_lock]
-  people: [person.sam, person.alex, person.kids]
-  calendars: [calendar.family, calendar.school]
-  weather: weather.home
-  cameras: [camera.front_door, camera.garden]
-  home:
-    favorites: [alarm_control_panel.house, lock.front_door, cover.garage_door, climate.hallway]
-    scenes: true
-    max_scenes: 6
-  pills: [alarm, climate, lights, locks, openings, safety, batteries, media]
-  battery_low: 25
-  energy:
-    solar_power: sensor.solar_power
-    grid_power: sensor.grid_power
-    battery_power: sensor.battery_power
-    battery_level: sensor.battery_level
-    devices: 10
-  tile_size: 170
-  max_columns: 6
-  swipe: true
+      name: Lounge                # The room's name everywhere (✎ in edit mode) (default: the area's name)
+      icon: mdi:sofa              # The room's icon (default: the area's icon, else one that fits its name)
+      color: blue                 # The room's tint: a colour name or a hue 0–360 (🎨 in edit mode); a
+                                  # person's page takes their room's colour (default: one of ten tints, in
+                                  # turn)
+      # The room's temperature sensor (default: the area's own setting, else its first temperature sensor)
+      temperature: sensor.living_room_temperature
+      humidity: sensor.living_room_humidity   # The room's humidity sensor (default: the area's own setting,
+                                              # else its first humidity sensor)
+      entities: [light.lounge, media_player.tv]   # Show these first, in this order: on Living, a person's
+                                                  # page and the room's page. Edit mode's + Add, ⊖ and
+                                                  # dragging save it here
+    garden:
+      sections:                   # Your own sections on the room's page
+        - title: Watering         # A heading; leave it out for none
+          tiles:                  # The tiles: an entity id, a glob (light.kids_room_*: one tile per entity,
+                                  # by name), { … } (the keys below; match: for a filter), or . for an empty
+                                  # key in a keypad
+            - switch.sprinkler_front
+            # Any Lovelace card's config, HACS cards included: { card:
+            # { type: thermostat, entity: climate.hallway } }
+            - card: { type: history-graph, entities: [sensor.soil_moisture] }
+              size: 4x2           # WxH in grid cells (2x1, 4x2 …), or full / half the page's width with a
+                                  # height (full x 3); a height of auto fits a card's content. It shrinks on
+                                  # narrow screens (default: 1x1 (widgets and cards: their own))
+    shed:
+      hidden: true                # Leave the room out, like hide_rooms (default: false)
+
+  # What to show
+  exclude_entities:               # Never show these anywhere (👁 in edit mode does the same): entity ids,
+                                  # globs (sensor.*_linkquality; * any text, ? one character) or filters
+                                  # ({ label: not_on_dashboard }, { integration: zha, domain: sensor }; every
+                                  # key: custom_pages/README.md). Hidden, disabled, configuration and
+                                  # diagnostic entities are left out anyway. The settings editor keeps the
+                                  # patterns as they are
+    - switch.child_lock
+    - light.status_led
+    - sensor.*_linkquality
+    - label: not_on_dashboard     # Labels, by id or name (a label on the device counts)
+  customize:                      # Per entity, wherever its tile appears
+    light.lamp_3:
+      name: Reading lamp          # The tile's name (✎ in edit mode)
+      icon: mdi:floor-lamp        # The tile's icon (◇ in edit mode)
+      size: 2x1                   # WxH in grid cells: 1x1, 2x1, 2x2 … (⤢ in edit mode)
+    cover.garage_door:
+      icon_on: mdi:garage-open    # The icon while it's on (open, unlocked …)
+      icon_off: mdi:garage        # The icon while it's off
+      color_on: red               # The icon's colour while on: green, amber, red, orange, blue (the colour
+                                  # code) or any CSS colour
+      color_off: green            # The icon's colour while off
+    media_player.tv:
+      tap: more-info              # more-info, toggle, none, or a page path to open
+      hold: admin                 # more-info, toggle (switch it on a hold), none, or a page path to open (the
+                                  # TV tile → a Media page). tap: more-info + hold: toggle: a stray tap can't
+                                  # switch it
+    lock.back_door:
+      confirm: turn_on            # Ask first wherever this entity can be switched (its tiles on every page,
+                                  # the pills' pop-ups, a chip, a button that toggles it): true, turn_on /
+                                  # turn_off (only before that: a lock's unlocking, a cover's opening), your
+                                  # question, or { text, only, action }. A tile's or chip's own confirm: wins;
+                                  # locks and garage doors always ask, confirm: gives them your words
+    switch.old_plug:
+      hidden: true                # Hide it everywhere (👁 in edit mode) (default: false)
+  people: [person.sam, person.alex]   # The people HomeView shows (avatars, who's home) (default: everyone
+                                      # with a phone or tracker)
+  calendars: [calendar.family]    # The calendars for Next, Up next and the agenda (default: every calendar)
+  weather: weather.home           # The weather entity (default: the first weather entity)
+  cameras: [camera.front_door, camera.garden]   # The cameras on the Cameras page (default: every camera)
+
+  # People, and who sees what
+  access:                         # Who sees which pages: a person entity or a login name → all (every page,
+                                  # every person page) or a list of pages (rooms = their own person page,
+                                  # all_members = every person page). Pages someone may not see aren't built
+                                  # for them; it hides, it doesn't secure (default: admins every page;
+                                  # everyone else the shared pages and only their own person page)
+    # all or a list of pages
+    person.alex: [widgets, home, living, rooms, energy, cameras]
+    person.wall_tablet: all
+    guest: [widgets, home]
+  members: [person.mia, person.alex, person.zoe]   # Person pages, in this order; false = none. By hand: {
+                                                   # person.zoe: { area, calendars, name } } (default:
+                                                   # everyone whose first name is in a room's name (Bedroom
+                                                   # Zoe, Alex's room), alphabetically)
+  # by hand
+  # members: { person.zoe: { area: bedroom_zoe, calendars: [calendar.zoe_school] } }
+  people_chips: true              # The people's avatars under the Home title
+  # The favourites strip on phones (Living, a person's page): one list, or one per login name with default for
+  # everyone else (default: the main rooms' lights, then the locks (six at most))
+  phone_favorites: [light.kitchen, light.living_room, lock.front_door]
+  # per login
+  # phone_favorites: { alex: [light.kitchen, lock.front_door], default: [light.living_room] }
+  avatars: samples                # People without a picture: samples (anime-style avatars from DiceBear, the
+                                  # same one each time; no names are sent) or initials (no internet request).
+                                  # Per person: man, woman, boy, girl or a picture's URL. A picture set on the
+                                  # person in Home Assistant always wins
+  # per person
+  # avatars: { person.alex: man, person.zoe: woman, person.kai: /local/kai.jpg }
+  guest: input_boolean.guests_here   # The guest view (see Guest view): while the entity is on, shared screens
+                                     # leave out the person pages, People, Cameras and admin-only pages (out
+                                     # of the swipe order, the page dots and the page bar), the people on Home
+                                     # and every camera, person and calendar tile; Widgets drops the agenda
+                                     # and shows the sample photos. A "Guest" label by the title says why.
+                                     # Every screen but admins', unless screens names them. It hides, it
+                                     # doesn't secure (default: off)
+  # only the wall tablet
+  # guest: { entity: input_boolean.guests_here, screens: [person.wall_tablet], hide: [media], slideshow: false }
+
+  # Home, Widgets, pills and warnings
+  widgets:                        # The Widgets page
+    # The photo folder (media-source://…), samples, or false for none (default: the first media folder named
+    # Photos, Pictures, Slideshow …, else sample photos (from picsum.photos))
+    slideshow: media-source://media_source/local/Photos
+    slideshow_interval: 60        # Seconds per photo
+    # A smaller copy to try first, e.g. {dir}/.@__thumb/s800{name} on a QNAP NAS; falls back to the full photo
+    slideshow_thumbnail: '{dir}/.@__thumb/s800{name}'
+    # camera: camera.front_door   # instead of the photos
+    font: geist                   # The Widgets page alone in a font of your own (see font)
+  home:                           # The Home page
+    # Tiles near the top of Home; [] = none. In edit mode ★ adds or removes one and a drag moves it (default:
+    # two that HomeView picks, doors first (locks, garage))
+    favorites: [alarm_control_panel.home, lock.front_door, cover.garage, climate.hallway]
+    max_favorites: 2              # How many favourites HomeView picks by itself
+    light_rooms: [living_room, kitchen]   # Rooms with a Lights tile on Home (tap = all on / off, hold = the
+                                          # room) (default: the two main rooms with lights)
+    max_light_rooms: 2            # How many Lights tiles HomeView picks by itself
+    chips:                        # Round control chips under the title: an entity, or an object with the keys
+                                  # below; '|' between two starts a new group (a gap before the next chip);
+                                  # false = none. Drag them in edit mode to reorder (default: the alarm,
+                                  # garage doors and gates, locks and a water shut-off valve)
+      - alarm_control_panel.house
+      - entity: cover.garage_door   # The entity
+        confirm: true             # Ask first (locks, garage doors and the water valve always do): true,
+                                  # turn_on / turn_off, your question, or { text, only, action } (see
+                                  # customize.<entity>.confirm)
+      - entity: input_boolean.auto_lights
+        color: light              # A switch's colour while on: security (green), light (orange), climate
+                                  # (blue) or a CSS colour (default: security)
+        icon_on: mdi:lightbulb-auto   # The icon while on
+        icon_off: mdi:lightbulb-auto-outline   # The icon while off
+      - entity: automation.night_alert
+        name: Night alert         # Its name (in the confirm sheet)
+        off_warn: true            # Amber while off (something that should stay on)
+        confirm: true
+      - '|'
+      - entity: input_boolean.auto_climate
+        label: Auto climate       # A short word beside the icon on tablets and in a browser ("Auto lights"),
+                                  # so a mode switch says what it is; phones show the icon only. The chip's
+                                  # own word (Open, Offline …) takes its place while there is one
+    camera: camera.front_door     # The camera on Home; false = none (default: the first camera)
+    air: true                     # The air-quality tile, when there's an AQI, PM2.5, CO₂ or VOC sensor
+    rooms: false                  # Room tiles on Home (they're on Living and each room's page)
+    scenes: true                  # The scenes on Home
+    max_scenes: 8                 # The most scenes on Home
+  pills:                          # The status pills on Home, in this order: alarm, climate, energy, lights,
+                                  # locks, openings, safety, batteries, media, warnings, or an object with the
+                                  # keys below; false = none. Drag them in edit mode to reorder (default:
+                                  # [alarm, climate, energy, lights, locks, openings, safety, batteries, media])
+    - alarm
+    - climate
+    - pill: energy                # A built-in pill with a hold: (or tap:) of its own:
+                                  # { pill: energy, hold: energy-history }
+      hold: energy-history        # A page path to open on a hold
+    - lights
+    - locks
+    - openings
+    - safety
+    - batteries
+    - media
+    - entity: sensor.water_heater_temp   # A pill of your own: this entity's state
+      name: Hot water             # Its name, before the state; '' = the state alone
+      icon: mdi:water-boiler      # Its icon
+  warnings:                       # A Warnings pill, first on Home, only while one of these rules is true; tap
+                                  # = a pop-up with each warning's entities. In edit mode tap the pill to add
+                                  # or remove warnings
+    - text: Kitchen fridge off    # What it says (default: Check this)
+      text_offline: Kitchen fridge offline   # What it says, in amber, while the rule can't be checked
+                                             # (default: "<name> not reporting", or "Can't check: <text>" for
+                                             # a missing entity)
+      level: critical             # critical = red, notice = amber
+      not_on: switch.kitchen_fridge   # Rule: true while it isn't on (off, offline or missing)
+      # What the Warnings pop-up lists (default: the rule's entities)
+      entities: [switch.kitchen_fridge, sensor.kitchen_fridge_power]
+    - text: Water shut off
+      level: notice
+      off: switch.water_valve     # Rule: true while every one is off
+  battery_low: 20                 # A battery under this % counts as low (the Batteries pill)
+
+  # Comfort words
+  comfort: thermostat             # When a room is Comfy (Too cold · Cold · Comfy · Warm · Hot on room tiles).
+                                  # thermostat: the room's thermostat (its own, else the house's), from its
+                                  # heat setting − margin to its cool setting + margin, so a cooler night
+                                  # setting reads Comfy at night. fixed: 66–77 °F (19–25 °C). Or
+                                  # { cold, warm }
+  # numbers or entities
+  # comfort: { cold: sensor.comfort_low, warm: sensor.comfort_high }
+  comfort_thermostat: climate.hallway   # The house's thermostat, for rooms without their own (default: the
+                                        # first thermostat with a setting)
+  comfort_margin: 1               # How far either side of the thermostat's settings still counts as Comfy (a
+                                  # number or an entity) (default: 1 °F (0.5 °C))
+  comfort_limits:                 # The outer grades: numbers or entities (input_number helpers). A room is
+                                  # Comfy only when its temperature and humidity both are
+    too_cold: 65                  # Too cold below this; never closer than 3 °F (1.5 °C) to Comfy (default: 65
+                                  # °F (18 °C))
+    hot: 83                       # Hot above this; Cold and Warm come from comfort (default: 83 °F (28 °C))
+    too_dry: 30                   # Humidity %: Too dry below this
+    dry: 40                       # Dry below this
+    humid: 55                     # Humid above this
+    too_humid: 65                 # Too humid above this
+
+  # Energy
+  energy:                         # The Energy page and live power, when Home Assistant's Energy settings
+                                  # don't say. Otherwise HomeView finds the sensors itself: a net sensor on
+                                  # the meter's own device first, a split pair if that's all there is, never
+                                  # an average
+    windows:                      # Off-grid share in time windows (peak hours …), from hourly statistics:
+                                  # { name, start, end, days }, or hours: with several spans, each with its
+                                  # own days
+      - name: Peak                # The window's name
+        start: '16:00'            # From ('16:00')
+        end: '21:00'              # Until ('24:00' = midnight)
+        days: weekdays            # weekdays, weekends, daily, or days (mon, tue … or 0–6) (default: every
+                                  # day)
+      - name: Partial-peak
+        hours:                    # Several spans instead of start / end, each with its own days
+          - start: '15:00'        # From
+            end: '16:00'          # Until
+            days: weekdays        # The days of this span
+          - { start: '21:00', end: '24:00', days: weekdays }
+          - { start: '15:00', end: '24:00', days: weekends }
+    battery_energy: sensor.battery_remaining   # kWh left in the battery (default: an energy-storage sensor)
+    battery_capacity: 13.5        # The battery's size in kWh, when there's no energy-left sensor (× the
+                                  # battery level)
+    grid_status: binary_sensor.grid_status   # The grid's state, for the outage list. With unusual states:
+                                             # { entity, up: [states] } (anything else is down) or
+                                             # { entity, down: [states] }. Unknown or unavailable reads "grid
+                                             # status unknown", never "grid on" (default: a sensor named like
+                                             # grid status)
+    # or { entity, down: [islanded] }
+    # grid_status: { entity: sensor.grid_status, up: [Active] }
+    outage:                       # The power-outage list (see Power outages); false = the devices only
+      label: 'Outage: turn off'   # The Home Assistant label that holds the ticks (a name or an id)
+      on_label: 'Outage: turn on'   # A second tick: turn on in an outage
+      off_action: script.outage_shed   # Turn off ticked runs this instead of homeassistant.turn_off: a script
+                                       # gets entities (the ticked switches) and on_entities; or
+                                       # { action, data, target }
+      on_action: script.outage_restore   # Turn back on runs this instead of homeassistant.turn_on
+      switches:                   # A device's switch by hand: { <energy sensor>: <switch> }
+        # Its switch; null = none
+        sensor.kettle_energy: switch.kitchen_plug
+    home_current: sensor.mains_current   # The current for the "A at V" line (default: on the home power
+                                         # sensor's device)
+    voltage: sensor.mains_voltage   # The voltage for the "A at V" line (default: on the home power sensor's
+                                    # device)
+    flow_card: auto               # auto = Power Flow Card Plus when it's installed (HACS), else HomeView's
+                                  # own; homeview = always HomeView's own
+    flow_devices: 0               # Devices shown as their own circles in Power Flow Card Plus
+    flow_card_options: {}         # Anything else for Power Flow Card Plus
+    solar_power: sensor.solar_power   # Solar power now (default: the Energy settings' power sensor, else one
+                                      # named like it)
+    grid_power: sensor.grid_power   # Grid power now: + import, − export (a net sensor) (default: the Energy
+                                    # settings' power sensor, else a net sensor named like it)
+    # with grid_export_power: a split pair, both positive
+    # grid_import_power: sensor.grid_import_power
+    battery_power: sensor.battery_power   # Battery power now: + discharge, − charge (a net sensor) (default:
+                                          # the Energy settings' power sensor, else a net sensor named like
+                                          # it)
+    # with battery_charge_power: a split pair
+    # battery_discharge_power: sensor.battery_discharge_power
+    battery_level: sensor.battery_level   # The home battery's charge % (default: the % sensor on the
+                                          # battery's device, or named like it)
+    home_power: sensor.home_power   # The home's power now (default: solar + grid + battery)
+    devices: 12                   # How many devices under "Devices today" (default: 10)
+
+  # Screens: full screen, start page, screensaver, night
+  kiosk: true                     # Full screen: hide Home Assistant's header and sidebar. The Menu chip shows
+                                  # them until the page reloads; ?kiosk=off in the address too
+  kiosk_chip: true                # The Menu / Full screen chip. Turn it off on a wall tablet so nobody leaves
+                                  # full screen by accident
+  page_dots: true                 # Page dots at the bottom in full screen: where you are, and a tap goes to
+                                  # another page
+  start:                          # The page a session opens on (a link to a page is kept): one page for every
+                                  # screen, or { phone, tablet } (default: phones open on Home, tablets and
+                                  # browsers on the first page)
+    phone: home                   # Phones (narrower than 600 px)
+  # start: home                   # every screen
+  desktop_layout: tablet          # A desktop browser window (no touch screen, at least 1000 px wide) lays out
+                                  # like a landscape tablet even when it's taller than wide; fill = the whole
+                                  # window height. Touch screens aren't changed
+  screensaver: auto               # A big clock after 2 minutes without a touch: auto = touch tablets only,
+                                  # true = every screen, false = never, or the keys below
+  # screensaver: { idle: 120, color: '#4D7DB8', pages: [home, living] }
+  night: input_boolean.night_mode   # The night face (see Night): an entity (night while it's on), auto (the
+                                    # sun is down and it's 9 pm or later, until morning), or { from, to }
+                                    # every day (default: false)
+  # night: { from: '21:30', to: '06:30' }   # every day
+
+  # Your own pages
+  custom_pages:                   # Pages of your own, usually one file each: custom_pages: !include_dir_list
+                                  # custom_pages. Every key of a page, a section and a tile is in
+                                  # custom_pages/README.md
+    - path: admin                 # The page's address, /<dashboard>/<path>, and the word a hold: or tap:
+                                  # names. Keep it the file's name (default: page-<n>)
+      title: Admin                # The big title at the top (default: Page)
+      icon: mdi:cog               # The icon in the page bar (default: mdi:view-grid-outline)
+      subview: true               # Not in the page bar or the swipe order: opened by a hold (or tap) that
+                                  # names it, with a ✕ that goes back (default: false)
+      admin_only: true            # Only for viewers who see every page: admins (unless access gives them a
+                                  # list) and logins with access: all (default: false)
+      sections:                   # The page's sections
+        - title: Modes
+          layout: pills           # pills: small pills in a row (sensors with their value); keypad: icon
+                                  # buttons in a grid (a remote); faders: sliders, two per row on tablets;
+                                  # rows: a list (default: tiles)
+          tiles:
+            - input_boolean.guest_mode
+            - input_boolean.vacation_mode
+            - entity: input_datetime.wake_up   # The entity (a tile that's only an entity can be written as
+                                               # its id)
+              name: Wake          # Its name
+              format: until       # Show a time (an input_datetime, a date / time entity, a timestamp sensor,
+                                  # or the attribute that holds one) as time "6:30 AM", date "Thu, Nov 13",
+                                  # datetime, relative "in 2 hours", until "2 h 5 min" or since "3 h 20 min"
+                                  # (the last three redraw every 30 s)
+        - title: Now
+          tiles:
+            - type: chart         # The tile's kind. An unknown type is left out with a note for admins
+                                  # (default: entity)
+              entity: sensor.living_room_temperature
+              size: 2x1
+            - { type: agenda, size: 2x2 }
+            - type: forecast
+              size: 2x2
+              # Show the tile only while this condition holds, live: an entity (while it's on),
+              # { entity, state / state_not }, { entity, above / below }, { user: [...] }, { admin: true },
+              # and: / or: / not: (a list = all of them), or Home Assistant's own condition: shapes (keys: A
+              # condition). Edit mode shows the hidden ones faded
+              show_when: binary_sensor.rain_expected
+        - title: Open doors
+          tiles:
+            # An entity tile: a glob or a filter (keys: An entity filter), one tile per entity with the
+            # other keys; state: in the filter shows each only while it's in that state. Agenda and next
+            # event: only events whose title matches (a regular expression, any case), e.g. 'no
+            # school|break'
+            - match: { domain: binary_sensor, device_class: door, state: 'on' }
+              tap: more-info      # more-info, toggle, none, or a page path
+        - title: Robot
+          # Show the section only while this condition holds (keys: A condition). A section whose tiles are
+          # all hidden hides too
+          show_when: { entity: vacuum.robot, state: [cleaning, returning] }
+          layout: pills
+          # Tile keys every tile of the section gets (a tile's own keys win), e.g. a remote's
+          # { type: button, action: remote.send_command, target: remote.tv } once
+          defaults: { type: button, target: vacuum.robot }
+          tiles:
+            - name: Stop
+              icon: mdi:stop      # Its icon
+              action: vacuum.stop   # What a tap runs: a script or any action (script.tv_source, light.turn_on
+                                    # …)
+            - name: Send home
+              icon: mdi:home-import-outline
+              action: vacuum.return_to_base
+              confirm: Send the robot home?   # Ask first, in HomeView's own sheet: true, turn_on / turn_off
+                                              # (only before that), your question, or { text, only, action }.
+                                              # It guards the gesture that switches (the tap, or the hold with
+                                              # hold: toggle)
+
+  # Layout and editing
+  tile_size: 175                  # Instead of the standard grid: as many columns as fit tiles at least this
+                                  # wide (px) (default: the tile formula: columns 110–300 px wide, 4 rows on a
+                                  # screen)
+  max_columns: 8                  # Never more columns than this
+  rows_on_screen: 4               # Rows a page fits on one tablet or browser screen (tiles stay between
+                                  # square and 1.35 : 1): one number, or { <page>: n }; 0 = square tiles.
+                                  # Energy keeps its own rows
+  # rows_on_screen: { home: 4, living: 5 }   # per page
+  swipe: true                     # Swipe between pages. HomeView turns the swipe-navigation plugin off on
+                                  # this dashboard, so one swipe is one page; false = leave swiping to it
+  edit_button: true               # Double-tap a page title for edit mode (admins only)
+  update_notice: true             # An update icon for admins when HACS has a newer HomeView
+  ui_edits: true                  # On a YAML dashboard, keep what you change on screen in a hidden companion
+                                  # dashboard, <dashboard>-edits; false = show the YAML to paste instead
+  # from: home-view               # on a second dashboard: the first one's address
