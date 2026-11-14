@@ -46,7 +46,7 @@ no YAML per tile.
 | **Living** | The living spaces everyone shares — living room, kitchen, dining, family room, garage … — each in its own colour with its lights, climate, locks, covers, fans and media. Bedrooms, bathrooms and outdoor areas are left out (they have their own pages). Choose the rooms with `living_rooms` |
 | **Rooms** — a page per person | One page for each family member (Alex, Zoe, Mia …), found from your `person` entities: their room's temperature, comfort, humidity, doors and windows, its devices, their next event and where they are. Automatic for everyone with a room named after them ("Bedroom Zoe"); `members` sets who and in what order. Each person sees only their own page unless `access` says otherwise (admins see all) |
 | **Room pages** | A room's details — hold a room's tile or title: *Right now* (temperature, comfort, humidity, its doors and locks), quick tiles (all its lights on / off, presence, power now), 24-hour charts (temperature, humidity, light level), then everything in the room: lights, climate, doors & security, media, devices, scenes, cameras, sensors |
-| **Energy** | Opened from the Energy pill (or in the page bar). A live flow diagram; *right now* (solar, home with amps · volts, grid importing / exporting, battery charging / discharging); **backup time** on battery; **off-grid share in your peak hours** (optional time windows); **solar self-sufficiency**; today's totals; and a **power-outage list** of every device with W · A · kWh today and an on / off button (admins; it asks first) — tick what to turn off when the grid goes down ([Power outages](#power-outages)). The flow is [Power Flow Card Plus](https://github.com/flixlix/power-flow-card-plus) when it's installed (HomeView's own otherwise); the numbers are live between meter readings |
+| **Energy** | Opened from the Energy pill (or in the page bar). A live flow diagram; *right now* (solar, home with amps · volts, grid importing / exporting, battery charging / discharging); **backup time** on battery; **off-grid share in your peak hours** (optional time windows); **solar self-sufficiency**; today's totals; and a **power-outage list** of every device with W · A · kWh today and an on / off button (admins; it asks first) — tick what to turn off when the grid goes down ([Power outages](#power-outages)). The flow is [Power Flow Card Plus](https://github.com/flixlix/power-flow-card-plus) when it's installed (HomeView's own otherwise), with HomeView's number format ("3.0 kW") and the grid in red with "Grid down" in an outage; the numbers are live between meter readings |
 | **Cameras** | Every camera, refreshed every 10 s while on screen. Up to nine fill one tablet or browser screen (up to 3 across, 16:9, no scrolling); more, or a phone: a grid that scrolls. An offline camera says so (amber badge, "Offline"). Tap for the live stream |
 | **All rooms** *(optional)* | A directory of every room (by floor). Add `all_rooms` to `pages`. It's also what `rooms` shows in a home without member rooms |
 | **People** *(optional)* | Everyone with home / away, since when and phone battery, plus the family calendar. Add `people` to `pages` to use it |
@@ -106,9 +106,14 @@ never run isn't offline.
 
 **Who's home:** under Home's title someone who's home has a green ring; someone away is faded, with a
 small location pin (not just a missing ring). A person's page says where they are by its title
-("● Home", or "Away · 2 h"). Room summaries show the temperature once, big, and below it how the room
+("● Home", or "Away · 2 h") and, under it, when their tracker last reported a location ("located
+2:12 AM"). Older than an hour (`location_stale_minutes`) it turns amber, "location from 2:12 AM": a
+phone can sit on an old fix for hours, and "Home" alone wouldn't show it. Person tiles elsewhere
+show it only then. Room summaries show the temperature once, big, and below it how the room
 feels and its humidity. Home's weather tile names your home instead of repeating the time and date
-(the header has the date, the clock the time). The next event reads "Up next · <calendar>".
+(the header has the date, the clock the time). The next event reads "Up next · <calendar>"; tap it
+(or the Widgets page's Up next) for the next 30 days of events, by day, and hold it for Home
+Assistant's calendar dialog (`calendar_days`).
 
 **Rooms:** a room's tile (and its bar on a phone) has a small **›** top right that opens the room's
 details page; a tap anywhere else still switches its lights, and a hold still opens the page.
@@ -249,6 +254,10 @@ Leave HomeView for another dashboard and the header and sidebar come back by the
   full-screen icon) to hide them.
 - Add `?kiosk=off` to the URL to open with them shown.
 - `kiosk_chip: false` hides the chip, so nobody leaves full screen by accident.
+- On the Widgets page a small **full-screen button** in the bottom-right corner hides the browser's
+  own bars too. It shows only where the browser can do that and isn't already: not in Fully Kiosk or
+  another app's built-in browser, not on an iPhone (Safari can't), not in a home-screen web app; it
+  fades with the page dots. `fullscreen_button: false` hides it.
 - `kiosk: false` turns full screen off for everyone (HA's normal header and tabs).
 
 No other kiosk card is needed. (If you use [kiosk-mode](https://github.com/NemesisRE/kiosk-mode)
@@ -625,6 +634,7 @@ key](custom_pages/README.md#every-key).
 | `customize.<entity>.confirm` | boolean, string, { text, only, action } | — | 0.9.0 | Ask first wherever this entity can be switched (its tiles on every page, the pills' pop-ups, a chip, a button that toggles it): `true`, `turn_on` / `turn_off` (only before that: a lock's unlocking, a cover's opening), your question, or `{ text, only, action }`. A tile's or chip's own `confirm:` wins; locks and garage doors always ask, `confirm:` gives them your words. |
 | `people` | entity list | everyone with a phone or tracker | 0.1.0 | The people HomeView shows (avatars, who's home). |
 | `calendars` | entity list | every calendar | 0.1.0 | The calendars for Next, Up next and the agenda. |
+| `calendar_days` | number, `false` | `30` | 0.9.1 | Tap a Next or Up next tile (Widgets' too) or an agenda: a sheet with that many days of its calendars' events, by day (Today, Tomorrow, then the date), with times, all-day events and each member's colour; the tile's own filters apply, and it never shows fewer days than the tile looks ahead. Hold the tile, or give it `tap: more-info`, for Home Assistant's calendar dialog. `false` = no sheet: a tap opens that dialog, as before. |
 | `weather` | entity | the first weather entity | 0.1.0 | The weather entity. |
 | `cameras` | entity list | every camera | 0.1.0 | The cameras on the Cameras page. |
 
@@ -644,6 +654,7 @@ key](custom_pages/README.md#every-key).
 | `people_chips` | boolean | `true` | 0.1.0 | The people's avatars under the Home title. |
 | `phone_favorites` | entity list, map | the main rooms' lights, then the locks (six at most) | 0.7.0 | The favourites strip on phones (Living, a person's page): one list, or one per login name with `default` for everyone else. |
 | `avatars` | `samples`, `initials`, map | `samples` | 0.6.0 | People without a picture: `samples` (anime-style avatars from DiceBear, the same one each time; no names are sent) or `initials` (no internet request). Per person: `man`, `woman`, `boy`, `girl` or a picture's URL. A picture set on the person in Home Assistant always wins. |
+| `location_stale_minutes` | number, `false` | `60` | 0.9.1 | A person's page says when their location was last reported, under Home / Away ("located 2:12 AM"), from their tracker (the person's source, else the person). Older than this many minutes it turns amber and reads "location from 2:12 AM": a phone's tracker can sit on an old fix for hours (location permission "While using"), and Home alone wouldn't show it. Person tiles elsewhere show it only once it's old. `false` = never amber (the time still shows on the person's page). |
 | `guest` | entity, object | off | 0.9.0 | The guest view (see [Guest view](#guest-view)): while the entity is on, shared screens leave out the person pages, People, Cameras and admin-only pages (out of the swipe order, the page dots and the page bar), the people on Home and every camera, person and calendar tile; Widgets drops the agenda and shows the sample photos. A "Guest" label by the title says why. Every screen but admins', unless `screens` names them. It hides, it doesn't secure. |
 | `guest.entity` | entity | — | 0.9.0 | The helper that turns it on (on = guests are here). Without one, the `screens` listed always show the guest view. |
 | `guest.screens` | string list | every screen but admins' | 0.9.0 | Only these logins: a person entity or a login's name (admins too, when listed). |
@@ -738,7 +749,7 @@ key](custom_pages/README.md#every-key).
 | `energy.windows[].hours[].days` | string, string list, number list | — | 0.8.0 | The days of this span. |
 | `energy.battery_energy` | entity | an energy-storage sensor | 0.8.0 | kWh left in the battery. |
 | `energy.battery_capacity` | number | — | 0.8.0 | The battery's size in kWh, when there's no energy-left sensor (× the battery level). |
-| `energy.grid_status` | entity, object | a sensor named like grid status | 0.8.0 | The grid's state, for the outage list. With unusual states: `{ entity, up: [states] }` (anything else is down) or `{ entity, down: [states] }`. Unknown or unavailable reads "grid status unknown", never "grid on". |
+| `energy.grid_status` | entity, object | a sensor named like grid status | 0.8.0 | The grid's state, for the outage list and Power Flow Card Plus (its grid turns red with "Grid down" while this reads down). With unusual states: `{ entity, up: [states] }` (anything else is down) or `{ entity, down: [states] }`. Unknown or unavailable reads "grid status unknown", never "grid on". |
 | `energy.grid_status.entity` | entity | — | 0.9.0 | The grid-status entity. |
 | `energy.grid_status.up` | string list | — | 0.9.0 | Its states that mean the grid is up. |
 | `energy.grid_status.down` | string list | — | 0.9.0 | Its states that mean the grid is down. |
@@ -752,7 +763,7 @@ key](custom_pages/README.md#every-key).
 | `energy.voltage` | entity | on the home power sensor's device | 0.8.0 | The voltage for the "A at V" line. |
 | `energy.flow_card` | `auto`, `homeview` | `auto` | 0.8.2 | `auto` = Power Flow Card Plus when it's installed (HACS), else HomeView's own; `homeview` = always HomeView's own. |
 | `energy.flow_devices` | number | `0` | 0.8.2 | Devices shown as their own circles in Power Flow Card Plus. |
-| `energy.flow_card_options` | object | — | 0.8.2 | Anything else for Power Flow Card Plus. |
+| `energy.flow_card_options` | object | — | 0.8.2 | Anything else for Power Flow Card Plus, laid over HomeView's settings for it: a block key by key (`entities: { grid: { power_outage: { label_alert: Outage } } }` changes only that), `null` removes a setting. HomeView's own: whole watts and one decimal from 1 kW with the zero kept (`keep_trailing_zeros: true`: "3.0 kW", as its tiles), and the grid in red with "Grid down" while `grid_status` reads down. A `power_outage` of your own with an `entity` or `state_alert` is passed as it is. |
 | `energy.solar_power` | entity | the Energy settings' power sensor, else one named like it | 0.1.0 | Solar power now. |
 | `energy.grid_power` | entity | the Energy settings' power sensor, else a net sensor named like it | 0.1.0 | Grid power now: + import, − export (a net sensor). |
 | `energy.grid_import_power` | entity | — | 0.8.3 | Without a net sensor: a split pair, both positive (import). |
@@ -771,6 +782,7 @@ key](custom_pages/README.md#every-key).
 | `kiosk` | boolean | `true` | 0.3.0 | Full screen: hide Home Assistant's header and sidebar. The Menu chip shows them until the page reloads; `?kiosk=off` in the address too. |
 | `kiosk_chip` | boolean | `true` | 0.3.0 | The Menu / Full screen chip. Turn it off on a wall tablet so nobody leaves full screen by accident. |
 | `page_dots` | boolean | `true` | 0.9.0 | Page dots at the bottom in full screen: where you are, and a tap goes to another page. |
+| `fullscreen_button` | boolean | `true` | 0.9.1 | A small full-screen button in the Widgets page's corner, quiet like the page dots and fading with them: the browser hides its own bars too. Only where that works and isn't already so: not in Fully Kiosk or another app's built-in browser (an Android WebView), not on an iPhone (Safari can't), not in a home-screen web app, and not while the page is full screen. |
 | `start` | page, object | phones open on Home, tablets and browsers on the first page | 0.9.0 | The page a session opens on (a link to a page is kept): one page for every screen, or `{ phone, tablet }`. |
 | `start.phone` | page | `home` | 0.9.0 | Phones (narrower than 600 px). |
 | `start.tablet` | page | the first page | 0.9.0 | Tablets and browsers. |

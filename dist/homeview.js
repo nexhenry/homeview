@@ -11,7 +11,7 @@
  * Widgets, Home, Living, a page per person (Rooms), a details page per room, Energy and Cameras. Everything is
  * optional and can be tuned in the strategy config — see README.md.
  */
-const HV_VERSION = '0.9.0';
+const HV_VERSION = '0.9.1';
 // where this file was loaded from (to re-download it after an update)
 const HV_URL = (() => { try { return import.meta.url; } catch (e) { return null; } })();
 
@@ -80,7 +80,7 @@ const KNOWN_OPTIONS = ['type', 'title', 'theme', 'pages', 'pages_config', 'room_
   'people_chips', 'energy', 'tile_size', 'max_columns', 'swipe', 'custom_pages', 'edit_button', 'update_notice',
   'kiosk', 'kiosk_chip', 'members', 'living_rooms', 'widgets', 'avatars', 'phone_favorites', 'access',
   'comfort', 'comfort_thermostat', 'comfort_margin', 'comfort_limits', 'screensaver', 'rows_on_screen', 'ui_edits', 'from', 'edits', 'font', 'warnings',
-  'desktop_layout', 'start', 'night', 'page_dots', 'guest'];   // energy.* : see the energy page
+  'desktop_layout', 'start', 'night', 'page_dots', 'guest', 'calendar_days', 'fullscreen_button', 'location_stale_minutes'];   // energy.* : see the energy page
 
 // What a room page / room row shows, in this order
 const ROOM_GROUPS = [
@@ -452,6 +452,24 @@ function palette(h, dark, sat = 1) {
   };
 }
 const styleVars = (vars) => Object.entries(vars).map(([k, v]) => `${k}:${v}`).join(';');
+/**
+ * A tile's or section's own tint as an inline style, made once per hue: the palette without the text
+ * shades (textTones), which are the same for every hue and come from the page. A page of rooms asked
+ * for a full palette 20+ times per build, ~50 variables each, and every tile carried them all.
+ */
+const TONE_KEYS = new Set(Object.keys(textTones(false)));
+const _hueStyles = new Map();
+function hueStyle(h, dark, night = false) {
+  const k = `${h}|${!!dark}|${!!night}`;
+  let s = _hueStyles.get(k);
+  if (s === undefined) {
+    const p = night ? nightPalette(1) : palette(h, dark);
+    s = Object.entries(p).filter(([key]) => !TONE_KEYS.has(key)).map(([key, v]) => `${key}:${v}`).join(';');
+    if (_hueStyles.size > 500) _hueStyles.clear();
+    _hueStyles.set(k, s);
+  }
+  return s;
+}
 
 /**
  * night: the night face (a wall tablet in a dark room): the dark palette in warm, quieter colours,
@@ -913,15 +931,69 @@ function entityArea(hass, id) {
 }
 
 /** Name without the room / device prefix: "Kitchen Main Light" in Kitchen -> "Main Light". */
-function shortName(hass, id, areaName) {
+function shortName(hass, id, areaName, base) {
   const st = hass.states[id];
-  const full = st?.attributes?.friendly_name || id.split('.')[1].replace(/_/g, ' ');
+  const full = base || st?.attributes?.friendly_name || id.split('.')[1].replace(/_/g, ' ');
   if (areaName && full.toLowerCase().startsWith(areaName.toLowerCase() + ' ')) {
     const rest = full.slice(areaName.length).trim();
     if (rest) return rest.charAt(0).toUpperCase() + rest.slice(1);
   }
   return full;
 }
+
+/**
+ * Cleaner names for the pills, their pop-ups and the "are you sure?" sheets.
+ * 1. An entity whose own name is only its kind ("Moisture", "Battery", "Door", "Problem" …) is called by
+ *    its device: "Basement Water Leak Moisture" → "Basement Water Leak". The parts come from
+ *    hass.formatEntityName (Home Assistant 2025.x+), else the display registry (device name + the
+ *    entity's own name), else the name is kept. Sensors, binary sensors and locks only, and only the
+ *    words of the entity's own device class (a light, cover or power sensor keeps its name).
+ * 2. plusWord: no state word after a name that already ends with it ("Garage Door Open", not "… open").
+ * 3. NAME_TAILS: the doors pill drops a last "Sensor" / "Contact", the locks pill a last "Lock" — when
+ *    something is left ("Front Door Sensor" → "Front Door").
+ */
+const KIND_WORDS = {
+  moisture: ['moisture', 'water leak', 'leak', 'water'], door: ['door', 'opening', 'contact'], window: ['window', 'opening', 'contact'],
+  opening: ['opening', 'door', 'window', 'contact'], garage_door: ['garage door', 'door', 'opening'], gas: ['gas'], smoke: ['smoke'],
+  carbon_monoxide: ['carbon monoxide', 'co'], battery: ['battery', 'battery low', 'low battery', 'battery level'], motion: ['motion'],
+  occupancy: ['occupancy', 'presence'], presence: ['presence', 'occupancy'], problem: ['problem'], safety: ['safety'],
+  tamper: ['tamper', 'tampering'], vibration: ['vibration'], lock: ['lock'],
+};
+function nameParts(h, id) {
+  const st = h.states[id];
+  const full = st?.attributes?.friendly_name || id.split('.')[1].replace(/_/g, ' ');
+  let ent = null, dev = null;
+  if (st && typeof h.formatEntityName === 'function') {
+    try {
+      const e = h.formatEntityName(st, { type: 'entity' }), d = h.formatEntityName(st, { type: 'device' });
+      if (typeof e === 'string' && typeof d === 'string') { ent = e; dev = d; }
+    } catch (e) { /* an older or different formatEntityName: the registry below */ }
+  }
+  if (!ent || !dev) {
+    // (has_entity_name is read only here, on a Home Assistant without formatEntityName; a change of it
+    // alone — rare — shows at the next rebuild, so it isn't in REG_FIELDS)
+    const re = h.entities?.[id], dv = re?.device_id ? h.devices?.[re.device_id] : null;
+    const dn = dv ? dv.name_by_user || dv.name : null;
+    if (dn && full.toLowerCase().startsWith(`${dn.toLowerCase()} `)) { dev = dn; ent = full.slice(dn.length).trim(); }
+    else if (dn && re?.has_entity_name && re.name) { dev = dn; ent = re.name; }
+  }
+  return { full, ent, dev };
+}
+function cleanName(h, id) {
+  const st = h.states[id], d = domainOf(id);
+  if (!st || !['sensor', 'binary_sensor', 'lock'].includes(d)) return st?.attributes?.friendly_name || id.split('.')[1].replace(/_/g, ' ');
+  const { full, ent, dev } = nameParts(h, id);
+  const words = KIND_WORDS[st.attributes?.device_class || (d === 'lock' ? 'lock' : '')];
+  return words && ent && dev && dev.trim() && words.includes(ent.trim().toLowerCase()) ? dev.trim() : full;
+}
+const NAME_TAILS = { doors: /\s+(sensor|contact)$/i, locks: /\s+lock$/i };
+const trimTail = (name, tail) => { const re = NAME_TAILS[tail]; if (!re) return name; const t = name.replace(re, '').trim(); return t || name; };
+/** rules 1 and 3: an entity's name for a pill or its pop-up (tail: doors | locks) */
+const nameFor = (h, id, tail) => trimTail(cleanName(h, id), tail);
+/** rule 2: "name word", unless the name already ends with that word */
+const plusWord = (name, word) => (new RegExp(`(^|\\s)${String(word).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i').test(String(name).trim()) ? name : `${name} ${word}`);
+/** An "are you sure?" sheet's name for an entity: rule 1, and a lock without its last "Lock" ("Unlock Front Door?"). */
+const confirmName = (h, id) => nameFor(h, id, domainOf(id) === 'lock' ? 'locks' : domainOf(id) === 'binary_sensor' ? 'doors' : null);
 
 /**
  * What HomeView reads from Home Assistant's registries. Home Assistant hands out a new registry object
@@ -1849,6 +1921,10 @@ const TILE_CSS = `
 .ops { display:flex; flex-direction:column; align-items:center; gap:4px; }
 .pres { display:inline-flex; align-items:center; gap:.4em; color:var(--hv-fg2); font-size:.8em; font-weight:600; }
 .pres i { width:.55em; height:.55em; border-radius:50%; background:${HV_TONES.ok}; }
+/* a person's page: when the location was reported, under Home / Away (amber once it's old) */
+.hh .who { display:flex; flex-direction:column; align-items:flex-end; gap:2px; min-width:0; }
+.hh .loc { font-size:.62em; font-weight:600; color:var(--hv-fg2); white-space:nowrap; }
+.hh .loc.stale { color:${txVar('warn')}; }
 .op { display:flex; align-items:center; gap:8px; font-weight:600; font-size:clamp(12px, 4.6cqi, 18px); }
 .hf { display:flex; gap:7%; justify-content:center; width:100%; border-top:1px solid var(--hv-line); padding-top:4%; font-weight:600; font-size:clamp(12px, 4.8cqi, 19px); }
 .hf > span { display:inline-flex; align-items:center; gap:4px; }
@@ -2160,8 +2236,10 @@ R.entity = {
     }
     const on = isActive(st), alert = isAlert(st), na = isOffline(st);
     const d = domainOf(s.entity);
-    let name = s.name || shortName(h, s.entity, s.areaName);
-    if (room && !s.name && GENERIC_NAME.test(name)) name = st.attributes.friendly_name || name;
+    // a pill's pop-up (clean: true | doors | locks): the cleaner name (nameFor), less its room
+    const base = s.clean ? nameFor(h, s.entity, s.clean === true ? null : s.clean) : undefined;
+    let name = s.name || shortName(h, s.entity, s.areaName, base);
+    if (room && !s.name && GENERIC_NAME.test(name)) name = base || st.attributes.friendly_name || name;
     const state = valueText(h, st, s);   // format: / attribute: (a time, an attribute), else HA's state words
     let sub = s.sub !== undefined ? s.sub : withRoom(state, room);
     // power: sensor.x — "On · 0.72 kW" while it draws power
@@ -2220,7 +2298,7 @@ R.entity = {
       const verb = switchVerb(st), w = s.power ? toWatts(h.states[s.power]) : null;
       const tone = ['Unlock', 'Open'].includes(verb) || s.color === 'red' || s.color_on === 'red' ? 'alert'
         : ['Lock', 'Close'].includes(verb) ? 'ok' : verb === 'Turn off' ? 'alert' : null;
-      const ok = await hvConfirm(tile, { title: (mine && cf.text) || `${verb} ${s.name || shortName(h, s.entity)}?`, action: (mine && cf.action) || verb, tone,
+      const ok = await hvConfirm(tile, { title: (mine && cf.text) || `${verb} ${s.name || confirmName(h, s.entity)}?`, action: (mine && cf.action) || verb, tone,
         body: verb === 'Turn off' && w !== null && w >= 1 ? `It draws ${fmtKw(w)}.` : stateLine(h, st, s.areaName) });
       if (!ok) return;
     }
@@ -2460,16 +2538,16 @@ R.tonight = {
       rows.push(row(armed ? 'mdi:shield-lock-outline' : al.state === 'triggered' ? 'mdi:bell-ring' : 'mdi:shield-off-outline',
         al.state === 'triggered' ? 'alert' : armed ? 'ok' : null, al.state === 'disarmed' ? 'Alarm off' : isOffline(al) ? 'Alarm offline' : hassState(h, al)));
     }
-    const sum = (ids, word, okWord, icons) => {
+    const sum = (ids, word, okWord, icons, tail) => {
       const sts = ids.map((id) => h.states[id]).filter(Boolean);
       if (!sts.length) return;
       const bad = sts.filter((x) => isAlert(x)), off = sts.filter(isOffline);
-      if (bad.length) rows.push(row(icons[1], 'alert', bad.length === 1 ? `${shortName(h, bad[0].entity_id)} ${word}` : `${bad.length} ${word}`));
+      if (bad.length) rows.push(row(icons[1], 'alert', bad.length === 1 ? plusWord(nameFor(h, bad[0].entity_id, tail), word) : `${bad.length} ${word}`));
       else if (off.length) rows.push(row(icons[0], 'warn', `${off.length} offline`));
       else rows.push(row(icons[0], 'ok', okWord));
     };
-    sum(s.locks, 'unlocked', 'All locked', ['mdi:lock-outline', 'mdi:lock-open-variant-outline']);
-    sum(s.openings, 'open', 'All closed', ['mdi:door-closed', 'mdi:door-open']);
+    sum(s.locks, 'unlocked', 'All locked', ['mdi:lock-outline', 'mdi:lock-open-variant-outline'], 'locks');
+    sum(s.openings, 'open', 'All closed', ['mdi:door-closed', 'mdi:door-open'], 'doors');
     if (s.calendars.length) {
       const evs = filterEvents(getEvents(h, s.calendars, 14, tile.refresher), s);
       const t = new Date(); t.setDate(t.getDate() + 1); t.setHours(0, 0, 0, 0);
@@ -2628,7 +2706,8 @@ R.next_event = {
     return `<div class="t flex"><div class="ic" style="color:var(--hv-accent)"><i data-i="${esc(s.icon || 'mdi:calendar-heart')}"></i></div><div class="tx">
       <div class="up">${esc(s.title || (calName ? `Up next · ${calName}` : 'Up next'))}</div><div class="nm">${now && sp ? 'Now: ' : ''}${esc(eventTitle(e, s))}</div><div class="sb">${sp ? `${esc(sp.span)} · ${sp.days === 1 ? '1 day' : `${sp.days} days`}` : `${esc(w.day)} · ${esc(w.time)}`}</div></div></div>`;
   },
-  action: (h, s, tile) => (s.calendars[0] ? moreInfo(tile, s.calendars[0]) : null),
+  // tap: the calendar sheet (calendar_days; see openCalendar); hold: Home Assistant's calendar dialog
+  action: (h, s, tile, kind) => openCalendar(tile, s, kind),
 };
 R.agenda = {
   tick: 60e3,
@@ -2651,7 +2730,7 @@ R.agenda = {
     // events past max (and those that don't fit, see update): "+3 more"
     else if (s.bare) s._more = Math.max(0, (evs || []).length - max);
     // the Widgets board: centred in its area, a hand-made HomeView's 16–17 px on a tablet
-    return `<div class="t" style="align-items:stretch;justify-content:${s.bare ? 'center' : 'flex-start'};text-align:left;padding:${s.bare ? '0 5.7cqi' : '6% 7%'};cursor:default;font-size:${s.bare ? 'clamp(13px,4.4cqi,17px)' : 'clamp(12px,4cqi,16px)'}">
+    return `<div class="t" style="align-items:stretch;justify-content:${s.bare ? 'center' : 'flex-start'};text-align:left;padding:${s.bare ? '0 5.7cqi' : '6% 7%'};cursor:pointer;font-size:${s.bare ? 'clamp(13px,4.4cqi,17px)' : 'clamp(12px,4cqi,16px)'}">
       <div style="display:flex;align-items:center;gap:8px${s.bare ? ';font-size:.94em;letter-spacing:.04em;font-weight:700' : ''}" class="up"><span class="ic" style="--mdc-icon-size:1.4em"><i data-i="mdi:calendar-month-outline"></i></span>${esc(s.title || 'Up next')}</div>
       <div class="ag-list${s.bare ? ' ag-bare' : ''}">${rows}</div></div>`;
   },
@@ -2711,7 +2790,86 @@ R.agenda = {
       <div style="display:flex;align-items:center;gap:8px" class="up"><span class="ic" style="--mdc-icon-size:1.4em"><i data-i="${esc(s.icon || 'mdi:calendar-month-outline')}"></i></span>${esc(s.title || 'Coming up')}<span style="margin-left:auto;text-transform:none;letter-spacing:0;font-weight:500">${esc(head)}</span></div>
       <div class="ag-rows">${rows}</div></div>`;
   },
+  // tap: the calendar sheet (the Widgets board's Up next too); a list (layout: list) is one already
+  action: (h, s, tile, kind) => (s.layout === 'list' ? null : openCalendar(tile, s, kind)),
+  acts: (s) => s.layout !== 'list',
 };
+
+// ---- the calendar sheet --------------------------------------------------------------------------
+// Tap a Next / Up next tile (or an agenda): the next calendar_days days (30) of the tile's calendars,
+// with its filters (match, all_day, strip, join_weekends), by day — never fewer days than the tile
+// itself looks ahead. Fetched when it opens, cached like the tiles' events (5 minutes). A hold, the
+// tile's tap: more-info or calendar_days: false open Home Assistant's dialog for the first calendar,
+// as before. The guest view has no calendar tiles.
+const CAL_DAYS = 30;
+function calendarDays(cfg, s) {
+  const v = cfg?.calendar_days;
+  if (v === false || v === 0 || v === '0') return 0;
+  const n = Number(v);
+  const want = typeof v === 'number' || (typeof v === 'string' && v.trim() !== '' && Number.isFinite(n)) ? Math.round(n) : CAL_DAYS;
+  return clamp(Math.max(want > 0 ? want : CAL_DAYS, Number(s?.days) || 0), 1, 366);
+}
+function openCalendar(tile, s, kind) {
+  let page = tile;
+  while (page && !page._hvPage) page = page.getRootNode?.()?.host || null;
+  const first = asList(s.calendars)[0];
+  if (page?._guest) return null;
+  if (kind === 'hold' || s.tap === 'more-info' || !page?._calendarSheet || !calendarDays(page._config?.options, s)) return first ? moreInfo(tile, first) : null;
+  return page._calendarSheet(s);
+}
+/** Each calendar's colour: its member's (their room's colour, as on their page), else the page's accent.
+ *  A calendar two members share keeps the accent. */
+function calendarColors(m, dark) {
+  const out = {};
+  for (const mem of m?.members || []) {
+    for (const c of mem.calendars || []) out[c] = c in out ? null : `hsl(${mem.hue} ${dark ? '82% 62%' : '78% 50%'})`;
+  }
+  for (const k of Object.keys(out)) if (!out[k]) delete out[k];
+  return out;
+}
+/** The sheet's list: the events by day (Today, Tomorrow, "Saturday, Nov 15"), each with its
+ *  calendar's colour, its title, the time (or All day / Now) and under it until when, where and, with
+ *  several calendars, whose. evs: undefined = still loading. */
+function calendarSheetHtml(h, evs, s, { days = CAL_DAYS, colors = {}, now = new Date() } = {}) {
+  if (evs === undefined) return '<div class="cal-none">Loading…</div>';
+  evs = (evs || []).filter((e) => e.endD > now);   // the cache is up to 5 minutes old: what has ended since goes
+  const span = days === 7 ? 'the next week' : days === 14 ? 'the next 2 weeks' : `the next ${days} days`;
+  if (!evs.length) return `<div class="cal-none">Nothing in ${esc(span)}</div>`;
+  // four formatters for the whole list (toLocale…String makes a new one on every call: ~50 ms for 60 events)
+  const lang = h.locale?.language || undefined;
+  const F = (o) => { try { return new Intl.DateTimeFormat(lang, o); } catch (e) { return new Intl.DateTimeFormat(undefined, o); } };
+  const fTime = F({ hour: 'numeric', minute: '2-digit' }), fShort = F({ weekday: 'short', month: 'short', day: 'numeric' }),
+    fDay = F({ weekday: 'long', month: 'short', day: 'numeric' }), fWd = F({ weekday: 'short' });
+  const time = (d) => fTime.format(d), short = (d) => fShort.format(d);
+  const today = new Date(now); today.setHours(0, 0, 0, 0);
+  const several = new Set(evs.map((e) => e.calendar)).size > 1;
+  let out = '', lastKey = null;
+  for (const e of evs.slice(0, 300)) {
+    // an event under way since before today is listed under Today
+    const d0 = new Date(Math.max(e.startD.getTime(), today.getTime())); d0.setHours(0, 0, 0, 0);
+    const diff = Math.round((d0 - today) / 86400e3);
+    if (d0.getTime() !== lastKey) {
+      if (lastKey !== null) out += '</div>';
+      const day = diff === 0 ? 'Today' : diff === 1 ? 'Tomorrow' : fDay.format(d0);
+      out += `<div class="pop-sec cal-day">${esc(day)}</div><div class="cal-list">`;
+      lastKey = d0.getTime();
+    }
+    const on = !e.allDay && e.startD <= now;
+    const when = e.allDay ? 'All day' : on ? 'Now' : time(e.startD);
+    let until = '';
+    if (e.allDay) {
+      const n = Math.max(1, Math.round((e.endD - e.startD) / 86400e3));
+      if (n > 1) until = `until ${short(new Date(e.endD.getTime() - 86400e3))} · ${n} days`;
+    } else {
+      until = `until ${e.endD.toDateString() === (on ? now : e.startD).toDateString() ? '' : `${fWd.format(e.endD)} `}${time(e.endD)}`;
+    }
+    const who = several ? h.states[e.calendar]?.attributes?.friendly_name || '' : '';
+    const sub = [who, until, e.location].filter(Boolean).join(' · ');
+    out += `<div class="cal-ev${on ? ' now' : ''}"><span class="cal-dot" style="background:${colors[e.calendar] || 'var(--hv-accent)'}"></span>
+      <span class="cal-t"><b>${esc(eventTitle(e, s))}</b>${sub ? `<span>${esc(sub)}</span>` : ''}</span><span class="cal-w">${esc(when)}</span></div>`;
+  }
+  return `${out}</div>`;
+}
 
 // ---- person ---------------------------------------------------------------------------------
 // Sample avatars for people without a picture: DiceBear "Adventurer" — anime-style, by Lisa
@@ -2755,9 +2913,42 @@ function personBattery(h, personId) {
   }
   return null;
 }
+/**
+ * When a person's location was last reported: their tracker's last update (the person's `source`),
+ * else the person's own. A phone's tracker can sit on an old fix for hours (location permission "While
+ * using"), and "Home" alone says nothing about that. stale: older than location_stale_minutes (60;
+ * false = never). { at, stale, text: "located 2:12 AM" | "location from yesterday 6:40 PM" } or null.
+ */
+const LOC_STALE_MIN = 60;
+function locationStaleMinutes(cfg) {
+  const v = cfg?.location_stale_minutes;
+  if (v === false || v === 0) return 0;
+  const n = Number(v);
+  return typeof v === 'number' && n > 0 ? n : LOC_STALE_MIN;
+}
+function personLocated(h, personId, staleMin = LOC_STALE_MIN, now = Date.now()) {
+  const st = h.states[personId];
+  if (!st) return null;
+  const src = typeof st.attributes?.source === 'string' ? h.states[st.attributes.source] : null;
+  const at = new Date((src && src.last_updated) || st.last_updated || NaN);
+  if (!Number.isFinite(at.getTime())) return null;
+  const stale = staleMin > 0 && now - at.getTime() > staleMin * 60e3;
+  const lang = h.locale?.language, day0 = new Date(now); day0.setHours(0, 0, 0, 0);
+  const days = Math.floor((day0 - new Date(at).setHours(0, 0, 0, 0)) / 86400e3);
+  const t = timeFmt(at, h);
+  const when = days <= 0 ? t : days === 1 ? `yesterday ${t}` : days < 7 ? `${at.toLocaleDateString(lang, { weekday: 'short' })} ${t}`
+    : at.toLocaleDateString(lang, { month: 'short', day: 'numeric' });
+  return { at, stale, text: `${stale ? 'location from' : 'located'} ${when}` };
+}
+/** What a person tile's / hero's redraw depends on for that line: the tracker's update and the stale switch. */
+const locatedKey = (h, personId, staleMin) => {
+  const st = h.states[personId], src = st?.attributes?.source;
+  const at = (typeof src === 'string' && h.states[src]?.last_updated) || st?.last_updated;
+  return `${at}|${staleMin > 0 && at ? Date.now() - new Date(at).getTime() > staleMin * 60e3 : ''}`;
+};
 R.person = {
   tick: 60e3,
-  key: (h, s) => `${h.states[s.entity]?.last_updated}|${h.states[s.battery]?.state}|${Math.floor(Date.now() / 60e3)}`,
+  key: (h, s) => `${h.states[s.entity]?.last_updated}|${h.states[s.battery]?.state}|${Math.floor(Date.now() / 60e3)}|${locatedKey(h, s.entity, s.staleMin ?? LOC_STALE_MIN)}`,
   html(h, s) {
     const st = h.states[s.entity];
     if (!st) return `<div class="t na"><div class="sb">${esc(s.entity)}</div></div>`;
@@ -2769,9 +2960,14 @@ R.person = {
     const bat = s.battery ? num(h.states[s.battery]?.state) : null;
     const avatar = pic ? `<img src="${esc(pic)}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`
       : `<span style="font-weight:700;font-size:min(14cqh,26px);color:var(--hv-accent)">${esc(initials)}</span>`;
+    // when the location was reported: always on a person's own page (located: true), elsewhere only
+    // once it's old (in amber, instead of how long they've been there)
+    const loc = personLocated(h, s.entity, s.staleMin ?? LOC_STALE_MIN);
+    const tail = loc && (s.located || loc.stale)
+      ? `<span${loc.stale ? ` style="color:${txVar('warn')}"` : ''}>${esc(loc.text)}</span>` : esc(relTime(st.last_changed));
     return `<div class="t flex${home ? ' on' : ''}">
       <div class="circ" style="width:min(56cqh,84px);height:min(56cqh,84px);box-shadow:0 0 0 3px ${home ? HV_TONES.ok : 'var(--hv-line)'}">${avatar}</div>
-      <div class="tx"><div class="nm">${esc(name)}</div><div class="sb">${esc(where)} · ${esc(relTime(st.last_changed))}</div>
+      <div class="tx"><div class="nm">${esc(name)}</div><div class="sb">${esc(where)} · ${tail}</div>
       ${bat !== null ? `<div class="sb"><span style="color:${bat < 20 ? txVar('alert') : 'inherit'}">${fmt(bat, 0)}% battery</span></div>` : ''}</div></div>`;
   },
   action: (h, s, tile) => moreInfo(tile, s.entity),
@@ -3044,6 +3240,58 @@ function gridState(h, g) {
   return { state: s, id, word: hassState(h, st) };
 }
 const GRID_WORD = { up: ['grid on', 'ok'], down: ['GRID DOWN', 'alert'], unknown: ['grid status unknown', 'warn'], missing: ['grid sensor not found', 'warn'] };
+
+/** a with b laid over it: blocks (plain objects) key by key, at any depth; anything else replaces;
+ *  null removes the key. */
+function mergeOpts(a, b) {
+  if (!isObj(b)) return a;
+  const out = { ...a };
+  for (const [k, v] of Object.entries(b)) {
+    if (v === null) delete out[k];
+    else if (isObj(v) && isObj(out[k])) out[k] = mergeOpts(out[k], v);
+    else out[k] = v;
+  }
+  return out;
+}
+/** The grid-status entity's own state while HomeView reads it as down (gridState: up / down lists, a
+ *  binary sensor either way round, any case), else null. Power Flow Card Plus compares one exact
+ *  state, so it gets the one the entity is in: every state that means down shows as an outage. */
+function flowOutage(h, grid) {
+  if (!grid) return null;
+  const g = gridState(h, grid);
+  return g.state === 'down' ? String(h.states[g.id].state) : null;
+}
+// the card's 0.3.5 names for three settings, and the old ones (older versions read only those)
+const PFCP_RENAMED = [['w_decimals', 'base_decimals'], ['kw_decimals', 'kilo_decimals'], ['watt_threshold', 'kilo_threshold']];
+/**
+ * Power Flow Card Plus's settings on the Energy page: HomeView's number format (whole watts, one
+ * decimal from 1 kW, trailing zeros kept: "3.0 kW", as its own tiles), the grid in HomeView's red with
+ * "Grid down" while the grid-status entity reads down (alert: its state then, or null), and
+ * energy.flow_card_options laid over all of it (mergeOpts: entities.grid.power_outage: { … } changes
+ * only those keys, null removes one). A power_outage of your own with an entity or state_alert is
+ * passed as it is, whatever the state (the card then decides).
+ */
+function flowCardConfig(entities, ec, grid, alert) {
+  const fo = isObj(ec?.flow_card_options) ? ec.flow_card_options : {};
+  const mine = fo.entities?.grid?.power_outage;
+  const own = isObj(mine) && (mine.entity !== undefined || mine.state_alert !== undefined);
+  const ents = { ...entities };
+  if (ents.grid && grid?.entity && (alert !== null || own)) {
+    ents.grid = { ...ents.grid, power_outage: { entity: grid.entity, ...(own ? {} : { state_alert: alert }),
+      label_alert: 'Grid down', icon_alert: 'mdi:transmission-tower-off', color_alert: txVar('alert') } };
+  }
+  const conf = mergeOpts({ type: 'custom:power-flow-card-plus', entities: ents,
+    clickable_entities: true, use_new_flow_rate_model: true, base_decimals: 0, kilo_decimals: 1, kilo_threshold: 1000, keep_trailing_zeros: true,
+    w_decimals: 0, kw_decimals: 1, watt_threshold: 1000,
+    display_zero_lines: { mode: 'transparency', transparency: 50 }, min_flow_rate: 0.75, max_flow_rate: 6 }, fo);
+  // a setting given by one name only: the other name follows it
+  const put = (k, v) => { if (v === null) delete conf[k]; else conf[k] = v; };
+  for (const [old, now] of PFCP_RENAMED) {
+    if (fo[old] !== undefined && fo[now] === undefined) put(now, fo[old]);
+    else if (fo[now] !== undefined && fo[old] === undefined) put(old, fo[now]);
+  }
+  return conf;
+}
 
 /** off_action / on_action: run it with the ticked lists; none = homeassistant.turn_off / turn_on on the ticked. */
 function outageRun(h, act, offIds, onIds, fallback) {
@@ -3328,7 +3576,7 @@ R.chart = {
 R.member_hero = {
   tick: 60e3,
   key: (h, s) => [s.room?.temp, s.room?.hum, ...(s.openings || [])].map((id) => h.states[id]?.state).join('|') + new Date().getDate()
-    + (s.room ? `|${comfortKey(h, s.room)}` : '') + (s.person ? `|${h.states[s.person]?.state}|${relTime(h.states[s.person]?.last_changed)}` : ''),
+    + (s.room ? `|${comfortKey(h, s.room)}` : '') + (s.person ? `|${h.states[s.person]?.state}|${relTime(h.states[s.person]?.last_changed)}|${locatedKey(h, s.person, s.staleMin ?? LOC_STALE_MIN)}` : ''),
   html(h, s) {
     const r = s.room;
     const tSt = h.states[r?.temp];
@@ -3343,8 +3591,12 @@ R.member_hero = {
     // a person's page: where they are instead of the date (the page's header has the date) — "● Home"
     // with a green dot, or "Away · 2 h"
     const ps = s.person ? h.states[s.person] : null;
-    const where = ps ? (ps.state === 'home' ? `<span class="pres home"><i></i>Home</span>`
-      : `<span class="pres">${esc(hassState(h, ps))}${ps.last_changed ? ` · ${esc(relTime(ps.last_changed))}` : ''}</span>`)
+    // and under it, quietly, when that location was reported ("located 2:12 AM"); amber once it's old
+    // ("location from 2:12 AM"): a phone stuck on an old fix still says Home
+    const loc = ps ? personLocated(h, s.person, s.staleMin ?? LOC_STALE_MIN) : null;
+    const pres = ps ? (ps.state === 'home' ? `<span class="pres home"><i></i>Home</span>`
+      : `<span class="pres">${esc(hassState(h, ps))}${ps.last_changed ? ` · ${esc(relTime(ps.last_changed))}` : ''}</span>`) : '';
+    const where = ps ? `<span class="who">${pres}${loc ? `<span class="loc${loc.stale ? ' stale' : ''}">${esc(loc.text)}</span>` : ''}</span>`
       : `<span class="sb">${esc(new Date().toLocaleDateString(h.locale?.language, { weekday: 'long', month: 'short', day: 'numeric' }))}</span>`;
     // the temperature once, big (the header has it to a tenth); the footer says how it feels and the humidity
     const foot = [feel ? `<span><span class="ic" style="--mdc-icon-size:1.2em;color:${KIND_TONES.temperature}"><i data-i="mdi:thermometer"></i></span><em style="color:${cf.t?.color || 'inherit'};margin:0">${feel}</em></span>` : '',
@@ -3720,11 +3972,12 @@ class HomeViewTile extends HTMLElement {
   /** Screen readers and keyboards: a tile that does something is a button named by what it shows
    *  ("Front Door, Locked · Entry"); Enter / Space = tap, Shift+Enter or the menu key = hold. */
   _a11y(card, r) {
-    const acts = !this._edit && !!(r?.action || this._spec.navigate || pageLink(this._spec.tap));
+    const acts = !this._edit && !!((r?.action && (!r.acts || r.acts(this._spec))) || this._spec.navigate || pageLink(this._spec.tap));
     if (acts) { if (this.getAttribute('role') !== 'button') { this.setAttribute('role', 'button'); this.setAttribute('tabindex', '0'); } }
     else if (this.hasAttribute?.('role')) { this.removeAttribute('role'); this.removeAttribute('tabindex'); }
     const txt = (sel) => card?.querySelector?.(sel)?.textContent?.trim() || '';
-    const label = [txt('.nm'), txt('.sb')].filter(Boolean).join(', ');
+    // a tile without a name line (an agenda: "Up next") is named by its heading
+    const label = [txt('.nm'), txt('.sb')].filter(Boolean).join(', ') || (acts ? txt('.up') : '');
     if (label) this.setAttribute('aria-label', label); else this.removeAttribute?.('aria-label');
     // a tile whose tap switches it on / off is a toggle button: aria-pressed says which
     const sp = this._spec, st = acts && sp.kind === 'entity' && sp.entity ? this._hass?.states?.[sp.entity] : null;
@@ -3735,6 +3988,15 @@ class HomeViewTile extends HTMLElement {
   // a Lovelace card from the user's config, created once with HA's card helpers
   _renderCard() {
     if (this._card && this._card !== 'loading') {
+      // spec.cardFor(hass): settings that follow a state (the flow card's outage): the card gets them
+      // again only when they change (cardFor hands out the same object while they don't)
+      if (this._spec.cardFor && typeof this._card.setConfig === 'function' && this._card.localName !== 'hui-error-card') {
+        const conf = this._spec.cardFor(this._hass);
+        if (conf !== this._cardConf) {
+          this._cardConf = conf;
+          try { this._card.setConfig(conf); } catch (e) { console.warn('HomeView: a card refused its new settings', e); }
+        }
+      }
       // a card that throws on an update stays as it is (HA's own cards guard themselves; others may not)
       try { this._card.hass = cardHass(this._hass, this._hvDark); } catch (e) { if (!this._cardErr) { this._cardErr = true; console.warn('HomeView: a card failed to update', e); } }
       // a card showing an error alert (e.g. a markdown card's <ha-alert alert-type="error">) pulses red
@@ -3757,7 +4019,8 @@ class HomeViewTile extends HTMLElement {
     (async () => {
       const helpers = await window.loadCardHelpers();
       // more: — the expanded settings while "Show all" is on
-      let conf = this._spec.card;
+      let conf = this._spec.cardFor ? this._spec.cardFor(this._hass) : this._spec.card;
+      this._cardConf = conf;
       if (this._expanded && this._spec.more && typeof this._spec.more === 'object') {
         conf = { ...conf, ...this._spec.more };
         for (const [k, v] of Object.entries(this._spec.more)) if (v === null) delete conf[k];
@@ -3888,9 +4151,9 @@ customElements.get('homeview-tile') || customElements.define('homeview-tile', Ho
 
 // a pill names the one thing that needs a look ("Back Door open"), or counts several ("2 open"); the
 // name is the device's own (with its room), or its customize name when that says more than "Lock"
-const pillName = (h, cfg, id) => {
-  const c = cfg?.customize?.[id]?.name, full = h.states[id]?.attributes?.friendly_name || id;
-  return typeof c === 'string' && c && !GENERIC_NAME.test(c) ? c : full;
+const pillName = (h, cfg, id, tail) => {
+  const c = cfg?.customize?.[id]?.name;
+  return typeof c === 'string' && c && !GENERIC_NAME.test(c) ? c : h.states[id] ? nameFor(h, id, tail) : id;
 };
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 // a pill's pop-up in groups, worst first (as the batteries'): [bad word, fine word] — "Open" (red),
@@ -3956,18 +4219,18 @@ const PILLS = {
     const open = locks.filter((id) => isAlert(h.states[id]));
     const off = locks.filter((id) => UNAVAILABLE.includes(h.states[id]?.state));
     return { icon: open.length ? 'mdi:lock-open-variant' : off.length ? 'mdi:lock-question' : 'mdi:lock',
-      text: open.length === 1 ? `${pillName(h, cfg, open[0])} unlocked` : open.length ? `${open.length} unlocked`
-        : off.length === 1 ? `${pillName(h, cfg, off[0])} offline` : off.length ? `${off.length} locks offline` : 'Locked',
-      alert: open.length > 0, tone: off.length ? 'warn' : 'ok', popup: { title: 'Locks', ids: locks, showRoom: true, groups: sevGroups(locks, open, off, ['Unlocked', 'Locked']) } };
+      text: open.length === 1 ? plusWord(pillName(h, cfg, open[0], 'locks'), 'unlocked') : open.length ? `${open.length} unlocked`
+        : off.length === 1 ? plusWord(pillName(h, cfg, off[0], 'locks'), 'offline') : off.length ? `${off.length} locks offline` : 'Locked',
+      alert: open.length > 0, tone: off.length ? 'warn' : 'ok', popup: { title: 'Locks', ids: locks, showRoom: true, clean: 'locks', groups: sevGroups(locks, open, off, ['Unlocked', 'Locked']) } };
   },
   openings(h, m, cfg) {
     if (!m.openings.length) return null;
     const open = m.openings.filter((id) => isAlert(h.states[id]));
     const off = m.openings.filter((id) => UNAVAILABLE.includes(h.states[id]?.state));
     return { icon: open.length ? 'mdi:door-open' : 'mdi:door-closed',
-      text: open.length === 1 ? `${pillName(h, cfg, open[0])} open` : open.length ? `${open.length} open`
-        : off.length === 1 ? `${pillName(h, cfg, off[0])} offline` : off.length ? `${off.length} sensors offline` : 'All closed',
-      alert: open.length > 0, tone: off.length ? 'warn' : 'ok', popup: { title: 'Doors & Windows', ids: [...open, ...m.openings.filter((id) => !open.includes(id))], showRoom: true,
+      text: open.length === 1 ? plusWord(pillName(h, cfg, open[0], 'doors'), 'open') : open.length ? `${open.length} open`
+        : off.length === 1 ? plusWord(pillName(h, cfg, off[0], 'doors'), 'offline') : off.length ? `${off.length} sensors offline` : 'All closed',
+      alert: open.length > 0, tone: off.length ? 'warn' : 'ok', popup: { title: 'Doors & Windows', ids: [...open, ...m.openings.filter((id) => !open.includes(id))], showRoom: true, clean: 'doors',
         groups: sevGroups(m.openings, open, off, ['Open', 'Closed']) } };
   },
   safety(h, m, cfg) {
@@ -3975,11 +4238,12 @@ const PILLS = {
     const bad = m.safety.filter((id) => h.states[id]?.state === 'on');
     const off = m.safety.filter((id) => UNAVAILABLE.includes(h.states[id]?.state));
     // one: its name ("Kitchen Leak"), with Home Assistant's word when the name doesn't say what it is
-    const one = (id) => { const n = pillName(h, cfg, id); return /leak|water|moist|flood|smoke|fire|gas|co\b|carbon/i.test(n) ? n : `${n} · ${hassState(h, h.states[id])}`; };
+    const one = (id) => { const n = pillName(h, cfg, id), w = hassState(h, h.states[id]);
+      return /leak|water|moist|flood|smoke|fire|gas|co\b|carbon/i.test(n) || plusWord(n, w) === n ? n : `${n} · ${w}`; };
     return { icon: bad.length ? 'mdi:water-alert' : 'mdi:shield-check-outline',
       text: bad.length === 1 ? one(bad[0]) : bad.length ? `${bad.length} alerts`
-        : off.length === 1 ? `${pillName(h, cfg, off[0])} offline` : off.length ? `${off.length} sensors offline` : 'All clear',
-      alert: bad.length > 0, tone: off.length ? 'warn' : 'ok', popup: { title: 'Leaks, smoke & gas', ids: [...bad, ...m.safety.filter((id) => !bad.includes(id))], showRoom: true,
+        : off.length === 1 ? plusWord(pillName(h, cfg, off[0]), 'offline') : off.length ? `${off.length} sensors offline` : 'All clear',
+      alert: bad.length > 0, tone: off.length ? 'warn' : 'ok', popup: { title: 'Leaks, smoke & gas', ids: [...bad, ...m.safety.filter((id) => !bad.includes(id))], showRoom: true, clean: true,
         groups: sevGroups(m.safety, bad, off, ['Alert', 'All clear']) } };
   },
   batteries(h, m, cfg) {
@@ -4003,7 +4267,7 @@ const PILLS = {
       { title: 'OK', ids: ok },
     ].filter((g) => g.ids.length);
     return { icon: low.length ? 'mdi:battery-alert-variant-outline' : 'mdi:battery-high', text: parts.join(' · ') || 'Batteries OK',
-      alert: low.length > 0, tone: off.length || soon.length ? 'warn' : 'ok', popup: { title: 'Batteries', ids: sorted, groups, showRoom: true } };
+      alert: low.length > 0, tone: off.length || soon.length ? 'warn' : 'ok', popup: { title: 'Batteries', ids: sorted, groups, showRoom: true, clean: true } };
   },
   // live power at home (the energy settings' sensors, as on the Energy page); tap = the Energy page
   energy(h, m, cfg, el) {
@@ -4193,7 +4457,7 @@ async function chipTap(h, c, node) {
   const own = c.confirm !== undefined ? confirmOf(c.confirm) : undefined, czc = confirmOf(node?._config?.options?.customize?.[c.entity]?.confirm);
   if (confirmAsks(own !== undefined ? own : czc, turningOn)) {
     const cf = own?.text || own?.action ? own : confirmAsks(czc, turningOn) ? czc : {};
-    const name = c.name || shortName(h, c.entity);
+    const name = c.name || confirmName(h, c.entity);
     const verb = d === 'lock' ? (st.state === 'locked' ? 'Unlock' : 'Lock') : d === 'cover' ? (st.state === 'closed' ? 'Open' : 'Close')
       : isActive(st) ? 'Turn off' : 'Turn on';
     const room = node?._model?.areaById?.[entityArea(h, c.entity)]?.name;
@@ -5111,6 +5375,13 @@ const PAGES = {
     power.voltage = ec.voltage || onDevice(devOf(power.home || power.grid || power.grid_in), 'voltage') || undefined;
     Object.keys(power).forEach((k) => { if (!power[k]) delete power[k]; });
 
+    // grid_status: <entity> | { entity, up: [...], down: [...] }; default: a sensor named like grid status
+    // (the outage list's header, and the flow card's outage while it says down)
+    const gs = ec.grid_status;
+    const gridId = (isObj(gs) ? gs.entity : gs) || [...(m.byDomain.binary_sensor || []), ...(m.byDomain.sensor || [])]
+      .find((id) => /grid.?(status|connect|up|online|power_status)|off.?grid/i.test(id)) || null;
+    const gridSpec = gridId ? { ...(isObj(gs) ? gs : {}), entity: gridId } : null;
+
     const top = [];
     if (Object.keys(power).length) {
       // the flow: Power Flow Card Plus (HACS) when it's installed, else HomeView's own
@@ -5134,9 +5405,15 @@ const PAGES = {
         // home: the sensor's own value (the card otherwise adds up the sources itself)
         entities.home = power.home ? { entity: power.home, override_state: true } : {};
         if (individual.length) entities.individual = individual;
-        top.push({ kind: 'card', size: ['half', 2], phoneSpan: [2, 6], card: { type: 'custom:power-flow-card-plus', entities,
-          clickable_entities: true, use_new_flow_rate_model: true, w_decimals: 0, kw_decimals: 1, watt_threshold: 1000,
-          display_zero_lines: { mode: 'transparency', transparency: 50 }, min_flow_rate: 0.75, max_flow_rate: 6, ...(ec.flow_card_options || {}) } });
+        // the grid's outage follows HomeView's own reading of the grid-status entity (flowOutage): one
+        // settings object per state, so the card gets new settings only when that reading changes
+        const confs = new Map();
+        const cardFor = (hh) => {
+          const alert = flowOutage(hh, gridSpec);
+          if (!confs.has(alert)) confs.set(alert, flowCardConfig(entities, ec, gridSpec, alert));
+          return confs.get(alert);
+        };
+        top.push({ kind: 'card', size: ['half', 2], phoneSpan: [2, 6], card: cardFor(h), cardFor });
       } else {
         top.push({ kind: 'energy_flow', power, size: ['half', 2] });
       }
@@ -5214,13 +5491,8 @@ const PAGES = {
       page._loadOrder = loads.map((t) => t.stat).join('|');
       const limit = ec.devices || 10;
       const shown = page._allLoads ? loads : loads.slice(0, limit);
-      // grid_status: <entity> | { entity, up: [...], down: [...] }; default: a sensor named like grid status
-      const gs = ec.grid_status;
-      const gridId = (isObj(gs) ? gs.entity : gs) || [...(m.byDomain.binary_sensor || []), ...(m.byDomain.sensor || [])]
-        .find((id) => /grid.?(status|connect|up|online|power_status)|off.?grid/i.test(id)) || null;
-      const grid = gridId ? { ...(isObj(gs) ? gs : {}), entity: gridId } : null;
       sections.push({ title: null, layout: 'rows', loads: true, tiles: [
-        { kind: 'energy_outage', grid, outage, loads: loads.filter((l) => l.sw), more: loads.length > limit, all: !!page._allLoads, total: loads.length, page, full: true, row: true },
+        { kind: 'energy_outage', grid: gridSpec, outage, loads: loads.filter((l) => l.sw), more: loads.length > limit, all: !!page._allLoads, total: loads.length, page, full: true, row: true },
         ...shown] });
     }
     if (!src.length && !Object.keys(power).length && !devices.length) {
@@ -5422,6 +5694,21 @@ img.lt { object-fit:cover; background:var(--hv-pill); }
 .pop-sec { display:flex; align-items:baseline; gap:8px; margin:16px 2px 8px; font-size:15px; font-weight:700; color:var(--hv-fg); }
 .pop-sec:first-of-type { margin-top:4px; }
 .pop-sec span { font-size:13px; font-weight:600; opacity:.7; }
+/* the calendar sheet (tap a Next / Up next tile): the events by day, each day one rounded list */
+.sheet.cal { width:min(640px, 100%); }
+.sheet-sub { display:block; margin-top:2px; font-size:13.5px; font-weight:600; color:var(--hv-fg2); }
+.cal-body > .cal-day:first-child { margin-top:2px; }
+.cal-list { background:var(--hv-tile); border-radius:16px; overflow:hidden; }
+.cal-ev { display:flex; align-items:center; gap:12px; min-height:54px; padding:9px 16px; }
+.cal-ev + .cal-ev { border-top:1px solid var(--hv-line); }
+.cal-dot { flex:none; width:10px; height:10px; border-radius:50%; }
+.cal-t { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
+.cal-t b, .cal-t span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.cal-t b { font-size:16px; font-weight:650; color:var(--hv-fg); }
+.cal-t span { font-size:13.5px; color:var(--hv-fg2); }
+.cal-w { flex:none; font-size:15px; font-weight:600; color:var(--hv-fg2); text-align:right; font-variant-numeric:tabular-nums; }
+.cal-ev.now .cal-w { color:var(--hv-fg); }
+.cal-none { padding:18px 4px; color:var(--hv-fg2); font-size:15px; }
 .pen { margin-left:4px; color:var(--hv-fg2); }
 .txt { all:unset; position:relative; cursor:pointer; display:inline-flex; align-items:center; gap:6px; padding:8px 14px; border-radius:999px; background:var(--hv-pill);
   font-size:14px; font-weight:650; color:var(--hv-fg); --mdc-icon-size:17px; font-family:${FONT}; }
@@ -5524,12 +5811,22 @@ homeview-strategy-editor { display:block; }
   box-shadow:0 4px 16px rgba(0,0,0,.18); }
 .dnames[hidden] { display:none; }
 .dnames .nv.on { background:var(--hv-tile-on); }
+/* Widgets: the full-screen button, bottom right on the dots' line; quiet, and it fades with them
+   (no taps while faded: the first touch only brings it back) */
+.fsb { all:unset; box-sizing:border-box; position:fixed; z-index:4; right:calc(env(safe-area-inset-right, 0px) + 12px);
+  bottom:calc(env(safe-area-inset-bottom, 0px) + 4px); width:36px; height:36px; border-radius:50%; display:flex; align-items:center;
+  justify-content:center; cursor:pointer; background:color-mix(in srgb, var(--hv-pill) 70%, transparent); color:var(--hv-fg2);
+  --mdc-icon-size:22px; opacity:.8; transition:opacity .4s; }
+.fsb::after { content:''; position:absolute; inset:-4px; }
+.fsb ha-icon { display:flex; }
+.fsb.idle { opacity:0; pointer-events:none; }
+.fsb:focus-visible { outline:3px solid var(--hv-accent); outline-offset:2px; opacity:1; }
 /* room for the dots under the last tiles (phones scroll to the bottom) */
 .page.has-dots { padding-bottom:calc(var(--hv-pad) * 2 + 20px); }
 .page.boardpage.has-dots { padding-bottom:0; }
 /* reduced motion: no wiggle or pulse; a critical banner gets a steady ring instead */
 @media (prefers-reduced-motion: reduce) {
-  .dots, .dot::before, .dname { transition:none; }
+  .dots, .dot::before, .dname, .fsb { transition:none; }
   .sorting > [data-chip], .sorting > [data-pill] { animation:none; }
   .chp.busy, .txt.busy { animation:none; }
   .palert.critical { animation:none; box-shadow:inset 0 0 0 2.5px ${HV_TONES.alert}; }
@@ -5603,7 +5900,7 @@ class HomeViewPage extends HTMLElement {
     this._shownAt = location.pathname;
     if (this._config) this._startPage();
     // the page dots: a touch anywhere wakes them (Widgets hides them after a while)
-    if (!this._onAnyTouch) { this._onAnyTouch = () => { if (this._dotsEl) this._dotsWake(); }; window.addEventListener('pointerdown', this._onAnyTouch, { capture: true, passive: true }); }
+    if (!this._onAnyTouch) { this._onAnyTouch = () => { if (this._dotsEl || this._fsEl) this._dotsWake(); }; window.addEventListener('pointerdown', this._onAnyTouch, { capture: true, passive: true }); }
     this._kiosk();
     hvScreensaver.update(this);
     if (!this._onWinResize) { this._onWinResize = () => this._layout(); window.addEventListener('resize', this._onWinResize); }
@@ -5913,7 +6210,7 @@ class HomeViewPage extends HTMLElement {
           bindPress(hd, () => { const l = roomMainLight(this._hass, this._model.areaById[sec.room]); if (l) this._hass.callService('light', 'toggle', {}, { entity_id: l }); else go(); }, go); }
       }
       const g = document.createElement('div'); g.className = 'grid' + (sec.layout ? ` ${sec.layout}` : '') + (sec.loads ? ' loads' : '') + (sec.fit ? ' fit' : '');
-      if (sec.hue !== undefined) g.setAttribute('style', styleVars(pal(sec.hue)));
+      if (sec.hue !== undefined) g.setAttribute('style', hueStyle(sec.hue, dark, night));
       if (sec.layout === 'keypad') g.style.setProperty('--kc', sec.keyCols);
       const pillish = sec.layout === 'pills' || sec.layout === 'keypad';
       for (const spec0 of sec.tiles) {
@@ -5963,6 +6260,8 @@ class HomeViewPage extends HTMLElement {
       for (const t of sec.tiles) {
         if (t.kind === 'clock') continue;
         if (t.kind === 'member_hero' && !t.here) {
+          // where they are and when that was reported (the hero says it on tablets): one 64 px row
+          if (t.person && h.states[t.person]) out.push({ kind: 'person', entity: t.person, located: true, row: true, phoneSpan: [2, 1] });
           if (t.room) {
             out.push({ kind: 'room', room: t.room, section: true, name: `${page.member?.name || ''}${page.member ? "'s room" : ''}`.trim() || t.room.name,
               navigate: `room-${t.room.id}`, hue: t.room.hue });
@@ -6457,6 +6756,10 @@ class HomeViewPage extends HTMLElement {
   get headRefresher() { return this._headRefresher || (this._headRefresher = () => { this._headKey = null; this._renderHead(); }); }
 
   _tile(spec, dark) {
+    // location_stale_minutes: when a person's reported location counts as old (person tiles, a member's hero)
+    if ((spec.kind === 'person' || (spec.kind === 'member_hero' && spec.person)) && spec.staleMin === undefined) {
+      spec = { ...spec, staleMin: locationStaleMinutes(this._config.options) };
+    }
     // customize: per-entity name / icon / size / tap from the config
     const cz = spec.entity && this._config.options?.customize?.[spec.entity];
     if (cz && ['entity', 'camera', 'person'].includes(spec.kind)) {
@@ -6474,7 +6777,7 @@ class HomeViewPage extends HTMLElement {
     t.hass = this._hass;
     const edit = this._editFor(spec);
     if (edit) t.edit = edit;
-    if (spec.hue !== undefined) t.setAttribute('style', styleVars(this._pal ? this._pal(spec.hue) : palette(spec.hue, dark)));
+    if (spec.hue !== undefined) t.setAttribute('style', this._pal ? hueStyle(spec.hue, this._dark, this._night) : hueStyle(spec.hue, dark));
     if (spec.hiddenEnt || spec.hiddenRoom) t.style.opacity = '0.6';
     t._hvSize = spec.size || [1, 1];
     this._tiles.push(t);
@@ -6717,6 +7020,7 @@ class HomeViewPage extends HTMLElement {
     }
     const key = JSON.stringify([today, page.title, titleHold, yamlDash, editing, canEdit, updOn, stale, kiosk, here, roomSub, looks, chips.map((c) => h.states[c.entity]?.state), pills.map(([id, p]) => [id, p.text, p.alert, p.active, p.tone]), people.map((id) => h.states[id]?.state)]);
     this._renderDots(kiosk, here);
+    this._renderFs();
     if (key === this._headKey) return;
     this._headKey = key;
     head.classList.toggle('ph', !!this._phone);
@@ -6856,7 +7160,7 @@ class HomeViewPage extends HTMLElement {
 
   /** A sheet of entity tiles. groups: [{ title, ids, tone: 'red' | 'amber' | 'offline' }] puts them
    *  under headings, tinted (the batteries: low in red, getting low in amber …); else one grid of ids. */
-  _popup({ title, ids, showRoom, groups }) {
+  _popup({ title, ids, showRoom, groups, clean }) {
     const h = this._hass;
     const pop = document.createElement('div'); pop.className = 'pop top';   // pill pop-ups: at the top
     const sheet = document.createElement('div'); sheet.className = 'sheet';
@@ -6879,7 +7183,7 @@ class HomeViewPage extends HTMLElement {
       const g = document.createElement('div'); g.className = 'grid rows';
       for (const id of grp.ids) {
         const room = this._model.areaById[entityArea(h, id)];
-        const t = this._tile(rowTile(id, { showRoom, areaName: room?.name }), this._dark);
+        const t = this._tile(rowTile(id, { showRoom, areaName: room?.name, clean }), this._dark);
         t._hvFree = true;
         if (tone.bg) { t.style.setProperty('--hv-tile', tone.bg); t.style.setProperty('--hv-tile-border', tone.border); }
         if (tone.opacity) t.style.opacity = tone.opacity;
@@ -6893,6 +7197,38 @@ class HomeViewPage extends HTMLElement {
     sheet.querySelector('[data-close]').addEventListener('click', close);
     this._root.appendChild(pop);
     this._layout();
+  }
+
+  /** The calendar sheet (openCalendar): the next calendar_days days of a calendar tile's calendars,
+   *  with its filters, by day; in the pill pop-ups' style (at the top, the ✕ stays in view while the
+   *  list scrolls). Its events are fetched now (getEvents' cache: a second open within 5 minutes is
+   *  instant) and drawn again when they arrive. Esc, ✕ or a tap outside closes it. */
+  _calendarSheet(s) {
+    const cals = asList(s.calendars);
+    if (!cals.length || this._guest) return;
+    const days = calendarDays(this._config.options, s);
+    const pop = document.createElement('div'); pop.className = 'pop top';
+    const sheet = document.createElement('div'); sheet.className = 'sheet cal';
+    const title = s.title || 'Up next';
+    sheet.setAttribute('role', 'dialog'); sheet.setAttribute('aria-modal', 'true'); sheet.setAttribute('aria-label', title);
+    sheet.innerHTML = `<div class="sheet-h"><span>${esc(title)}<span class="sheet-sub">${esc(days === 7 ? 'The next week' : days === 14 ? 'The next 2 weeks' : `The next ${days} days`)}</span></span><button class="back" data-close title="Close" aria-label="Close"><ha-icon icon="mdi:close"></ha-icon></button></div><div class="cal-body"></div>`;
+    const body = sheet.querySelector('.cal-body');
+    const colors = calendarColors(this._model, !!this._dark);
+    // one function for this sheet (getEvents keeps it until its fetch is done)
+    const draw = () => {
+      if (!pop.isConnected || !this._hass) return;
+      body.innerHTML = calendarSheetHtml(this._hass, filterEvents(getEvents(this._hass, cals, days, draw), s), s, { days, colors });
+    };
+    pop.appendChild(sheet);
+    const close = () => { pop.remove(); window.removeEventListener('keydown', key, true); };
+    // Esc closes it; once it's gone (a rebuild took it away) the key is left alone
+    const key = (e) => { if (!pop.isConnected) { close(); return; } if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); } };
+    pop.addEventListener('click', (e) => { if (e.target === pop) close(); });
+    sheet.querySelector('[data-close]').addEventListener('click', close);
+    window.addEventListener('keydown', key, true);
+    this._root.appendChild(pop);
+    draw();
+    sheet.querySelector('[data-close]').focus?.({ preventScroll: true });
   }
 
   /**
@@ -6939,14 +7275,49 @@ class HomeViewPage extends HTMLElement {
     this._dotsWake();
   }
 
-  /** Widgets (the ambient face) on a tablet: the dots fade out after 5 s without a touch; a touch brings
-   *  them back. Phones keep them. */
+  /**
+   * Widgets: a small full-screen button, bottom right, as quiet as the page dots and fading with them
+   * (fullscreenCapable: only where the browser can go full screen; gone while it is, back when it
+   * leaves). Tap: the whole page full screen. fullscreen_button: false = none.
+   */
+  _renderFs() {
+    const cfg = this._config?.options || {};
+    const want = this._config?.page === 'widgets' && cfg.fullscreen_button !== false && !this._editing && fullscreenCapable() && !isFullscreen();
+    if (!want) { this._fsEl?.remove(); this._fsEl = null; return; }
+    if (this._fsEl?.isConnected) return;
+    if (!HomeViewPage._fsWatch) {   // entering / leaving full screen (also with Esc, F11 or a swipe): the current page looks again
+      HomeViewPage._fsWatch = true;
+      const again = () => HomeViewPage._current?._renderFs?.();
+      document.addEventListener('fullscreenchange', again);
+      document.addEventListener('webkitfullscreenchange', again);
+      fsQuery()?.addEventListener?.('change', again);
+    }
+    const b = document.createElement('button');
+    b.className = 'fsb'; b.title = 'Full screen'; b.setAttribute('aria-label', 'Full screen');
+    b.innerHTML = '<ha-icon icon="mdi:fullscreen"></ha-icon>';
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const el = document.documentElement, go = el.requestFullscreen || el.webkitRequestFullscreen;
+      try { const p = go?.call(el); if (p?.catch) p.catch((err) => console.warn('HomeView: full screen refused', err)); } catch (err) { console.warn('HomeView: full screen refused', err); }
+    });
+    b.addEventListener('focus', () => this._dotsWake());
+    this._root.appendChild(b);
+    this._fsEl = b;
+    this._dotsWake();
+  }
+
+  /** Widgets (the ambient face) on a tablet: the dots (and the full-screen button) fade out after 5 s
+   *  without a touch; a touch brings them back. Phones keep them. */
   _dotsWake() {
-    const el = this._dotsEl;
+    const els = [this._dotsEl, this._fsEl].filter(Boolean);
     clearTimeout(this._dotsIdleT);
-    if (!el) return;
-    el.classList.remove('idle');
-    if (this._page?.minimalHead && !this._phone) this._dotsIdleT = setTimeout(() => { if (this._dotsEl === el && !el.classList.contains('open')) el.classList.add('idle'); }, 5000);
+    if (!els.length) return;
+    els.forEach((el) => el.classList.remove('idle'));
+    if (this._page?.minimalHead && !this._phone) {
+      this._dotsIdleT = setTimeout(() => {
+        for (const el of els) if ((el === this._dotsEl || el === this._fsEl) && !el.classList.contains('open')) el.classList.add('idle');
+      }, 5000);
+    }
   }
 
   /** start: the page this browser session opens on (phones: Home by default; see startPage). */
@@ -7045,6 +7416,31 @@ function swipeStep(s, e) {
   if (Math.abs(dx) < 80 || Math.abs(dx) < Math.abs(dy) * 2 || e.ts - s.ts > 1000) return 0;
   return dx < 0 ? 1 : -1;
 }
+
+/**
+ * The Widgets page's full-screen button: offered only where it does something. The browser has the
+ * Fullscreen API (webkit's too: iPad Safari) and allows it; it isn't Fully Kiosk or another app's
+ * built-in browser (window.fully, "Fully" in the UA, or an Android WebView: Fully without its
+ * JavaScript interface sends the WebView's own UA, and the Companion app and kiosk apps have their
+ * own full screen); not an iPhone (Safari has no Fullscreen API there); not a home-screen web app.
+ * Checked once (fsQuery: whether the window is full screen now, live).
+ */
+let _fsCapable;
+function fullscreenCapable(win = window, doc = document) {
+  if (_fsCapable !== undefined && win === window) return _fsCapable;
+  const el = doc?.documentElement, nav = win?.navigator || {}, ua = String(nav.userAgent || '');
+  const enabled = doc?.fullscreenEnabled ?? doc?.webkitFullscreenEnabled;
+  const mm = (q) => { try { return !!win.matchMedia?.(q)?.matches; } catch (e) { return false; } };
+  const ok = !!(el && (el.requestFullscreen || el.webkitRequestFullscreen)) && enabled !== false
+    && !win.fully && !/\bfully\b|fullykiosk/i.test(ua) && !/; wv\)/.test(ua) && !/iPhone|iPod/.test(ua)
+    && !nav.standalone && !mm('(display-mode: standalone)');
+  if (win === window) _fsCapable = ok;
+  return ok;
+}
+let _fsQuery;
+const fsQuery = () => (_fsQuery !== undefined ? _fsQuery : (_fsQuery = (() => { try { return window.matchMedia?.('(display-mode: fullscreen)') || null; } catch (e) { return null; } })()));
+/** Full screen now: the page (the Fullscreen API) or the whole window (F11, a home-screen app's fullscreen mode). */
+const isFullscreen = (doc = document) => !!(doc?.fullscreenElement || doc?.webkitFullscreenElement || fsQuery()?.matches);
 
 /**
  * Something on a touch's path (from where it went down up to the page) that keeps a sideways drag

@@ -111,6 +111,12 @@ strategy:
   people: [person.sam, person.alex]   # The people HomeView shows (avatars, who's home) (default: everyone
                                       # with a phone or tracker)
   calendars: [calendar.family]    # The calendars for Next, Up next and the agenda (default: every calendar)
+  calendar_days: 30               # Tap a Next or Up next tile (Widgets' too) or an agenda: a sheet with that
+                                  # many days of its calendars' events, by day (Today, Tomorrow, then the
+                                  # date), with times, all-day events and each member's colour; the tile's own
+                                  # filters apply, and it never shows fewer days than the tile looks ahead.
+                                  # Hold the tile, or give it tap: more-info, for Home Assistant's calendar
+                                  # dialog. false = no sheet: a tap opens that dialog, as before
   weather: weather.home           # The weather entity (default: the first weather entity)
   cameras: [camera.front_door, camera.garden]   # The cameras on the Cameras page (default: every camera)
 
@@ -142,6 +148,13 @@ strategy:
                                   # person in Home Assistant always wins
   # per person
   # avatars: { person.alex: man, person.zoe: woman, person.kai: /local/kai.jpg }
+  location_stale_minutes: 60      # A person's page says when their location was last reported, under Home /
+                                  # Away ("located 2:12 AM"), from their tracker (the person's source, else
+                                  # the person). Older than this many minutes it turns amber and reads
+                                  # "location from 2:12 AM": a phone's tracker can sit on an old fix for hours
+                                  # (location permission "While using"), and Home alone wouldn't show it.
+                                  # Person tiles elsewhere show it only once it's old. false = never amber
+                                  # (the time still shows on the person's page)
   guest: input_boolean.guests_here   # The guest view (see Guest view): while the entity is on, shared screens
                                      # leave out the person pages, People, Cameras and admin-only pages (out
                                      # of the swipe order, the page dots and the page bar), the people on Home
@@ -277,11 +290,12 @@ strategy:
     battery_energy: sensor.battery_remaining   # kWh left in the battery (default: an energy-storage sensor)
     battery_capacity: 13.5        # The battery's size in kWh, when there's no energy-left sensor (× the
                                   # battery level)
-    grid_status: binary_sensor.grid_status   # The grid's state, for the outage list. With unusual states:
-                                             # { entity, up: [states] } (anything else is down) or
-                                             # { entity, down: [states] }. Unknown or unavailable reads "grid
-                                             # status unknown", never "grid on" (default: a sensor named like
-                                             # grid status)
+    grid_status: binary_sensor.grid_status   # The grid's state, for the outage list and Power Flow Card Plus
+                                             # (its grid turns red with "Grid down" while this reads down).
+                                             # With unusual states: { entity, up: [states] } (anything else is
+                                             # down) or { entity, down: [states] }. Unknown or unavailable
+                                             # reads "grid status unknown", never "grid on" (default: a sensor
+                                             # named like grid status)
     # or { entity, down: [islanded] }
     # grid_status: { entity: sensor.grid_status, up: [Active] }
     outage:                       # The power-outage list (see Power outages); false = the devices only
@@ -301,7 +315,13 @@ strategy:
     flow_card: auto               # auto = Power Flow Card Plus when it's installed (HACS), else HomeView's
                                   # own; homeview = always HomeView's own
     flow_devices: 0               # Devices shown as their own circles in Power Flow Card Plus
-    flow_card_options: {}         # Anything else for Power Flow Card Plus
+    flow_card_options: {}         # Anything else for Power Flow Card Plus, laid over HomeView's settings for
+                                  # it: a block key by key (entities: { grid: { power_outage:
+                                  # { label_alert: Outage } } } changes only that), null removes a setting.
+                                  # HomeView's own: whole watts and one decimal from 1 kW with the zero kept
+                                  # (keep_trailing_zeros: true: "3.0 kW", as its tiles), and the grid in red
+                                  # with "Grid down" while grid_status reads down. A power_outage of your own
+                                  # with an entity or state_alert is passed as it is
     solar_power: sensor.solar_power   # Solar power now (default: the Energy settings' power sensor, else one
                                       # named like it)
     grid_power: sensor.grid_power   # Grid power now: + import, − export (a net sensor) (default: the Energy
@@ -325,6 +345,11 @@ strategy:
                                   # full screen by accident
   page_dots: true                 # Page dots at the bottom in full screen: where you are, and a tap goes to
                                   # another page
+  fullscreen_button: true         # A small full-screen button in the Widgets page's corner, quiet like the
+                                  # page dots and fading with them: the browser hides its own bars too. Only
+                                  # where that works and isn't already so: not in Fully Kiosk or another app's
+                                  # built-in browser (an Android WebView), not on an iPhone (Safari can't),
+                                  # not in a home-screen web app, and not while the page is full screen
   start:                          # The page a session opens on (a link to a page is kept): one page for every
                                   # screen, or { phone, tablet } (default: phones open on Home, tablets and
                                   # browsers on the first page)
@@ -389,7 +414,9 @@ strategy:
             # event: only events whose title matches (a regular expression, any case), e.g. 'no
             # school|break'
             - match: { domain: binary_sensor, device_class: door, state: 'on' }
-              tap: more-info      # more-info, toggle, none, or a page path
+              tap: more-info      # more-info, toggle, none, or a page path. Calendar tiles: more-info opens
+                                  # Home Assistant's calendar dialog instead of the calendar sheet
+                                  # (calendar_days)
         - title: Robot
           # Show the section only while this condition holds (keys: A condition). A section whose tiles are
           # all hidden hides too

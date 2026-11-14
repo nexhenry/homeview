@@ -164,6 +164,11 @@
       "example": ["calendar.family"]
     },
     {
+      "name": "calendar_days", "group": "show", "type": "number | false", "default": 30, "since": "0.9.1",
+      "description": "Tap a Next or Up next tile (Widgets' too) or an agenda: a sheet with that many days of its calendars' events, by day (Today, Tomorrow, then the date), with times, all-day events and each member's colour; the tile's own filters apply, and it never shows fewer days than the tile looks ahead. Hold the tile, or give it `tap: more-info`, for Home Assistant's calendar dialog. `false` = no sheet: a tap opens that dialog, as before.",
+      "example": 30
+    },
+    {
       "name": "weather", "group": "show", "type": "entity", "auto": "the first weather entity", "since": "0.1.0", "editor": true,
       "description": "The weather entity.",
       "example": "weather.home"
@@ -224,6 +229,11 @@
       "entry": { "name": "<person>", "type": "string", "description": "`man`, `woman`, `boy`, `girl` or a picture's URL." },
       "example": "samples",
       "alt": [ { "example": { "person.alex": "man", "person.zoe": "woman", "person.kai": "/local/kai.jpg" }, "note": "per person" } ]
+    },
+    {
+      "name": "location_stale_minutes", "group": "people", "type": "number | false", "default": 60, "since": "0.9.1",
+      "description": "A person's page says when their location was last reported, under Home / Away (\"located 2:12 AM\"), from their tracker (the person's source, else the person). Older than this many minutes it turns amber and reads \"location from 2:12 AM\": a phone's tracker can sit on an old fix for hours (location permission \"While using\"), and Home alone wouldn't show it. Person tiles elsewhere show it only once it's old. `false` = never amber (the time still shows on the person's page).",
+      "example": 60
     },
     {
       "name": "guest", "group": "people", "type": "entity | object", "auto": "off", "since": "0.9.0",
@@ -394,7 +404,7 @@
         { "name": "battery_capacity", "type": "number", "since": "0.8.0", "description": "The battery's size in kWh, when there's no energy-left sensor (× the battery level).", "example": 13.5 },
         {
           "name": "grid_status", "type": "entity | object", "auto": "a sensor named like grid status", "since": "0.8.0",
-          "description": "The grid's state, for the outage list. With unusual states: `{ entity, up: [states] }` (anything else is down) or `{ entity, down: [states] }`. Unknown or unavailable reads \"grid status unknown\", never \"grid on\".",
+          "description": "The grid's state, for the outage list and Power Flow Card Plus (its grid turns red with \"Grid down\" while this reads down). With unusual states: `{ entity, up: [states] }` (anything else is down) or `{ entity, down: [states] }`. Unknown or unavailable reads \"grid status unknown\", never \"grid on\".",
           "keys": [
             { "name": "entity", "type": "entity", "since": "0.9.0", "description": "The grid-status entity." },
             { "name": "up", "type": "string[]", "since": "0.9.0", "description": "Its states that mean the grid is up." },
@@ -418,7 +428,7 @@
         { "name": "voltage", "type": "entity", "auto": "on the home power sensor's device", "since": "0.8.0", "description": "The voltage for the \"A at V\" line.", "example": "sensor.mains_voltage" },
         { "name": "flow_card", "type": "string", "values": ["auto", "homeview"], "default": "auto", "since": "0.8.2", "description": "`auto` = Power Flow Card Plus when it's installed (HACS), else HomeView's own; `homeview` = always HomeView's own.", "example": "auto" },
         { "name": "flow_devices", "type": "number", "default": 0, "since": "0.8.2", "description": "Devices shown as their own circles in Power Flow Card Plus.", "example": 0 },
-        { "name": "flow_card_options", "type": "object", "since": "0.8.2", "description": "Anything else for Power Flow Card Plus.", "example": {} },
+        { "name": "flow_card_options", "type": "object", "since": "0.8.2", "description": "Anything else for Power Flow Card Plus, laid over HomeView's settings for it: a block key by key (`entities: { grid: { power_outage: { label_alert: Outage } } }` changes only that), `null` removes a setting. HomeView's own: whole watts and one decimal from 1 kW with the zero kept (`keep_trailing_zeros: true`: \"3.0 kW\", as its tiles), and the grid in red with \"Grid down\" while `grid_status` reads down. A `power_outage` of your own with an `entity` or `state_alert` is passed as it is.", "example": {} },
         { "name": "solar_power", "type": "entity", "auto": "the Energy settings' power sensor, else one named like it", "since": "0.1.0", "editor": true, "description": "Solar power now.", "example": "sensor.solar_power" },
         { "name": "grid_power", "type": "entity", "auto": "the Energy settings' power sensor, else a net sensor named like it", "since": "0.1.0", "editor": true, "description": "Grid power now: + import, − export (a net sensor).", "example": "sensor.grid_power" },
         { "name": "grid_import_power", "type": "entity", "since": "0.8.3", "description": "Without a net sensor: a split pair, both positive (import).", "alt": [ { "example": "sensor.grid_import_power", "note": "with grid_export_power: a split pair, both positive" } ] },
@@ -446,6 +456,11 @@
     {
       "name": "page_dots", "group": "screens", "type": "boolean", "default": true, "since": "0.9.0",
       "description": "Page dots at the bottom in full screen: where you are, and a tap goes to another page.",
+      "example": true
+    },
+    {
+      "name": "fullscreen_button", "group": "screens", "type": "boolean", "default": true, "since": "0.9.1",
+      "description": "A small full-screen button in the Widgets page's corner, quiet like the page dots and fading with them: the browser hides its own bars too. Only where that works and isn't already so: not in Fully Kiosk or another app's built-in browser (an Android WebView), not on an iPhone (Safari can't), not in a home-screen web app, and not while the page is full screen.",
       "example": true
     },
     {
@@ -623,7 +638,7 @@
         { "name": "color_off", "type": "color", "since": "0.8.10", "for": "entity", "description": "The icon's colour while off." },
         { "name": "color", "type": "color", "since": "0.8.13", "for": "entity (pills), button, fader, chart", "description": "Its colour while lit (a chart: its line)." },
         { "name": "name_off", "type": "string", "since": "0.8.13", "for": "entity (pills), button", "description": "Its name while it isn't on." },
-        { "name": "tap", "type": "string", "since": "0.2.0", "for": "entity", "description": "`more-info`, `toggle`, `none`, or a page path." },
+        { "name": "tap", "type": "string", "since": "0.2.0", "for": "entity, agenda, next_event", "description": "`more-info`, `toggle`, `none`, or a page path. Calendar tiles: `more-info` opens Home Assistant's calendar dialog instead of the calendar sheet (`calendar_days`)." },
         { "name": "hold", "type": "string | action", "since": "0.8.8", "for": "entity, button", "description": "`more-info`, `toggle` (switch it on a hold), `none`, a page path, or (a button) `{ action, data, target }`. `tap: more-info` + `hold: toggle`: a stray tap can't switch it." },
         { "name": "show_room", "type": "boolean", "default": true, "since": "0.8.13", "for": "entity", "description": "`false` = its state instead of its room, where tiles show rooms." },
         { "name": "power", "type": "entity", "since": "0.8.13", "for": "entity", "description": "A power sensor: \"On · 0.72 kW\" while it draws." },

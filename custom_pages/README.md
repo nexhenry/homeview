@@ -433,7 +433,7 @@ the main README (All options).
 | `color_off` | entity | color | — | 0.8.10 | The icon's colour while off. |
 | `color` | entity (pills), button, fader, chart | color | — | 0.8.13 | Its colour while lit (a chart: its line). |
 | `name_off` | entity (pills), button | string | — | 0.8.13 | Its name while it isn't on. |
-| `tap` | entity | string | — | 0.2.0 | `more-info`, `toggle`, `none`, or a page path. |
+| `tap` | entity, agenda, next_event | string | — | 0.2.0 | `more-info`, `toggle`, `none`, or a page path. Calendar tiles: `more-info` opens Home Assistant's calendar dialog instead of the calendar sheet (`calendar_days`). |
 | `hold` | entity, button | string, action | — | 0.8.8 | `more-info`, `toggle` (switch it on a hold), `none`, a page path, or (a button) `{ action, data, target }`. `tap: more-info` + `hold: toggle`: a stray tap can't switch it. |
 | `show_room` | entity | boolean | `true` | 0.8.13 | `false` = its state instead of its room, where tiles show rooms. |
 | `power` | entity | entity | — | 0.8.13 | A power sensor: "On · 0.72 kW" while it draws. |

@@ -72,7 +72,9 @@ const EXPORTS = ['HV_VERSION', 'buildModel', 'R', 'PILLS', 'PAGES', 'userTile', 
   'chipLook', 'phoneFavorites', 'isOffline', 'USER_TILE_TYPES', 'HomeViewTile', 'HomeViewPage', 'HomeViewStrategy', 'desktopTablet',
   'layoutHeight', 'hvConfirm', 'pairLoad', 'gridState', 'outageOpts', 'readLabels', 'findLabel', 'hasLabel', 'isNight', 'isDark', 'startPage',
   'nightPalette', 'TOGGLES', 'HV_TONES', 'swipeStep', 'ownsSideways', 'cardHass', 'HA_VARS', 'haTokens', 'haPrimary', 'navigate', 'PAGE_CSS',
-  'fmt', 'fmtKw'];
+  'fmt', 'fmtKw', 'calendarDays', 'calendarSheetHtml', 'calendarColors', 'openCalendar', 'filterEvents', 'getEvents', 'flowCardConfig',
+  'flowOutage', 'mergeOpts', 'fullscreenCapable', 'isFullscreen', 'personLocated', 'locationStaleMinutes', 'personBattery',
+  'cleanName', 'nameFor', 'plusWord', 'confirmName', 'nameParts'];
 
 let loaded = null;
 export async function loadHomeView() {

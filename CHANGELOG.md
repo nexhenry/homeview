@@ -1,5 +1,53 @@
 # Changelog
 
+## 0.9.1 — 2026-11-13
+
+- **Tap Next for the month ahead.** A tap on a Next tile, the Widgets page's Up next or an agenda
+  opens a sheet with the next 30 days of its calendars, by day (Today, Tomorrow, then the date):
+  times, all-day events and how long they run, where, and each member's colour (with several
+  calendars, whose it is in words too). The tile's own filters apply (`match`, `all_day`, `strip`,
+  `join_weekends`), and it never shows fewer days than the tile looks ahead. The events are fetched
+  when the sheet opens, and kept for 5 minutes like the tiles'. Hold the tile, or give it
+  `tap: more-info`, for Home Assistant's calendar dialog. `calendar_days: <days>` sets the length;
+  `calendar_days: false` keeps the old tap (the dialog). Agenda tiles with `layout: list` stay as
+  they are. The guest view has no calendar tiles, so no sheet either.
+- **A full-screen button on the Widgets page**, bottom right, as quiet as the page dots and fading
+  with them on tablets: the browser hides its own bars too. It shows only where that works and the
+  page isn't full screen already: not in Fully Kiosk or another app's built-in browser (an Android
+  WebView), not on an iPhone (Safari can't), not in a home-screen web app. `fullscreen_button: false`
+  turns it off.
+- **Power Flow Card Plus reads like HomeView's tiles:** "3.0 kW" instead of "3 kW"
+  (`keep_trailing_zeros`), whole watts below 1 kW. HomeView now also passes these settings by the
+  card's current names (`base_decimals`, `kilo_decimals`, `kilo_threshold`; the old ones it sent are
+  read only by the card's editor since the card's 0.3.5) and keeps the old names for older versions.
+- **The flow shows an outage:** while the grid-status entity reads down (`energy.grid_status`, or the
+  one HomeView finds), Power Flow Card Plus shows the grid in red with "Grid down" and its tower-off
+  icon. It follows the outage list's own reading: your `up` / `down` lists, a binary sensor either
+  way round, any letter case, and every state that means down (the card itself compares one state,
+  so HomeView hands it the one the entity is in).
+- **When was that location reported?** A person's page shows, under Home / Away, when their tracker
+  last reported a location ("located 2:12 AM", "located yesterday 6:40 PM"); older than an hour it
+  turns amber, "location from 2:12 AM", so a phone stuck on an old fix (location permission "While
+  using") no longer passes for a fresh "Home". On phones the person's page starts with their row
+  (where, and when located). Person tiles elsewhere say it only once it's old.
+  `location_stale_minutes: <minutes>` sets the hour, `false` never turns it amber. It redraws when
+  the tracker reports, with the tiles' existing minute tick; no new timers.
+- **Cleaner names in the pills, their pop-ups and the "are you sure?" sheets.** A sensor or lock whose
+  own name is only its kind ("Moisture", "Battery", "Door", "Problem" …) is called by its device:
+  "Basement Water Leak Moisture" → "Basement Water Leak" (from Home Assistant's own entity and
+  device names; older versions: the registry, else the name as it was). No state word twice: "Garage
+  Door Open", not "Garage Door Open open". The doors pill drops a last "Sensor" or "Contact" and the
+  locks pill a last "Lock" ("Front Door open", "Unlock Back Door?"), when something is left. Names
+  you give in `customize` stay as you wrote them. The battery pop-up lists devices by name too, and the
+  night face's Tonight lines follow the pills.
+- **Living opens faster:** a room's tint (its tiles and its section) is made once per colour and no
+  longer repeats the text shades every tile already gets from the page (a page of rooms built a
+  full palette of about 50 colour settings for every room tile). Nothing looks different.
+- **`energy.flow_card_options` is laid over HomeView's settings block by block,** so
+  `entities: { grid: { power_outage: { label_alert: Outage } } }` changes only that, and `null`
+  removes a setting (before, a block replaced HomeView's whole block). A `power_outage` with its own
+  `entity` or `state_alert` is passed as it is.
+
 ## 0.9.0 — 2026-11-13
 
 **A new foundation.** One bad tile or setting can no longer take a page down; on-screen edits can't
