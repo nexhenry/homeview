@@ -6,7 +6,7 @@ import { readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { loadHomeView, makeHass, El, win } from './harness.mjs';
+import { loadHomeView, makeHass, El, win, tapIn } from './harness.mjs';
 
 // the harness installs the browser stubs; this file loads its own copy of the module with the names it
 // needs (the harness's export list is shared by every test file)
@@ -399,8 +399,8 @@ test('rename: HomeView\'s own sheet, never window.prompt; Cancel = null, Save = 
       assert.match(pop.innerHTML, /Tile name/);
       assert.match(pop.innerHTML, /class="cf-in" type="text"[^>]*value="Island"/);
       pop._q['.cf-in'].value = '  Island Light ';
-      await sleep(470);
-      pop._q[btn].fire('click');
+      await sleep(620);
+      tapIn(pop, pop._q[btn]);
       assert.equal(await p, want);
     }
   } finally { document.createElement = create; globalThis.prompt = keep; }

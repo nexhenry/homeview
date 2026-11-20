@@ -3,7 +3,7 @@
 // nothing switched without asking (admins only). Every service call is captured, none is sent.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { loadHomeView, makeHass, El } from './harness.mjs';
+import { loadHomeView, makeHass, El, tapIn } from './harness.mjs';
 
 const hv = await loadHomeView();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -95,7 +95,7 @@ async function answer(act, yes) {
     const p = act();
     await sleep(5);
     const pop = made.find((e) => e.className === 'pop cf') || null;
-    if (pop) { await sleep(470); pop._q[yes ? '[data-yes]' : '[data-no]'].fire('click'); }
+    if (pop) { await sleep(620); tapIn(pop, pop._q[yes ? '[data-yes]' : '[data-no]']); }
     await p;
     return pop;
   } finally { document.createElement = create; }

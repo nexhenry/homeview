@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.9.2 — 2026-11-20
+
+- **Opens faster.** A phone opening the dashboard goes straight to its start page (Home) without
+  building the Widgets page on the way. The dashboard asks Home Assistant for what it needs at once,
+  not one answer after another: its settings, the on-screen edits and the Energy settings (a `from:`
+  copy waited for three in a row). The Widgets photo frame shows the folder list it kept and scans the
+  folder again an hour after the last scan, not on every open (a list older than that: half a minute
+  after the dashboard opened); the photo it loaded ahead is the one it shows, so it isn't fetched again
+  where the browser keeps nothing (a kiosk set to no cache). A camera tile asks for its first still
+  once the page is on screen (at ~160 KB, it was the biggest download while a phone opened Home), and
+  shows the still it loaded rather than fetching it again. Less work per entity when the house is
+  read. A font of your own (`font:`) is asked for while the dashboard reads its settings, before the
+  first page is built, and the page knows it from the start (before, it was added only once it had
+  loaded, and the page then laid out again). `font: geist` loads
+  `Geist.woff2` when it's next to `Geist.ttf` (70 KB instead of 169 KB; see Fonts for how to make it),
+  and a font's `url` can be a list, tried in order.
+- **A share over the energy date bar's period: `type: energy_share`.** A gauge for a page file that
+  shows how much of one statistic is another (or, with `invert: true`, isn't), over the day, week,
+  month or custom range picked in the page's energy date bar, and follows it as you change it: the
+  share of peak-hour use that didn't come from the grid, solar's share, an EV's share … It reads the
+  two statistics' totals from Home Assistant's long-term statistics when the period changes (then at
+  most every 5 minutes while it includes now), never on a state update. `severity` colours the arc as
+  Home Assistant's gauge; `caption` names the totals ("Grid 1.2 of 18.4 kWh"); "—" when there's
+  nothing to share in the period. Whole percent, but never a rounded "100 %" (or "0 %") that isn't:
+  99.9 % then (`decimals` to choose). Without a date bar on the page it shows today. The Energy History
+  template has a commented example.
+- **Pop-ups stay open on touch screens.** On a wall tablet in Fully Kiosk (and other Android
+  WebViews) a pill's pop-up, such as Leaks or Lights, could close half a second after it opened: the
+  browser's click from the same tap arrived late and landed on the new backdrop or ✕. Now a sheet's
+  backdrop and ✕ close it only for a press that started on them, and not in its first 0.6 s; the
+  keyboard (Enter, Space) works as before. The same guard covers the calendar sheet, the edit and
+  settings sheets, and the "are you sure?" sheets, so a late click can never press their Unlock or
+  Turn off.
+- **The Lights pop-up in a useful order:** lights that are on first, the one switched on last at the
+  top; then the ones that are off, the one used last first; offline ones (unavailable or unknown) at
+  the bottom by name, greyed as before. While the pop-up is open it follows along: a row moves only
+  when a light is switched or goes offline (not on a brightness change), and never while your finger
+  is on the sheet: it waits for the first update after you lift it.
+
 ## 0.9.1 — 2026-11-13
 
 - **Tap Next for the month ahead.** A tap on a Next tile, the Widgets page's Up next or an agenda

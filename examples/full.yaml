@@ -395,8 +395,10 @@ strategy:
                                   # (the last three redraw every 30 s)
         - title: Now
           tiles:
-            - type: chart         # The tile's kind. An unknown type is left out with a note for admins
-                                  # (default: entity)
+            - type: chart         # The tile's kind. An unknown type is left out with a note for admins.
+                                  # energy_share: a share of one statistic in another over the period of the
+                                  # page's energy date bar (a gauge; keys numerator, denominator, invert,
+                                  # severity, caption) (default: entity)
               entity: sensor.living_room_temperature
               size: 2x1
             - { type: agenda, size: 2x2 }

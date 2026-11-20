@@ -420,12 +420,20 @@ the main README (All options).
 | Key | Tiles | Type | Default | Since | What it does |
 |---|---|---|---|---|---|
 | `entity` | entity, camera, person, chart, fader, weather, forecast | entity | — | 0.2.0 | The entity (a tile that's only an entity can be written as its id). |
-| `type` | any | `entity`, `room`, `clock`, `weather`, `forecast`, `date`, `next_event`, `agenda`, `camera`, `person`, `chart`, `button`, `fader`, `air`, `energy_now`, `energy_flow` | `entity` | 0.2.0 | The tile's kind. An unknown type is left out with a note for admins. |
+| `type` | any | `entity`, `room`, `clock`, `weather`, `forecast`, `date`, `next_event`, `agenda`, `camera`, `person`, `chart`, `button`, `fader`, `air`, `energy_now`, `energy_flow`, `energy_share` | `entity` | 0.2.0 | The tile's kind. An unknown type is left out with a note for admins. `energy_share`: a share of one statistic in another over the period of the page's energy date bar (a gauge; keys `numerator`, `denominator`, `invert`, `severity`, `caption`). |
 | `card` | card | object | — | 0.2.0 | Any Lovelace card's config, HACS cards included: `{ card: { type: thermostat, entity: climate.hallway } }`. |
 | `area` | room | area | — | 0.2.0 | The room's area id. |
 | `size` | any | size | 1x1 (widgets and cards: their own) | 0.2.0 | `WxH` in grid cells (`2x1`, `4x2` …), or `full` / `half` the page's width with a height (`full x 3`); a height of `auto` fits a card's content. It shrinks on narrow screens. |
 | `phone_size` | any | size | — | 0.8.9 | The size on phones (2 columns, 64 px rows), e.g. `2x5`. |
-| `name` | entity, camera, button, fader | string | — | 0.2.0 | Its name. |
+| `name` | entity, camera, button, fader, energy_share | string | — | 0.2.0 | Its name. |
+| `numerator` | energy_share | entity | — | 0.9.2 | The statistic whose share is shown (an energy sensor with long-term statistics: `state_class: total_increasing` or `total`), e.g. the kWh taken from the grid in peak hours. |
+| `denominator` | energy_share | entity | — | 0.9.2 | The statistic it's a share of, e.g. the house's kWh in peak hours. Its total over the period is the 100 %; about 0 shows "—" (a weekend for a weekday window, or before its statistics began). |
+| `invert` | energy_share | boolean | `false` | 0.9.2 | `true` shows the rest: 100 − the share (off-grid = 1 − grid ÷ house use). |
+| `severity` | energy_share | object | — | 0.9.2 | The arc's colour, as Home Assistant's gauge: `{ green: 90, yellow: 60, red: 0 }` — the highest step the value reaches; without it, the page's colour. |
+| `caption` | energy_share | string | `'{numerator} of {denominator} {unit}'` | 0.9.2 | The line under the gauge; `{numerator}`, `{denominator}` (the totals, one decimal) and `{unit}` are filled in, e.g. `Grid {numerator} of {denominator} {unit}`. |
+| `empty_text` | energy_share | string | `Nothing in this period` | 0.9.2 | The line under "—". |
+| `decimals` | energy_share | number | whole percent; one decimal where that would round to 100 % or 0 % without being it | 0.9.2 | Decimals of the percentage. |
+| `collection_key` | energy_share | string | this dashboard's energy date bar | 0.9.2 | The `collection_key` of the energy cards to follow, when the page has several date bars. Without a date bar it shows today. |
 | `icon` | entity, button, fader, chart, agenda, next_event | icon | — | 0.2.0 | Its icon. |
 | `icon_on` | entity | icon | — | 0.8.10 | The icon while on. |
 | `icon_off` | entity, button | icon | — | 0.8.10 | The icon while off (a button: while it isn't lit). |

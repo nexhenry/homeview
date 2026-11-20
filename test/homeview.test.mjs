@@ -2,7 +2,7 @@
 // One test per incident already paid for, plus the rules the dashboard relies on. Made-up home only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { loadHomeView, makeHass, El, win } from './harness.mjs';
+import { loadHomeView, makeHass, El, win, tapIn } from './harness.mjs';
 
 const hv = await loadHomeView();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -334,8 +334,8 @@ test('confirm sheet: Unlock asks first; Cancel does nothing, Unlock unlocks', as
       assert.match(pop.innerHTML, /Unlock Front Door\?/);
       assert.match(pop.innerHTML, /Locked · Entry · since/);
       pop._q['[data-yes]'].fire('click');   // a late click right after opening doesn't count
-      await sleep(470);
-      pop._q[yes ? '[data-yes]' : '[data-no]'].fire('click');
+      await sleep(620);
+      tapIn(pop, pop._q[yes ? '[data-yes]' : '[data-no]']);
       await p;
       const calls = h._sent.filter((m) => m.type === 'call_service');
       assert.deepEqual(calls.map((c) => `${c.domain}.${c.service}`), yes ? ['lock.unlock'] : []);

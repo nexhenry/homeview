@@ -595,7 +595,7 @@ key](custom_pages/README.md#every-key).
 | `pages_config.<page>.popup` | boolean | `false` | 0.8.9 | A built-in page as a pop-up: not in the page bar or the swipe order, opened from its pill (Energy); ✕ goes back. |
 | `font` | string, object | each screen's system font | 0.8.15 | The whole dashboard in a font of your own, served by your Home Assistant: `geist` or `inter` (put the font file in place, see [Fonts](#fonts)), a font the screens already have (`Georgia`), or `{ family, url, weight }`. The clock keeps the system font. |
 | `font.family` | string | — | 0.8.15 | The font's name. |
-| `font.url` | string | — | 0.8.15 | Where to load it from, e.g. `/local/fonts/myfont.woff2`. |
+| `font.url` | string, list | — | 0.8.15 | Where to load it from, e.g. `/local/fonts/myfont.woff2`; a list is tried in order (the first file that's there, e.g. a `.woff2`, then a `.ttf`). |
 | `font.weight` | string, number | `100 900` | 0.8.15 | The weights the file has. |
 
 ### Rooms
@@ -829,10 +829,14 @@ Two free fonts (SIL Open Font License) are built in:
 
 | Option | Font | Put this file in place |
 |---|---|---|
-| `font: geist` | **Geist**: its numbers are the closest to SF Pro's (the 6, 9 and the round bowls) | `Geist[wght].ttf` from [Google Fonts' repository](https://github.com/google/fonts/tree/main/ofl/geist) → `/config/www/fonts/geist/Geist.ttf` |
+| `font: geist` | **Geist**: its numbers are the closest to SF Pro's (the 6, 9 and the round bowls) | `Geist[wght].ttf` from [Google Fonts' repository](https://github.com/google/fonts/tree/main/ofl/geist) → `/config/www/fonts/geist/Geist.ttf`; faster to load: a WOFF2 copy next to it, `Geist.woff2` (70 KB instead of 169 KB; see below) |
 | `font: inter` | **Inter**: very close to SF Pro overall, with rounder, curlier numbers | `web/InterVariable.woff2` from the zip on [rsms.me/inter](https://rsms.me/inter/) → `/config/www/fonts/inter/InterVariable.woff2` |
 
 Then set `font: geist` (the whole dashboard) or `widgets: { font: geist }` (the Widgets page only).
+
+Geist comes as a TTF only. HomeView loads `Geist.woff2` when it's there and the TTF otherwise; to make
+the WOFF2 copy, with Python: `pip install fonttools brotli`, then
+`python -m fontTools.ttLib.woff2 compress -o Geist.woff2 Geist.ttf` (keep the TTF too).
 
 Any other font: `font: { family: My Font, url: /local/fonts/myfont.woff2, weight: 100 900 }`, or just
 `font: Georgia` for a font the screens already have. The clock always keeps the system font.

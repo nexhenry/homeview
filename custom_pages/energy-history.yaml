@@ -14,6 +14,18 @@ sections:
       - card: { type: energy-date-selection }
         size: full x auto
         phone_size: 2xauto
+  # Optional: a share over the period the date bar shows, as a gauge — e.g. how much of your evening
+  # use didn't come from the grid. It needs two energy sensors with long-term statistics
+  # (state_class: total_increasing), here made-up ones:
+  # - title: Off-grid
+  #   tiles:
+  #     - type: energy_share
+  #       name: Evening off-grid
+  #       numerator: sensor.evening_grid_energy      # kWh from the grid in the evening
+  #       denominator: sensor.evening_home_energy    # the house's kWh in the evening
+  #       invert: true                               # the rest: 100 - grid ÷ house use
+  #       severity: { green: 90, yellow: 60, red: 0 }
+  #       caption: 'Grid {numerator} of {denominator} {unit}'
   - title: Usage
     tiles:
       - card: { type: energy-usage-graph }

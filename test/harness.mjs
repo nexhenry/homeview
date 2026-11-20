@@ -40,6 +40,11 @@ export class El {
 }
 const store = () => ({ _d: {}, getItem(k) { return this._d[k] ?? null; }, setItem(k, v) { this._d[k] = String(v); }, removeItem(k) { delete this._d[k]; } });
 
+/** A finger's tap on a button of one of HomeView's sheets: the press goes down on the button (the
+ *  sheet records it; pressGuard), then the click. A bare click, as the browser's late one after the
+ *  tap that opened the sheet, doesn't count. */
+export function tapIn(pop, btn) { pop.fire('pointerdown', { composedPath: () => [btn, pop] }); btn.fire('click', { detail: 1 }); }
+
 export const win = {
   innerWidth: 1280, innerHeight: 800, scrollY: 0, maxTouchPoints: 0,
 };
@@ -74,7 +79,9 @@ const EXPORTS = ['HV_VERSION', 'buildModel', 'R', 'PILLS', 'PAGES', 'userTile', 
   'nightPalette', 'TOGGLES', 'HV_TONES', 'swipeStep', 'ownsSideways', 'cardHass', 'HA_VARS', 'haTokens', 'haPrimary', 'navigate', 'PAGE_CSS',
   'fmt', 'fmtKw', 'calendarDays', 'calendarSheetHtml', 'calendarColors', 'openCalendar', 'filterEvents', 'getEvents', 'flowCardConfig',
   'flowOutage', 'mergeOpts', 'fullscreenCapable', 'isFullscreen', 'personLocated', 'locationStaleMinutes', 'personBattery',
-  'cleanName', 'nameFor', 'plusWord', 'confirmName', 'nameParts'];
+  'cleanName', 'nameFor', 'plusWord', 'confirmName', 'nameParts', 'lightOrder', 'liveLightOrder', 'sheetCloser', 'pressGuard', 'SHEET_QUIET_MS',
+  'shareCollection', 'sharePeriod', 'shareValue', 'severityTone', 'shareDecimals', 'domainOf', 'slideState', 'SLIDE_RESCAN_MS',
+  'SLIDE_SETTLE_MS', 'loadSourceOptions', 'resolveFrom', 'fontSrc', 'fontStack', 'FONT_PRESETS'];
 
 let loaded = null;
 export async function loadHomeView() {

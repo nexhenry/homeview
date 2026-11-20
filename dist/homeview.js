@@ -11,7 +11,7 @@
  * Widgets, Home, Living, a page per person (Rooms), a details page per room, Energy and Cameras. Everything is
  * optional and can be tuned in the strategy config — see README.md.
  */
-const HV_VERSION = '0.9.1';
+const HV_VERSION = '0.9.2';
 // where this file was loaded from (to re-download it after an update)
 const HV_URL = (() => { try { return import.meta.url; } catch (e) { return null; } })();
 
@@ -41,7 +41,7 @@ const MAIN_ROOM = /living|lounge|kitchen|dining|family|great|\bden\b/i;
 // phones (64 px rows): [columns, rows] per tile type; compact tiles are 1 × 1
 const PHONE_SPAN = { weather: [2, 5], forecast: [2, 5], air: [2, 2], next_event: [2, 2], camera: [2, 3], agenda: [2, 6],
   person: [2, 2], chart: [2, 3], energy_flow: [2, 6], energy_today: [2, 5], slideshow: [2, 4], date: [2, 3], room: [2, 1],
-  energy_now: [2, 4], energy_backup: [2, 2], energy_window: [2, 2], energy_stat: [2, 2] };
+  energy_now: [2, 4], energy_backup: [2, 2], energy_window: [2, 2], energy_stat: [2, 2], energy_share: [1, 3] };
 // tablet / browser columns per page (phones always get 2)
 // rows a page should fit on one tablet / browser screen (the tile formula in _layout; default 4,
 // as a hand-made HomeView's "4 rows of 6 fill the Pixel"). Option rows_on_screen: a number for
@@ -126,7 +126,7 @@ const FONT = "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text'
  * Android …), so every screen looks the same. Served from your Home Assistant, nothing from the
  * internet. `font:` = the whole dashboard; `widgets: { font: … }` = the Widgets page only. The clock
  * always keeps the system font.
- *   font: geist                                   /config/www/fonts/geist/Geist.ttf (closest to SF Pro)
+ *   font: geist                                   /config/www/fonts/geist/Geist.woff2 or Geist.ttf (closest to SF Pro)
  *   font: inter                                   /config/www/fonts/inter/InterVariable.woff2
  *   font: { family: Inter, url: /local/fonts/inter/InterVariable.woff2, weight: 100 900 }
  *   font: Georgia                                 a font the screens already have
@@ -134,17 +134,29 @@ const FONT = "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text'
 const FONT_PRESETS = {
   inter: { family: 'Inter', url: '/local/fonts/inter/InterVariable.woff2', weight: '100 900' },
   // Geist: the closest free match for SF Pro's digits (the 6's straight, flat-cut top; round bowls)
-  geist: { family: 'Geist', url: '/local/fonts/geist/Geist.ttf', weight: '100 900' },
+  // (the WOFF2 copy when it's there: 70 KB instead of 169; else the TTF Google Fonts ships)
+  geist: { family: 'Geist', url: ['/local/fonts/geist/Geist.woff2', '/local/fonts/geist/Geist.ttf'], weight: '100 900' },
 };
+const FONT_FORMATS = { woff2: 'woff2', woff: 'woff', ttf: 'truetype', otf: 'opentype' };
+// url: one address or a list, tried in order (a missing file: the next one)
+const fontSrc = (url) => asList(url).map((u) => {
+  const f = FONT_FORMATS[String(u).split(/[?#]/)[0].split('.').pop().toLowerCase()];
+  return `url(${JSON.stringify(String(u))})${f ? ` format('${f}')` : ''}`;
+}).join(', ');
 const _fontLoads = new Map();
 function fontStack(spec) {
   if (!spec) return null;
   const d = typeof spec === 'string' ? (FONT_PRESETS[spec.toLowerCase()] || { family: spec }) : spec;
   if (!d || !d.family) return null;
-  if (d.url && !_fontLoads.has(d.url) && window.FontFace && document.fonts) {
-    const ff = new FontFace(String(d.family), `url(${d.url})`, { weight: String(d.weight || '100 900'), display: 'swap' });
-    _fontLoads.set(d.url, ff.load().then((f) => { document.fonts.add(f); return true; },
-      (e) => { console.warn(`HomeView: couldn't load the font ${d.url}`, e); return false; }));
+  const src = d.url ? fontSrc(d.url) : '';
+  if (src && !_fontLoads.has(src) && window.FontFace && document.fonts) {
+    const ff = new FontFace(String(d.family), src, { weight: String(d.weight || '100 900'), display: 'swap' });
+    // the page knows the font from now on (shown in the system font until it's in). Added only once
+    // loaded, the browser first looked for a font of that name on the device and then laid the page
+    // out again when it came (Safari's engine, opening on Home: most of a second in a test browser)
+    document.fonts.add(ff);
+    _fontLoads.set(src, ff.load().then(() => true,
+      (e) => { console.warn(`HomeView: couldn't load the font ${asList(d.url).join(' or ')}`, e); return false; }));
   }
   return `'${String(d.family).replace(/['"]/g, '')}', ${FONT}`;
 }
@@ -160,13 +172,14 @@ const gone = (st) => !st || (st.state === 'unavailable' && st.attributes?.restor
 // tile types a page file (custom_pages, sections:) may name; the others are HomeView's own parts
 // and need data only HomeView's pages give them
 const USER_TILE_TYPES = ['clock', 'weather', 'forecast', 'date', 'next_event', 'agenda', 'camera', 'person', 'chart',
-  'button', 'fader', 'air', 'energy_now', 'energy_flow'];
+  'button', 'fader', 'air', 'energy_now', 'energy_flow', 'energy_share'];
 
 /* ============================================================================================
  * Small helpers
  * ========================================================================================== */
 
-const domainOf = (id) => id.split('.')[0];
+// called for every entity, several times, on every build: no array per call (split)
+const domainOf = (id) => { const i = id.indexOf('.'); return i < 0 ? id : id.slice(0, i); };
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };
 // one number format per decimal count (toLocaleString with options builds a new one each call,
@@ -836,11 +849,34 @@ function moreInfo(node, entityId) {
 }
 
 /**
+ * A sheet's backdrop and its ✕ (or other close buttons) close it only for a press that went down on
+ * them, and not in its first 600 ms. A tap opens a sheet on pointerup; the browser then sends that
+ * touch's click to whatever is under the finger now — the new backdrop or ✕ — and in a touch WebView
+ * (Fully Kiosk, an Android app) that click can come ~0.5 s later. It closed pill pop-ups as they opened
+ * on a wall tablet (0.9.2). A keyboard click (Enter / Space on the ✕: detail 0) closes at once; a
+ * backdrop press must start on the backdrop itself (not a drag out of the sheet). now: for tests.
+ */
+const SHEET_QUIET_MS = 600;
+/** (e, el) => whether a click on el counts: the keyboard's (detail 0; not on the backdrop), or a press
+ *  that went down on el (on the backdrop: on the backdrop itself) once the first 600 ms are over */
+function pressGuard(pop, now = () => Date.now()) {
+  const opened = now();
+  let path = [];
+  pop.addEventListener('pointerdown', (e) => { path = e.composedPath ? e.composedPath() : [e.target]; }, true);
+  return (e, el) => (e.detail === 0 && el !== pop) || ((el === pop ? path[0] === pop : path.includes(el)) && now() - opened > SHEET_QUIET_MS);
+}
+function sheetCloser(pop, close, closers = [], now) {
+  const ok = pressGuard(pop, now);
+  pop.addEventListener('click', (e) => { if (e.target === pop && ok(e, pop)) close(); });
+  for (const b of closers) b?.addEventListener('click', (e) => { if (ok(e, b)) close(); });
+}
+
+/**
  * HomeView's own "are you sure?" sheet instead of the browser's confirm() (a kiosk browser can block
  * that, and it says nothing about the device). from: the tile / page asking. Resolves true / false.
  *   { title: 'Unlock Front Door?', body: 'Locked · Entry · since 7:12 PM', action: 'Unlock', tone: 'alert' | 'ok' }
- * Tap outside, Cancel or Esc = no; Enter = the action. Taps in the first moment after it opens don't
- * count (a phone's late click from the tap that opened it must not press a button in it).
+ * Tap outside, Cancel or Esc = no; Enter = the action. Only presses that went down on a button count, and
+ * not in its first 600 ms (pressGuard: the late click of the tap that opened it must not press a button).
  */
 function hvConfirm(from, { title, body = '', action = 'OK', tone = null }) {
   let page = from;
@@ -851,16 +887,19 @@ function hvConfirm(from, { title, body = '', action = 'OK', tone = null }) {
     pop.innerHTML = `<div class="sheet narrow confirm" role="alertdialog" aria-modal="true" aria-label="${esc(title)}">
       <div class="cf-t">${esc(title)}</div>${body ? `<div class="cf-b">${esc(body)}</div>` : ''}
       <div class="cf-a"><button class="cf-btn" data-no>Cancel</button><button class="cf-btn go${tone ? ` t-${tone}` : ''}" data-yes>${esc(action)}</button></div></div>`;
-    const opened = Date.now(), live = () => Date.now() - opened > 450;
+    // only a press that went down on a button (or the keyboard) counts: the tap that opened the sheet is
+    // followed by its click, in a WebView up to ~0.5 s later, and it must never press Unlock (pressGuard)
+    const ok = pressGuard(pop);
     let done = false;
     const end = (v) => { if (done) return; done = true; pop.remove(); window.removeEventListener('keydown', key, true); resolve(v); };
     const key = (e) => {
       if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); end(false); }
       else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); end(e.composedPath?.()[0]?.dataset?.no === undefined); }
     };
-    pop.addEventListener('click', (e) => { if (e.target === pop && live()) end(false); });
-    pop.querySelector('[data-no]').addEventListener('click', () => { if (live()) end(false); });
-    pop.querySelector('[data-yes]').addEventListener('click', () => { if (live()) end(true); });
+    const no = pop.querySelector('[data-no]'), yes = pop.querySelector('[data-yes]');
+    pop.addEventListener('click', (e) => { if (e.target === pop && ok(e, pop)) end(false); });
+    no.addEventListener('click', (e) => { if (ok(e, no)) end(false); });
+    yes.addEventListener('click', (e) => { if (ok(e, yes)) end(true); });
     window.addEventListener('keydown', key, true);
     page._root.appendChild(pop);
     pop.querySelector('[data-no]').focus?.({ preventScroll: true });
@@ -883,16 +922,17 @@ function hvPrompt(from, { title, value = '', hint = '', placeholder = '', action
       ${hint ? `<div class="cf-b">${esc(hint)}</div>` : ''}
       <div class="cf-a"><button class="cf-btn" data-no>Cancel</button><button class="cf-btn go" data-yes>${esc(action)}</button></div></div>`;
     const input = pop.querySelector('.cf-in');
-    const opened = Date.now(), live = () => Date.now() - opened > 450;
+    const ok = pressGuard(pop);   // as hvConfirm: the opening tap's late click doesn't press a button
     let done = false;
     const end = (v) => { if (done) return; done = true; pop.remove(); window.removeEventListener('keydown', key, true); resolve(v); };
     const key = (e) => {
       if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); end(null); }
       else if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); e.stopPropagation(); end(e.composedPath?.()[0]?.dataset?.no === undefined ? input.value.trim() : null); }
     };
-    pop.addEventListener('click', (e) => { if (e.target === pop && live()) end(null); });
-    pop.querySelector('[data-no]').addEventListener('click', () => { if (live()) end(null); });
-    pop.querySelector('[data-yes]').addEventListener('click', () => end(input.value.trim()));
+    const no = pop.querySelector('[data-no]'), yes = pop.querySelector('[data-yes]');
+    pop.addEventListener('click', (e) => { if (e.target === pop && ok(e, pop)) end(null); });
+    no.addEventListener('click', (e) => { if (ok(e, no)) end(null); });
+    yes.addEventListener('click', (e) => { if (ok(e, yes)) end(input.value.trim()); });
     window.addEventListener('keydown', key, true);
     page._root.appendChild(pop);
     input.focus?.({ preventScroll: true });
@@ -1141,13 +1181,15 @@ function buildModel(hass, cfg) {
   };
   model.indicatorLights = [];
 
-  // ---- entities
+  // ---- entities (one pass over the states: the climate and person lists below come from it too)
+  const allClimates = [], allPersons = [];
   for (const id of Object.keys(hass.states)) {
+    const d = domainOf(id);
+    if (d === 'climate') allClimates.push(id); else if (d === 'person') allPersons.push(id);
     if (exclude.has(id)) continue;
     const reg = hass.entities?.[id];
     if (reg?.hidden) continue;
     const st = hass.states[id];
-    const d = domainOf(id);
     const dc = st.attributes.device_class;
     const diag = !!reg?.entity_category;
 
@@ -1218,8 +1260,7 @@ function buildModel(hass, cfg) {
     }
   }
   // comfort: each room's thermostat (its own climate entity, else the house's) and the options
-  const climates = Object.keys(hass.states).filter((id) => domainOf(id) === 'climate' && !exclude.has(id)
-    && !UNAVAILABLE.includes(hass.states[id].state));
+  const climates = allClimates.filter((id) => !exclude.has(id) && !UNAVAILABLE.includes(hass.states[id].state));
   const hasSet = (id) => { const a = hass.states[id]?.attributes || {}; return a.target_temp_low != null || a.temperature != null; };
   const house = cfg.comfort_thermostat || climates.find(hasSet) || null;
   for (const r of model.areas) r.thermostat = r.entities.find((id) => domainOf(id) === 'climate' && hasSet(id)) || house;
@@ -1227,8 +1268,8 @@ function buildModel(hass, cfg) {
   // the entities whose state these picks used (availSig)
   const GONE_DOMAINS = [...ROOM_ROW_DOMAINS, 'alarm_control_panel'];
   model.watch = {
-    off: [...Object.keys(hass.states).filter((id) => domainOf(id) === 'person' && asList(hass.states[id].attributes.device_trackers).length),
-      ...Object.keys(hass.states).filter((id) => domainOf(id) === 'climate' && !exclude.has(id)), ...model.cameras],
+    off: [...allPersons.filter((id) => asList(hass.states[id].attributes.device_trackers).length),
+      ...allClimates.filter((id) => !exclude.has(id)), ...model.cameras],
     gone: model.areas.flatMap((r) => r.entities.filter((id) => GONE_DOMAINS.includes(domainOf(id)))),
   };
   model.watchSig = availSig(hass, model.watch);
@@ -1663,10 +1704,15 @@ function diffOptions(base, next) {
  */
 // strict (saving): a failed read throws instead of reading as "nothing there"
 async function loadSourceOptions(hass, from, strict = false) {
+  const yaml = hass?.panels?.[from]?.config?.mode === 'yaml';
+  // a YAML source's on-screen edits are asked for with its settings (one wait instead of two)
+  const edits = yaml ? loadEdits(hass, `${from}-edits`, !strict).then((v) => ({ v }), (e) => ({ e })) : null;
   const src = await loadStrategyConfig(hass, from, strict);
   const { type: _t, from: _f, ...o } = src?.strategy || {};
-  const yaml = hass?.panels?.[from]?.config?.mode === 'yaml';
-  return yaml && o.ui_edits !== false ? applyEdits(o, await loadEdits(hass, `${from}-edits`, !strict)) : o;
+  if (!yaml || o.ui_edits === false) return o;
+  const r = await edits;
+  if (r.e) throw r.e;
+  return applyEdits(o, r.v);
 }
 async function resolveFrom(hass, strat, strict = false) {
   const { from, edits, ...own } = strat;
@@ -2975,6 +3021,7 @@ R.person = {
 const hassState = (h, st) => (h.formatEntityState ? h.formatEntityState(st) : st.state);
 
 // ---- camera ---------------------------------------------------------------------------------
+const CAM_FIRST_MS = 300;   // see R.camera.update
 R.camera = {
   tick: 10e3,
   key: (h, s) => `${h.states[s.entity]?.state}`,
@@ -2993,10 +3040,24 @@ R.camera = {
   update(h, s, tile) {   // runs after render and on every tick: swap in a fresh still, no flicker
     const img = tile.shadowRoot.querySelector('img.cam');
     const pic = h.states[s.entity]?.attributes?.entity_picture;
-    if (!img || !pic || !tile.visible) return;
+    if (!img || !pic || !tile.visible || tile._camWait) return;
+    // the first still waits until the page is on screen (a frame drawn, then a moment): a camera's still
+    // is the biggest thing a page asks for (~160 KB), and on a phone opening Home it took the link
+    // while Home Assistant and the page were still coming in
+    if (!tile._camAt) {
+      tile._camWait = true;
+      let tries = 0;
+      const first = () => {
+        if (!tile.isConnected && ++tries < 120) { requestAnimationFrame(first); return; }   // built, not on screen yet
+        setTimeout(() => { tile._camWait = false; tile._camAt = Date.now(); R.camera.update(tile._hass || h, tile._spec || s, tile); }, CAM_FIRST_MS);
+      };
+      requestAnimationFrame(first);
+      return;
+    }
     const url = `${pic}${pic.includes('?') ? '&' : '?'}_t=${Date.now()}`;
     const pre = new Image();
-    pre.onload = () => { img.src = url; };
+    // the loaded still itself replaces the old one (not fetched again where the browser keeps nothing)
+    pre.onload = () => { const cur = tile.shadowRoot.querySelector('img.cam'); if (!cur) return; pre.className = 'cam'; pre.alt = ''; pre.style.cssText = cur.style.cssText; cur.replaceWith(pre); };
     pre.src = url;
   },
   action: (h, s, tile) => moreInfo(tile, s.entity),
@@ -3618,6 +3679,104 @@ R.member_hero = {
   },
 };
 
+// ---- a share over the energy date bar's period (custom pages: type: energy_share) -------------------
+/**
+ * How much of one statistic is (or, invert: true, isn't) another, over the period the page's energy
+ * date bar shows: the share of peak-hour house use that didn't come from the grid, solar's share of
+ * use, an EV's share of charging … value = 100 × Σnumerator ÷ Σdenominator over [start, end), from the
+ * recorder's long-term statistics (their change); "—" while Σdenominator is about 0 or there are no
+ * statistics for the period yet.
+ *   { type: energy_share, name: Peak off-grid, numerator: sensor.peak_grid_kwh, denominator: sensor.peak_home_kwh,
+ *     invert: true, severity: { green: 90, yellow: 60, red: 0 }, caption: 'Grid {numerator} of {denominator} {unit}' }
+ * The period: the energy collection of the page's energy-date-selection card (collection_key, else
+ * this dashboard's, else Home Assistant's default), followed as it changes; without one, today.
+ * Fetched when the period changes, then at most every 5 minutes while it includes now (an hour for
+ * a past one) — never on a state update.
+ */
+function shareCollection(h, s) {
+  const c = h?.connection;
+  if (!c) return null;
+  const keys = s.collection_key ? [`_${s.collection_key}`] : [`_energy_${dashboardPath()}`, '_energy'];
+  for (const k of keys) if (c[k] && typeof c[k].subscribe === 'function') return c[k];
+  return null;
+}
+function sharePeriod(col, now = new Date()) {
+  const ok = (d) => d instanceof Date && Number.isFinite(d.getTime());
+  if (col && ok(col.start)) return { start: col.start, end: ok(col.end) ? col.end : null, today: false };
+  const start = new Date(now); start.setHours(0, 0, 0, 0);
+  return { start, end: new Date(start.getTime() + 86400e3), today: true };
+}
+function statPeriodChange(hass, statId, start, end, onUpdate) {
+  const live = !end || end.getTime() > Date.now();
+  return cached(`spc:${statId}:${start.getTime()}:${end ? end.getTime() : ''}`, live ? 5 * 60e3 : 60 * 60e3, async () => {
+    const r = await ws(hass, { type: 'recorder/statistic_during_period', statistic_id: statId, types: ['change'],
+      fixed_period: { start_time: start.toISOString(), ...(end ? { end_time: end.toISOString() } : {}) } });
+    return typeof r?.change === 'number' ? r.change : null;
+  }, onUpdate);
+}
+/** { value: 0–100 | null, n, d } — null: Σdenominator about 0 or no statistics; undefined: loading */
+function shareValue(n, d, invert) {
+  if (n === undefined || d === undefined) return undefined;
+  if (n === null || d === null || Math.abs(d) < 1e-3) return { value: null, n, d };
+  const v = clamp(100 * n / d, 0, 100);
+  return { value: invert ? 100 - v : v, n, d };
+}
+/** decimals: yours, else whole percent — but one decimal where that would round to 100 % (or 0 %) without
+ *  being it: a little grid use in a week isn't "100 %" off-grid (99.9 %) */
+function shareDecimals(v, want) {
+  if (typeof want === 'number' && want >= 0) return Math.min(3, Math.round(want));
+  return (v > 99.5 && v < 100) || (v > 0 && v < 0.5) ? 1 : 0;
+}
+/** severity: { green: 90, yellow: 60, red: 0 } (Home Assistant's gauge): the colour of the highest step the value reaches */
+function severityTone(v, sev) {
+  if (v === null || v === undefined || !isObj(sev)) return null;
+  const steps = Object.entries(sev).filter(([, x]) => typeof x === 'number').sort((a, b) => b[1] - a[1]);
+  const hit = steps.find(([, x]) => v >= x);
+  return hit ? ({ green: 'ok', yellow: 'warn', red: 'alert' })[hit[0]] || null : null;
+}
+R.energy_share = {
+  tick: 60e3,
+  key(h, s) {
+    const col = shareCollection(h, s), p = sharePeriod(col), k = `${p.start.getTime()}:${p.end ? p.end.getTime() : ''}`;
+    return [k, !!col, tileCacheTag(`spc:${s.numerator}:${k}`), tileCacheTag(`spc:${s.denominator}:${k}`), h.states[s.denominator]?.attributes?.unit_of_measurement].join('|');
+  },
+  html(h, s, tile) {
+    // follow the date bar: subscribe once (the tile redraws when the period changes); while the page's
+    // energy cards are still loading, look again every second for a while
+    const col = shareCollection(h, s);
+    if (col && tile && tile._hvShareCol !== col) {
+      tile._hvUnsub?.();
+      tile._hvShareCol = col;
+      try { const u = col.subscribe(() => tile.refresh()); tile._hvUnsub = typeof u === 'function' ? u : null; } catch (e) { tile._hvUnsub = null; }
+    } else if (!col && tile && !tile._hvShareWait && (tile._hvShareTries || 0) < 20) {
+      tile._hvShareTries = (tile._hvShareTries || 0) + 1;
+      tile._hvShareWait = setTimeout(() => { tile._hvShareWait = null; if (tile.isConnected) tile.refresh(); }, 1000);
+    }
+    const p = sharePeriod(col);
+    const r = shareValue(statPeriodChange(h, s.numerator, p.start, p.end, tile?.refresher),
+      statPeriodChange(h, s.denominator, p.start, p.end, tile?.refresher), !!s.invert);
+    const unit = h.states[s.denominator]?.attributes?.unit_of_measurement || h.states[s.numerator]?.attributes?.unit_of_measurement || '';
+    const tone = severityTone(r?.value, s.severity);
+    const color = tone ? HV_TONES[tone] : 'var(--hv-accent)';
+    const pct = r?.value ?? 0;
+    const caption = r === undefined ? 'Loading…' : r.value === null ? (s.empty_text || 'Nothing in this period')
+      : String(s.caption || '{numerator} of {denominator} {unit}').replace('{numerator}', fmt(r.n, 1)).replace('{denominator}', fmt(r.d, 1)).replace('{unit}', unit).trim();
+    const big = r === undefined ? '…' : r.value === null ? '—' : `${fmt(r.value, shareDecimals(r.value, s.decimals))}%`;
+    const arc = 'M8,50 A42,42 0 0 1 92,50';
+    return `<div class="t share" style="justify-content:space-between;padding:6% 7%;gap:2%">
+      <div class="nm" style="align-self:stretch;text-align:left;white-space:normal;overflow-wrap:anywhere;line-height:1.2">${esc(s.name || 'Share')}${p.today ? '<span class="sb" style="font-weight:600"> · today</span>' : ''}</div>
+      <div style="position:relative;width:min(100%, 260px);aspect-ratio:100/54;flex:none">
+        <svg viewBox="0 0 100 54" style="position:absolute;inset:0;width:100%;height:100%;overflow:visible" aria-hidden="true">
+          <path d="${arc}" pathLength="100" fill="none" stroke="var(--hv-line)" stroke-width="9" stroke-linecap="round"/>
+          ${r?.value !== null && r?.value !== undefined && pct > 0 ? `<path d="${arc}" pathLength="100" fill="none" stroke="${color}" stroke-width="9" stroke-linecap="round" stroke-dasharray="${pct.toFixed(1)} 200"/>` : ''}
+        </svg>
+        <div style="position:absolute;left:0;right:0;bottom:0;text-align:center;font-weight:700;font-size:min(13cqi, 40px);line-height:1;letter-spacing:-.02em${tone ? `;color:${txVar(tone)}` : ''}">${esc(big)}</div>
+      </div>
+      <div class="sb" style="text-align:center">${esc(caption)}</div></div>`;
+  },
+  action: (h, s, tile) => moreInfo(tile, s.entity || s.denominator),
+};
+
 // ---- a room's power now: its power sensors added up (a device's own sensor once) -------------
 R.room_power = {
   key: (h, s) => s.ids.map((id) => h.states[id]?.state).join('|'),
@@ -3723,10 +3882,27 @@ function trimSlides(st) {
   const bad = Object.keys(st.bad);
   if (bad.length > 200) bad.slice(0, bad.length - 200).forEach((id) => { delete st.bad[id]; });
 }
-function slideState(folder) {
+// the folder is scanned again hourly; a list this browser kept from an earlier visit is shown at once:
+// scanned again an hour after it was made, or — older than that — once the dashboard has settled
+// (SLIDE_SETTLE_MS after it opened), not while it's opening (a scan is a request per album folder)
+const SLIDE_RESCAN_MS = 3600e3, SLIDE_SETTLE_MS = 30e3;
+// the photos loaded ahead (the current one and the next two), kept as the loaded <img> itself: shown,
+// it isn't asked for again — also where the browser keeps nothing (a kiosk set to no cache). A few at most
+function keepPhoto(st, url, img) {
+  st.imgs.delete(url); st.imgs.set(url, img);
+  while (st.imgs.size > 4) st.imgs.delete(st.imgs.keys().next().value);
+}
+function slideState(folder, now = Date.now()) {
   if (!slideStore[folder]) {
-    const st = { items: null, busy: false, next: 0, urls: {}, ok: {}, bad: {}, dim: {}, pending: {}, err: null };
-    try { const v = JSON.parse(localStorage.getItem(`homeview-photos:${folder}`) || 'null'); if (Array.isArray(v) && v.length) st.items = v; } catch (e) { /* private mode */ }
+    const st = { items: null, busy: false, next: 0, urls: {}, ok: {}, bad: {}, dim: {}, pending: {}, imgs: new Map(), err: null };
+    try {
+      const v = JSON.parse(localStorage.getItem(`homeview-photos:${folder}`) || 'null');
+      if (Array.isArray(v) && v.length) {
+        st.items = v;
+        const at = Number(localStorage.getItem(`homeview-photos-at:${folder}`)) || 0;   // 0: kept by an older HomeView
+        st.next = Math.max(at + SLIDE_RESCAN_MS, now + SLIDE_SETTLE_MS);
+      }
+    } catch (e) { /* private mode */ }
     slideStore[folder] = st;
   }
   return slideStore[folder];
@@ -3765,7 +3941,10 @@ R.slideshow = {
         return items;
       })().then((items) => {
         st.items = items; st.err = items.length ? null : 'No photos in this folder';
-        try { localStorage.setItem(`homeview-photos:${s.folder}`, JSON.stringify(items.slice(0, 5000))); } catch (e) { /* full / private */ }
+        try {
+          localStorage.setItem(`homeview-photos:${s.folder}`, JSON.stringify(items.slice(0, 5000)));
+          localStorage.setItem(`homeview-photos-at:${s.folder}`, String(Date.now()));
+        } catch (e) { /* full / private */ }
         st.next = Date.now() + (st.err ? 60e3 : 3600e3);
       }, (e) => { st.err = e?.message || String(e); st.next = Date.now() + 60e3; })
         .finally(() => { st.busy = false; R.slideshow.update(h, s, tile); });
@@ -3784,7 +3963,7 @@ R.slideshow = {
       st.pending[id] = true;
       if (/^https?:/.test(id)) {   // a plain image URL (the samples)
         const img = new Image();
-        img.onload = () => { delete st.urls[id]; st.urls[id] = { url: id, exp: Infinity }; st.ok[id] = true; st.dim[id] = img.naturalWidth / (img.naturalHeight || 1); delete st.pending[id]; trimSlides(st); then?.(id); };
+        img.onload = () => { delete st.urls[id]; st.urls[id] = { url: id, exp: Infinity }; st.ok[id] = true; st.dim[id] = img.naturalWidth / (img.naturalHeight || 1); keepPhoto(st, id, img); delete st.pending[id]; trimSlides(st); then?.(id); };
         img.onerror = () => { delete st.pending[id]; };
         img.src = id;
         return;
@@ -3794,7 +3973,7 @@ R.slideshow = {
         .then((r) => new Promise((ok, fail) => {
           if (!r?.url) { fail(); return; }
           const img = new Image();
-          img.onload = () => { delete st.urls[id]; st.urls[id] = { url: r.url, exp: Date.now() + 82800e3 }; st.ok[r.url] = true; st.dim[r.url] = img.naturalHeight ? img.naturalWidth / img.naturalHeight : 1.5; trimSlides(st); ok(r.url); };
+          img.onload = () => { delete st.urls[id]; st.urls[id] = { url: r.url, exp: Date.now() + 82800e3 }; st.ok[r.url] = true; st.dim[r.url] = img.naturalHeight ? img.naturalWidth / img.naturalHeight : 1.5; keepPhoto(st, r.url, img); trimSlides(st); ok(r.url); };
           img.onerror = fail;
           img.src = r.url;
         }))
@@ -3811,9 +3990,18 @@ R.slideshow = {
       const layer = document.createElement('div');
       layer.className = 'sl fade';
       const portrait = (st.dim[url] || 1.5) < 1;
-      layer.innerHTML = portrait
-        ? `<img src="${url}" alt="" class="blur"><img src="${url}" alt="" style="object-fit:contain">`
-        : `<img src="${url}" alt="">`;
+      // the photo loaded ahead itself (keepPhoto); a new <img> if it's gone or on screen already
+      const pre = st.imgs.get(url);
+      st.imgs.delete(url);
+      const img = pre && !pre.isConnected ? pre : document.createElement('img');
+      if (img !== pre) img.src = url;
+      img.alt = '';
+      if (portrait) {
+        const blur = img.cloneNode(false);
+        blur.className = 'blur';
+        img.style.objectFit = 'contain';
+        layer.append(blur, img);
+      } else layer.append(img);
       box.querySelector('.sl-msg')?.remove();
       box.appendChild(layer);
       const old = [...box.querySelectorAll('.sl')].slice(0, -1);
@@ -3925,6 +4113,9 @@ class HomeViewTile extends HTMLElement {
     clearInterval(this._timer); this._timer = null;
     this._io?.disconnect(); this._io = null;
     this._fitRo?.disconnect(); this._fitRo = null;
+    // a subscription a renderer took (energy_share: the energy date bar) ends with the tile; taken again when shown
+    this._hvUnsub?.(); this._hvUnsub = null; this._hvShareCol = null;
+    clearTimeout(this._hvShareWait); this._hvShareWait = null; this._hvShareTries = 0;
   }
 
   _render() {
@@ -4165,6 +4356,53 @@ function sevGroups(all, bad, off, [badWord, okWord]) {
 }
 // the thermostat's activity while it runs ("70° · Heating"); idle: just the temperature
 const HVAC_ACTS = { heating: 'Heating', cooling: 'Cooling', drying: 'Drying', fan: 'Fan', preheating: 'Preheating', defrosting: 'Defrosting' };
+/**
+ * The Lights pop-up's order: lights that are on first, the one switched on last at the top; then the
+ * ones that are off, the one used last first (both by last_changed, newest first); then offline ones
+ * (unavailable / unknown) at the bottom, by name. Light groups (an entity_id attribute) alike.
+ */
+function lightOrder(h, ids) {
+  const st = (id) => h.states[id];
+  const offline = (id) => !st(id) || UNAVAILABLE.includes(st(id).state);
+  const when = (id) => Date.parse(st(id)?.last_changed) || 0;
+  const name = (id) => String(st(id)?.attributes?.friendly_name || id);
+  const byName = (a, b) => name(a).localeCompare(name(b));
+  const newest = (a, b) => when(b) - when(a) || byName(a, b);
+  const on = [], off = [], na = [];
+  for (const id of ids) (offline(id) ? na : st(id).state === 'on' ? on : off).push(id);
+  return [...on.sort(newest), ...off.sort(newest), ...na.sort(byName)];
+}
+/**
+ * An open Lights pop-up keeps that order: a hass update moves rows only when a listed light's state or
+ * last_changed changed (a new state object alone — brightness, colour — is checked by identity and
+ * skipped), and never while a finger is on the sheet: the change waits for the first update after
+ * the finger lifts (a tap's own toggle arrives after it). place(ids) puts the rows in a new order.
+ */
+function liveLightOrder(h, ids, place) {
+  const last = new Map(ids.map((id) => [id, h.states[id]]));
+  let order = ids.join('|'), down = false;
+  return {
+    down() { down = true; },
+    up() { down = false; },
+    update(hh) {
+      if (down) return false;
+      let moved = false;
+      for (const id of ids) {
+        const s1 = hh.states[id], s0 = last.get(id);
+        if (s1 === s0) continue;
+        if (!s1 || !s0 || s1.state !== s0.state || s1.last_changed !== s0.last_changed) moved = true;
+        last.set(id, s1);
+      }
+      if (!moved) return false;
+      const next = lightOrder(hh, ids);
+      if (next.join('|') === order) return false;
+      order = next.join('|');
+      place(next);
+      return true;
+    },
+  };
+}
+
 const PILLS = {
   // warnings: [{ text, level: critical | notice, not_on | on | off | all_off, text_offline, entities }]
   // (the same rules as a custom page's alerts:). Shows only while one is active: red for a critical
@@ -4211,7 +4449,7 @@ const PILLS = {
     if (!m.lights.length) return null;
     const on = m.lights.filter((id) => h.states[id]?.state === 'on');
     return { icon: on.length ? 'mdi:lightbulb-group' : 'mdi:lightbulb-group-off-outline', text: on.length ? `${on.length} on` : 'Lights off',
-      tone: on.length ? 'on' : null, popup: { title: 'Lights', ids: [...on, ...m.lights.filter((id) => !on.includes(id))], showRoom: true } };
+      tone: on.length ? 'on' : null, popup: { title: 'Lights', ids: m.lights, showRoom: true, sort: 'lights' } };
   },
   locks(h, m, cfg) {
     const locks = m.byDomain.lock || [];
@@ -4553,7 +4791,7 @@ function favoritesAuto(h, m) {
 
 // Default sizes of the tile types a user can place
 const TYPE_SIZES = { clock: [1, 1], weather: [2, 2], forecast: [2, 2], agenda: [2, 2], date: [2, 2], camera: [2, 1],
-  next_event: [2, 1], person: [2, 1], room: [1, 1], energy_now: [2, 2], energy_flow: [3, 2], air: [2, 1], chart: [2, 1] };
+  next_event: [2, 1], person: [2, 1], room: [1, 1], energy_now: [2, 2], energy_flow: [3, 2], air: [2, 1], chart: [2, 1], energy_share: [2, 2] };
 
 /**
  * A tile the user wrote in YAML:
@@ -5867,6 +6105,7 @@ class HomeViewPage extends HTMLElement {
       // Assistant is about to replace this page (the pages changed): built once, there
       if (this._sig != null && this._interacting()) this._holdRebuild();
       else if (this._sig != null && this._replacedSoon()) this._rebuildLater();
+      else if (this._leaving || (this._sig == null && this._startPage())) { this._leaving = true; if (this.isConnected) this._buildIfStaying(); return; }
       else { this._sig = sig; this.rebuild(); return; }
     }
     // guests arrived or left (guest:): build again — not under an open sheet or a drag (the next update
@@ -5876,6 +6115,7 @@ class HomeViewPage extends HTMLElement {
     if (!this.isConnected) { this._stale = true; return; }
     this._checkAvail(h);
     this._tiles.forEach((t) => { t.hass = h; });
+    if (this._popSort) this._popSort(h);   // an open Lights pop-up's order (liveLightOrder)
     // several updates often arrive within one frame: one header redraw for them
     if (!this._headRaf) this._headRaf = requestAnimationFrame(() => { this._headRaf = null; this._renderHead(); });
   }
@@ -5898,7 +6138,8 @@ class HomeViewPage extends HTMLElement {
       window.addEventListener('scroll', () => { hvScrollY = window.scrollY; }, { passive: true });
     }
     this._shownAt = location.pathname;
-    if (this._config) this._startPage();
+    if (this._config && this._startPage()) this._leaving = true;
+    if (this._leaving) this._buildIfStaying(true);
     // the page dots: a touch anywhere wakes them (Widgets hides them after a while)
     if (!this._onAnyTouch) { this._onAnyTouch = () => { if (this._dotsEl || this._fsEl) this._dotsWake(); }; window.addEventListener('pointerdown', this._onAnyTouch, { capture: true, passive: true }); }
     this._kiosk();
@@ -6624,8 +6865,7 @@ class HomeViewPage extends HTMLElement {
     sheet.innerHTML = `<div class="sheet-h"><span>${esc(title)}</span><span class="sheet-b">${buttons}<button class="back" data-close title="Close"><ha-icon icon="mdi:close"></ha-icon></button></span></div>`;
     pop.appendChild(sheet);
     const close = () => pop.remove();
-    pop.addEventListener('click', (e) => { if (e.target === pop) close(); });
-    sheet.querySelector('[data-close]').addEventListener('click', close);
+    sheetCloser(pop, close, [sheet.querySelector('[data-close]')]);
     this._root.appendChild(pop);
     return { pop, sheet, close };
   }
@@ -7149,8 +7389,7 @@ class HomeViewPage extends HTMLElement {
         <button class="txt" data-close>Later</button></div>`;
     pop.appendChild(sheet);
     const close = () => pop.remove();
-    pop.addEventListener('click', (e) => { if (e.target === pop) close(); });
-    sheet.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', close));
+    sheetCloser(pop, close, [...sheet.querySelectorAll('[data-close]')]);
     sheet.querySelector('[data-go]').addEventListener('click', () => {
       close();
       if (fresh) reloadFresh(); else if (this._updEnt) moreInfo(this, this._updEnt);
@@ -7160,8 +7399,9 @@ class HomeViewPage extends HTMLElement {
 
   /** A sheet of entity tiles. groups: [{ title, ids, tone: 'red' | 'amber' | 'offline' }] puts them
    *  under headings, tinted (the batteries: low in red, getting low in amber …); else one grid of ids. */
-  _popup({ title, ids, showRoom, groups, clean }) {
+  _popup({ title, ids, showRoom, groups, clean, sort }) {
     const h = this._hass;
+    if (sort === 'lights' && !groups) ids = lightOrder(h, ids);   // see lightOrder / liveLightOrder
     const pop = document.createElement('div'); pop.className = 'pop top';   // pill pop-ups: at the top
     const sheet = document.createElement('div'); sheet.className = 'sheet';
     sheet.innerHTML = `<div class="sheet-h">${esc(title)}<button class="back" data-close><ha-icon icon="mdi:close"></ha-icon></button></div>`;
@@ -7192,9 +7432,22 @@ class HomeViewPage extends HTMLElement {
       sheet.appendChild(g);
     }
     pop.appendChild(sheet);
-    const close = () => { pop.remove(); this._tiles = this._tiles.filter((t) => !tiles.includes(t)); };
-    pop.addEventListener('click', (e) => { if (e.target === pop) close(); });
-    sheet.querySelector('[data-close]').addEventListener('click', close);
+    // the Lights pop-up re-sorts while open (liveLightOrder), not while a finger is on the sheet
+    let live = null;
+    const lifted = () => live?.up();
+    if (sort === 'lights' && !groups) {
+      const grid = sheet.querySelector('.grid'), byId = new Map(ids.map((id, i) => [id, tiles[i]]));
+      live = liveLightOrder(h, ids, (next) => next.forEach((id) => grid.appendChild(byId.get(id))));
+      sheet.addEventListener('pointerdown', () => live.down());
+      window.addEventListener('pointerup', lifted, true);
+      window.addEventListener('pointercancel', lifted, true);
+      this._popSort = (hh) => { if (pop.isConnected) live.update(hh); else close(); };
+    }
+    const close = () => {
+      pop.remove(); this._tiles = this._tiles.filter((t) => !tiles.includes(t));
+      if (live) { window.removeEventListener('pointerup', lifted, true); window.removeEventListener('pointercancel', lifted, true); this._popSort = null; live = null; }
+    };
+    sheetCloser(pop, close, [sheet.querySelector('[data-close]')]);
     this._root.appendChild(pop);
     this._layout();
   }
@@ -7223,8 +7476,7 @@ class HomeViewPage extends HTMLElement {
     const close = () => { pop.remove(); window.removeEventListener('keydown', key, true); };
     // Esc closes it; once it's gone (a rebuild took it away) the key is left alone
     const key = (e) => { if (!pop.isConnected) { close(); return; } if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); } };
-    pop.addEventListener('click', (e) => { if (e.target === pop) close(); });
-    sheet.querySelector('[data-close]').addEventListener('click', close);
+    sheetCloser(pop, close, [sheet.querySelector('[data-close]')]);
     window.addEventListener('keydown', key, true);
     this._root.appendChild(pop);
     draw();
@@ -7320,22 +7572,43 @@ class HomeViewPage extends HTMLElement {
     }
   }
 
-  /** start: the page this browser session opens on (phones: Home by default; see startPage). */
+  /** The session's start page is elsewhere (_startPage): this page isn't built on the way there, though
+   *  Home Assistant may put it on screen for a moment before it follows the address (on an iPhone,
+   *  most of a second). Built when it's shown with its own address (swiped back to, a link), or if
+   *  it's still on screen START_WAIT_MS later (the move didn't happen). */
+  _buildIfStaying(again = false) {
+    if (this._leaveT && !again) return;
+    clearTimeout(this._leaveT);
+    const seg = location.pathname.split('/').filter(Boolean)[1], here = this._config?.path || this._config?.page;
+    const mine = seg === here || ((seg === undefined || seg === '0') && asList(this._config?.order)[0] === here);
+    const build = () => {
+      this._leaveT = null;
+      if (!this.isConnected || !this._leaving || !this._hass) return;
+      this._leaving = false; this._sig = this._signature(this._hass); this.rebuild();
+    };
+    if (mine) build(); else this._leaveT = setTimeout(build, START_WAIT_MS);
+  }
+
+  /** start: the page this browser session opens on (phones: Home by default; see startPage). Decided
+   *  once, by the first page Home Assistant gives the house to, before it's built: true when it's
+   *  going to the start page (a phone opening the dashboard doesn't build Widgets on the way to Home). */
   _startPage() {
-    if (HomeViewPage._startChecked) return;
+    if (HomeViewPage._startChecked || !this._config) return false;
     HomeViewPage._startChecked = true;
     const key = `homeview-started:${dashboardPath() || ''}`;
-    try { if (sessionStorage.getItem(key)) return; sessionStorage.setItem(key, '1'); } catch (e) { /* no storage: once per load */ }
+    try { if (sessionStorage.getItem(key)) return false; sessionStorage.setItem(key, '1'); } catch (e) { /* no storage: once per load */ }
     const order = asList(this._config?.order), here = this._config?.path || this._config?.page;
-    if (!order.length || here !== order[0] || this._editing) return;   // a link to another page is kept
+    if (!order.length || here !== order[0] || this._editing) return false;   // a link to another page is kept
     // the address this session opened with (HomeView loads before Home Assistant turns the dashboard's
     // root into its first page): a page of this dashboard typed or linked (…/widgets) is kept too;
     // the root, or arriving from another panel (the sidebar), gets the start page
     const first = String(HomeViewPage._firstPath || '').split('/').filter(Boolean);
     const dash = location.pathname.split('/').filter(Boolean)[0];
-    if (first[0] === dash && first.length > 1 && first[1] !== '0') return;
+    if (first[0] === dash && first.length > 1 && first[1] !== '0') return false;
     const want = startPage(this._config.options || {}, (window.innerWidth || 1024) < 600);
-    if (want && want !== here && order.includes(want)) navigate(want, true);
+    if (!want || want === here || !order.includes(want)) return false;
+    navigate(want, true);
+    return true;
   }
 
   _go(step) {
@@ -7460,6 +7733,7 @@ function ownsSideways(path, stop) {
   return false;
 }
 HomeViewPage._firstPath = typeof location !== 'undefined' ? location.pathname : '';   // see _startPage
+const START_WAIT_MS = 1500;   // see _buildIfStaying
 customElements.get('homeview-page') || customElements.define('homeview-page', HomeViewPage);
 
 /* ============================================================================================
@@ -7821,13 +8095,18 @@ class HomeViewStrategy extends HTMLElement {
    *  (from:), the on-screen edits, whether there are energy settings. */
   static async _input(config, hass) {
     let { type, ...options } = config || {};
+    // the Energy settings are asked for at once, alongside the settings below (the same cached read
+    // as the pages' — the header's energy pill, the Energy page — so not wasted without an Energy page)
+    const prefsP = energyPrefsNow(hass);
     // from: <dashboard> — another dashboard's settings and pages, this one's own edits on top
     if (options.from) options = (await resolveFrom(hass, options)).merged;
     // a YAML dashboard: the settings changed in the UI (kept in "<dashboard>-edits") on top
     else if (isYamlDash(hass) && options.ui_edits !== false) options = applyEdits(options, await loadEdits(hass, undefined, true));
+    // the dashboard's font: asked for now, a second or so before the first page is built
+    try { fontStack(options.font); fontStack(options.widgets?.font); } catch (e) { /* the page says what's wrong */ }
     let hasEnergy = false;
     if (strategyPages(options).wanted.includes('energy')) {
-      const prefs = await energyPrefsNow(hass);   // the same cached read as the pages'
+      const prefs = await prefsP;
       hasEnergy = !!(prefs?.energy_sources?.length || prefs?.device_consumption?.length);
       if (options.energy) hasEnergy = true;
     }

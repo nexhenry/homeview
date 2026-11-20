@@ -103,7 +103,8 @@ test('a tap opens the sheet; a hold, tap: more-info or calendar_days: false open
 test('the sheet\'s days are fetched once (when it opens) and then come from the cache', async () => {
   let calls = 0;
   const h = makeHass();
-  h.callApi = async (method, path) => { calls++; assert.match(path, /^calendars\/calendar\.shared\?start=/); return [{ summary: 'Swim', start: { dateTime: at(1, 9).toISOString() }, end: { dateTime: at(1, 10).toISOString() } }]; };
+  h.callApi = async (method, path) => { calls++; assert.match(path, /^calendars\/calendar\.shared\?start=/); const t = Date.now() + 86400e3;   // tomorrow by the real clock (getEvents drops what has ended)
+    return [{ summary: 'Swim', start: { dateTime: new Date(t).toISOString() }, end: { dateTime: new Date(t + 3600e3).toISOString() } }]; };
   let done = 0;
   const cb = () => { done++; };
   assert.equal(hv.getEvents(h, ['calendar.shared'], 31, cb), undefined);

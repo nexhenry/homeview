@@ -6,7 +6,7 @@ import { readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { loadHomeView, makeHass, El } from './harness.mjs';
+import { loadHomeView, makeHass, El, tapIn } from './harness.mjs';
 
 // the harness's stubs, then a copy of the file that also exports the primitives' helpers
 await loadHomeView();
@@ -277,7 +277,7 @@ async function answer(act, yes = true) {
     const p = act();
     await sleep(5);
     const pop = made.find((e) => e.className === 'pop cf') || null;
-    if (pop) { await sleep(470); pop._q[yes ? '[data-yes]' : '[data-no]'].fire('click'); }
+    if (pop) { await sleep(620); tapIn(pop, pop._q[yes ? '[data-yes]' : '[data-no]']); }
     await p;
     return pop;
   } finally { document.createElement = create; }
