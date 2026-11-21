@@ -1,5 +1,5 @@
 # Every HomeView option, with an example value. All of them are optional: a dashboard needs only
-# `type: custom:homeview`. What each one does, its default and the version it came in: README.md →
+# `type: custom:homeview`. What each one does, its default and the version it came in: docs/configuration.md →
 # All options (page files: custom_pages/README.md → Every key).
 # Generated from schema/options.json by scripts/gen-docs.mjs: change the schema, not this file.
 strategy:

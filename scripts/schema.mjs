@@ -351,7 +351,7 @@ export function table(schema, rows, { first = 'Option', withFor = false } = {}) 
   return lines.join('\n');
 }
 
-/** README.md's generated block: a table per group. */
+/** docs/configuration.md's generated block: a table per group. */
 export function optionsMarkdown(schema) {
   const parts = [];
   for (const g of schema.groups) {

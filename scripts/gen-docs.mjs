@@ -1,5 +1,5 @@
 // Writes the option docs from schema/options.json (the one place the options are kept):
-//   README.md               the "All options" tables (between its GENERATED options markers)
+//   docs/configuration.md   the "All options" tables (between its GENERATED options markers)
 //   custom_pages/README.md  the page-file key tables (between its GENERATED page-keys markers)
 //   examples/full.yaml      every option with an example value
 //
@@ -15,7 +15,7 @@ import { ROOT, SCHEMA_FILE, loadSchema, fullYaml, optionsMarkdown, pageKeysMarkd
 
 const HEADER = [
   '# Every HomeView option, with an example value. All of them are optional: a dashboard needs only',
-  '# `type: custom:homeview`. What each one does, its default and the version it came in: README.md →',
+  '# `type: custom:homeview`. What each one does, its default and the version it came in: docs/configuration.md →',
   '# All options (page files: custom_pages/README.md → Every key).',
   '# Generated from schema/options.json by scripts/gen-docs.mjs: change the schema, not this file.',
 ];
@@ -23,7 +23,9 @@ const HEADER = [
 /** { relative path: the text it should have } */
 export function generate(schema = loadSchema(), read = (f) => readFileSync(join(ROOT, f), 'utf8')) {
   return {
-    'README.md': replaceBlock(read('README.md'), 'options', optionsMarkdown(schema), 'README.md'),
+    // the schema's links are from the repository's root (custom_pages/README.md#…); this file is in docs/
+    'docs/configuration.md': replaceBlock(read('docs/configuration.md'), 'options',
+      optionsMarkdown(schema).replace(/\]\((?!https?:|#|\.\.\/)([^)\s]+)\)/g, '](../$1)'), 'docs/configuration.md'),
     'custom_pages/README.md': replaceBlock(read('custom_pages/README.md'), 'page-keys', pageKeysMarkdown(schema), 'custom_pages/README.md'),
     'examples/full.yaml': fullYaml(schema, { header: HEADER }),
   };
