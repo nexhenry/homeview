@@ -13,6 +13,20 @@ strategy:
   theme: auto                     # Light or dark; auto follows Home Assistant on each screen. Home
                                   # Assistant's cards on HomeView's pages take HomeView's look too: light,
                                   # dark or the night face
+  style: classic                  # The look. glass (Liquid Glass): tiles and controls are translucent
+                                  # materials over a soft wallpaper in each page's colours; the page dots, the
+                                  # ✕ and the dimmed page behind a sheet use a live blur. classic: the solid
+                                  # look HomeView had before 0.10. Or an entity whose state says which (Glass
+                                  # / Classic, any case; anything else, unknown or unavailable: glass): the
+                                  # pages switch when it changes, without reloading. A screen's own *Look on
+                                  # this screen* (settings) wins. See Look (default: glass)
+  # style: input_select.dashboard_look   # an Admin-page switch (options Glass, Classic)
+  glass:                          # Fine-tuning for style: glass; every key optional
+    live_blur: auto               # The few live blurs: the page dots, the ✕, the full-screen button, a toast
+                                  # and the dimmed page behind a sheet. auto: on, wall tablets included; never
+                                  # at night, in edit mode or with reduced transparency. false: none
+                                  # (everything else stays glass)
+    photo_aura: true              # Widgets: the photo's colours fill the board behind the clock. Off at night
   # Which pages, in this order (also the swipe order). rooms = a page per family member's room (with no member
   # rooms, the all-rooms directory). Also all_rooms, people and your own pages' paths. Old names still work:
   # family = living, members = rooms. A page with nothing to show is left out
@@ -359,8 +373,10 @@ strategy:
                                   # like a landscape tablet even when it's taller than wide; fill = the whole
                                   # window height. Touch screens aren't changed
   screensaver: auto               # A big clock after 2 minutes without a touch: auto = touch tablets only,
-                                  # true = every screen, false = never, or the keys below
+                                  # true = every screen, false = never, or the keys below. Or a page to open
+                                  # instead of the clock (widgets, or page: below)
   # screensaver: { idle: 120, color: '#4D7DB8', pages: [home, living] }
+  # screensaver: { page: widgets }   # Widgets after 2 minutes, instead of the clock
   night: input_boolean.night_mode   # The night face (see Night): an entity (night while it's on), auto (the
                                     # sun is down and it's 9 pm or later, until morning), or { from, to }
                                     # every day (default: false)

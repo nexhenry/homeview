@@ -43,6 +43,23 @@
       "example": "auto"
     },
     {
+      "name": "style", "group": "general", "type": "string | entity", "values": ["glass", "classic"], "default": "glass", "since": "0.10.0", "editor": true,
+      "description": "The look. `glass` (Liquid Glass): tiles and controls are translucent materials over a soft wallpaper in each page's colours; the page dots, the ✕ and the dimmed page behind a sheet use a live blur. `classic`: the solid look HomeView had before 0.10. Or an entity whose state says which (`Glass` / `Classic`, any case; anything else, unknown or unavailable: glass): the pages switch when it changes, without reloading. A screen's own *Look on this screen* (settings) wins. See [Look](#look-glass-or-classic).",
+      "example": "classic",
+      "alt": [ { "example": "input_select.dashboard_look", "note": "an Admin-page switch (options Glass, Classic)" } ]
+    },
+    {
+      "name": "glass", "group": "general", "type": "object", "since": "0.10.0",
+      "description": "Fine-tuning for `style: glass`; every key optional.",
+      "keys": [
+        { "name": "live_blur", "type": "string | boolean", "values": ["auto", true, false], "default": "auto", "since": "0.10.0", "description": "The few live blurs: the page dots, the ✕, the full-screen button, a toast and the dimmed page behind a sheet. `auto`: on, wall tablets included; never at night, in edit mode or with reduced transparency. `false`: none (everything else stays glass)." },
+        { "name": "photo_aura", "type": "boolean", "default": true, "since": "0.10.0", "description": "Widgets: the photo's colours fill the board behind the clock. Off at night." },
+        { "name": "wallpaper", "type": "string", "values": ["aura", "plain"], "default": "aura", "since": "0.10.0", "description": "`aura`: a soft wallpaper in the page's colours behind the glass; `plain`: the classic gradient." },
+        { "name": "screens", "type": "string[]", "since": "0.10.0", "description": "Only these logins get glass (a person entity or a login's name, as in `guest.screens`); the others keep classic." }
+      ],
+      "example": { "live_blur": "auto", "photo_aura": true }
+    },
+    {
       "name": "pages", "group": "general", "type": "page[]", "default": ["widgets", "home", "living", "rooms", "energy", "cameras"], "since": "0.1.0", "editor": true,
       "description": "Which pages, in this order (also the swipe order). `rooms` = a page per family member's room (with no member rooms, the all-rooms directory). Also `all_rooms`, `people` and your own pages' paths. Old names still work: `family` = `living`, `members` = `rooms`. A page with nothing to show is left out.",
       "example": ["widgets", "home", "living", "rooms", "energy", "cameras"]
@@ -480,15 +497,16 @@
     },
     {
       "name": "screensaver", "group": "screens", "type": "string | boolean | object", "values": ["auto"], "default": "auto", "since": "0.8.5",
-      "description": "A big clock after 2 minutes without a touch: `auto` = touch tablets only, `true` = every screen, `false` = never, or the keys below.",
+      "description": "A big clock after 2 minutes without a touch: `auto` = touch tablets only, `true` = every screen, `false` = never, or the keys below. Or a page to open instead of the clock (`widgets`, or `page:` below).",
       "keys": [
+        { "name": "page", "type": "page", "since": "0.10.0", "description": "Open this page after the idle time instead of showing the clock (touch tablets only): no overlay, its tiles and pills work at once. Not while a sheet, Home Assistant's dialog or a full-screen camera or video is open, or in edit mode (the wait starts again); already there: nothing. `screensaver: widgets` is the short form." },
         { "name": "idle", "type": "number", "default": 120, "since": "0.8.5", "description": "Seconds without a touch (at least 10)." },
         { "name": "color", "type": "string", "default": "#4D7DB8", "since": "0.8.5", "description": "The clock's colour." },
         { "name": "pages", "type": "page[]", "auto": "every page but Cameras", "since": "0.8.5", "description": "Only on these pages." },
         { "name": "enabled", "type": "boolean", "default": true, "since": "0.8.5", "description": "`false` = off." }
       ],
       "example": "auto",
-      "alt": [ { "example": { "idle": 120, "color": "#4D7DB8", "pages": ["home", "living"] } } ]
+      "alt": [ { "example": { "idle": 120, "color": "#4D7DB8", "pages": ["home", "living"] } }, { "example": { "page": "widgets" }, "note": "Widgets after 2 minutes, instead of the clock" } ]
     },
     {
       "name": "night", "group": "screens", "type": "entity | string | object | false", "values": ["auto"], "default": false, "since": "0.9.0",
@@ -647,7 +665,7 @@
         { "name": "color", "type": "color", "since": "0.8.13", "for": "entity (pills), button, fader, chart", "description": "Its colour while lit (a chart: its line)." },
         { "name": "name_off", "type": "string", "since": "0.8.13", "for": "entity (pills), button", "description": "Its name while it isn't on." },
         { "name": "tap", "type": "string", "since": "0.2.0", "for": "entity, agenda, next_event", "description": "`more-info`, `toggle`, `none`, or a page path. Calendar tiles: `more-info` opens Home Assistant's calendar dialog instead of the calendar sheet (`calendar_days`)." },
-        { "name": "hold", "type": "string | action", "since": "0.8.8", "for": "entity, button", "description": "`more-info`, `toggle` (switch it on a hold), `none`, a page path, or (a button) `{ action, data, target }`. `tap: more-info` + `hold: toggle`: a stray tap can't switch it." },
+        { "name": "hold", "type": "string | action", "since": "0.8.8", "for": "entity, button", "description": "`more-info`, `toggle` (switch it on a hold), `none`, a page path, or (a button) `{ action, data, target, confirm }`, where `confirm` (a question or `{ text, action }`, unreleased) asks in HomeView's sheet before it runs (red when the button is). `tap: more-info` + `hold: toggle`: a stray tap can't switch it. In the Home Assistant app a hold plays a heavy haptic, a button's tap a light one." },
         { "name": "show_room", "type": "boolean", "default": true, "since": "0.8.13", "for": "entity", "description": "`false` = its state instead of its room, where tiles show rooms." },
         { "name": "power", "type": "entity", "since": "0.8.13", "for": "entity", "description": "A power sensor: \"On · 0.72 kW\" while it draws." },
         { "name": "confirm", "type": "boolean | string | object", "keys_ref": "confirm", "since": "0.8.13", "for": "entity, button", "description": "Ask first, in HomeView's own sheet: `true`, `turn_on` / `turn_off` (only before that), your question, or `{ text, only, action }`. It guards the gesture that switches (the tap, or the hold with `hold: toggle`)." },

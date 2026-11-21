@@ -120,32 +120,41 @@ details page; a tap anywhere else still switches its lights, and a hold still op
 
 ## A real home, fine-tuned
 
-What one family's wall tablet looks like after taking the same design further by hand: the
-dashboard that HomeView is modelled on, on a Pixel Tablet (1280 × 800, full screen). HomeView builds this kind of page from your home automatically. Use these as ideas
-for your own fine-tuning: favourites, `customize`, your own sections and pages (a pond, a
-media room), energy time windows. Camera pictures, photos, calendar and school details and the town are blurred, and family names are changed, for privacy.
+What HomeView builds for one real family home, from its own Home Assistant and its HomeView settings
+(favourites, `customize`, a few sections and pages of its own): no hand-made dashboard, just the
+strategy and its config. Use it as ideas for your own fine-tuning. Camera pictures, photos, calendar
+and school details are blurred, and family and place names are changed, for privacy.
 
-**Widgets**, the wall tablet's resting page: a big date, a clock, the family photo slideshow,
-what's next and the weather.
+### Liquid Glass
 
-![Widgets: big date with sunrise / sunset, analog clock, photo slideshow, up next and the weather](docs/screenshots/home-widgets.png)
+Glass is HomeView's look since 0.10 (`style: classic` brings back the solid one): a soft wallpaper in
+each page's colours, translucent tiles, lit tiles that glow, and on Widgets the photo's colours behind the
+clock. On the family's wall tablet (a Pixel Tablet, 1280 × 800, full screen), light and dark:
 
-| Home | Living |
+| Light | Dark |
 |---|---|
-| ![Home: control chips, status pills, weather, air quality, camera, doors, lights, clock and the next event](docs/screenshots/home-home.png) | ![Living: every shared room in its own colour, with its devices](docs/screenshots/home-living.png) |
-| **A person's page** (their room, devices and next event) | **Another person's page** (with a school-day tile) |
-| ![A person's page: their room's temperature, comfort and doors, their lights and devices, the next family event](docs/screenshots/home-person-mia.png) | ![A person's page: their room, TV, fan, window and door, the next school event and whether today is a school day](docs/screenshots/home-person-zoe.png) |
-| **A room's page** (hold the room) | **Energy** (full screen) |
-| ![Living Room: 24-hour charts against outdoor, then every device grouped](docs/screenshots/home-room.png) | ![Energy: live flow, Powerwall, backup time, peak / partial-peak off-grid, solar self-sufficiency and the power-outage list](docs/screenshots/home-energy.png) |
-| **Your own page: a pond** | **Your own page: media** |
-| ![Pond: pumps, air, UV, valves and garden with live power](docs/screenshots/home-pond.png) | ![Media: karaoke controls, TV remote, effect presets and mixer levels](docs/screenshots/home-media.png) |
+| ![Widgets in glass, light: big date, analog clock, the photo frame, Up next and the weather on clear panes over the photo's colours](docs/screenshots/glass-widgets-light.webp) | ![Widgets in glass, dark](docs/screenshots/glass-widgets-dark.webp) |
+| ![Home in glass, light: control chips, status pills, weather, air quality, camera, doors, lights, clock and the next event](docs/screenshots/glass-home-light.webp) | ![Home in glass, dark](docs/screenshots/glass-home-dark.webp) |
+| ![Living in glass, light: every shared room in its own colour, with its devices](docs/screenshots/glass-living-light.webp) | ![Living in glass, dark](docs/screenshots/glass-living-dark.webp) |
+| ![Energy in glass, light: live flow, right-now cells, backup time and off-grid shares](docs/screenshots/glass-energy-light.webp) | ![Energy in glass, dark](docs/screenshots/glass-energy-dark.webp) |
+| ![A pill's pop-up in glass, light: the Locks sheet over the blurred page](docs/screenshots/glass-locks-light.webp) | ![A pill's pop-up in glass, dark](docs/screenshots/glass-locks-dark.webp) |
 
-**An admin page** of the home's own settings (modes, comfort thresholds, light and fan timing,
-climate periods, vacation, the photobeam and the security messages), each a tap or slider on
-an HA helper. In HomeView you'd make a page like this with `custom_pages` and your own tiles.
-Family names are changed here and the hub's address is hidden.
+### On a phone
 
-![Admin: modes, climate thresholds and periods, light and fan timing, vacation, photobeam and security messages](docs/screenshots/home-admin.png)
+The same home on an iPhone: Home first, then Living, a person's page and Energy.
+
+| Home | Living | A person's page | Energy |
+|---|---|---|---|
+| ![Home on a phone: chips, status pills, favourites, weather and the camera](docs/screenshots/phone-home.webp) | ![Living on a phone: favourites, then each room with its devices](docs/screenshots/phone-living.webp) | ![A person's page on a phone: their location, their room and its devices](docs/screenshots/phone-person-mia.webp) | ![Energy on a phone: the live flow and the right-now cells](docs/screenshots/phone-energy.webp) |
+
+### Your own pages
+
+Pages made with `custom_pages` and your own tiles: a pond (pumps, air, UV and their live power) and a
+media room (karaoke controls, a TV remote, effect presets and mixer levels).
+
+| Pond | Media |
+|---|---|
+| ![Pond: pumps, air, UV and garden with live power](docs/screenshots/glass-pond-light.webp) | ![Media: karaoke controls, TV remote, effect presets and mixer levels](docs/screenshots/glass-media-light.webp) |
 
 ## What you need
 
@@ -262,6 +271,41 @@ Leave HomeView for another dashboard and the header and sidebar come back by the
 
 No other kiosk card is needed. (If you use [kiosk-mode](https://github.com/NemesisRE/kiosk-mode)
 already, set `kiosk: false` so the two don't fight.)
+
+### Look: glass or classic
+
+Since 0.10, HomeView is in **glass** (Apple's Liquid Glass): tiles and controls are translucent materials
+over a soft wallpaper in each page's colours, lit tiles glow in their colour, and the page dots, the ✕ and
+the dimmed page behind a pop-up use a live blur. The wallpaper carries the blur, so tiles cost no more than
+before: only those few floating parts blur live, and none at night or in edit mode.
+
+**To keep the look you had before 0.10, set `style: classic`** (in YAML, or Look → Classic in the settings).
+
+`style:` can also be an entity, for a switch on a page: `style: input_select.dashboard_look` with the options
+Glass and Classic (any case; any other state, unknown or unavailable means glass). The pages change look as
+soon as it changes, without reloading.
+
+Which look a screen gets, first match wins: that screen's own **Look on this screen** (settings, saved in its
+browser) → `style:` (fixed or the entity's state; glass if not set), with `glass.screens` keeping glass to the
+logins listed. Within glass, **Reduce transparency** (the screen's switch or the system's) makes surfaces
+solid.
+
+```yaml
+style: glass            # glass (default) | classic
+glass:                  # optional
+  live_blur: auto       # auto: on, wall tablets included | false: no live blur at all
+  photo_aura: true      # Widgets: the photo's colours behind the clock (off at night)
+  wallpaper: aura       # aura | plain (the classic gradient behind the glass)
+  screens: [person.wall_tablet]   # only these logins get glass
+```
+
+- **Reduce transparency.** Each screen can turn it on for itself: settings → *Reduce transparency on this
+  screen* (saved in that browser). Glass then keeps its shapes with solid surfaces and no blur. Use it on an
+  iPhone or iPad: Safari doesn't pass the system's Reduce Transparency on to web pages. Android and desktop
+  browsers that do (`prefers-reduced-transparency`) get it automatically, and *Increase contrast* /
+  high-contrast modes get solid surfaces with a visible edge.
+- **Contrast.** Every text and icon colour is checked over every page colour, in light, dark and night,
+  as if there were no blur at all (WCAG AA: 4.5 : 1 for text, 3 : 1 for icons).
 
 ### Night
 
@@ -585,6 +629,12 @@ key](custom_pages/README.md#every-key).
 | `type` | `custom:homeview`, `custom:homeview-dev` | required | 0.1.0 | The dashboard strategy. The only line you need; every other option is optional. (`custom:homeview-dev`: a development copy made by `scripts/dev-build.sh`.) |
 | `title` | string | your home's name (Settings → System → General) | 0.1.0 | The Home page's title and the dashboard's name. |
 | `theme` | `auto`, `light`, `dark` | `auto` | 0.1.0 | Light or dark; `auto` follows Home Assistant on each screen. Home Assistant's cards on HomeView's pages take HomeView's look too: light, dark or the night face. |
+| `style` | `glass`, `classic`, entity | `glass` | 0.10.0 | The look. `glass` (Liquid Glass): tiles and controls are translucent materials over a soft wallpaper in each page's colours; the page dots, the ✕ and the dimmed page behind a sheet use a live blur. `classic`: the solid look HomeView had before 0.10. Or an entity whose state says which (`Glass` / `Classic`, any case; anything else, unknown or unavailable: glass): the pages switch when it changes, without reloading. A screen's own *Look on this screen* (settings) wins. See [Look](#look-glass-or-classic). |
+| `glass` | object | — | 0.10.0 | Fine-tuning for `style: glass`; every key optional. |
+| `glass.live_blur` | `auto`, `true`, `false`, boolean | `auto` | 0.10.0 | The few live blurs: the page dots, the ✕, the full-screen button, a toast and the dimmed page behind a sheet. `auto`: on, wall tablets included; never at night, in edit mode or with reduced transparency. `false`: none (everything else stays glass). |
+| `glass.photo_aura` | boolean | `true` | 0.10.0 | Widgets: the photo's colours fill the board behind the clock. Off at night. |
+| `glass.wallpaper` | `aura`, `plain` | `aura` | 0.10.0 | `aura`: a soft wallpaper in the page's colours behind the glass; `plain`: the classic gradient. |
+| `glass.screens` | string list | — | 0.10.0 | Only these logins get glass (a person entity or a login's name, as in `guest.screens`); the others keep classic. |
 | `pages` | page list | `[widgets, home, living, rooms, energy, cameras]` | 0.1.0 | Which pages, in this order (also the swipe order). `rooms` = a page per family member's room (with no member rooms, the all-rooms directory). Also `all_rooms`, `people` and your own pages' paths. Old names still work: `family` = `living`, `members` = `rooms`. A page with nothing to show is left out. |
 | `pages_config` | map | — | 0.1.0 | Per page: a page id (`home`, `living` …), a person page's path (`member-zoe`) or your own page's path. |
 | `pages_config.<page>.title` | string | — | 0.1.0 | The page's title and its name in the page bar (✎ in edit mode). |
@@ -787,7 +837,8 @@ key](custom_pages/README.md#every-key).
 | `start.phone` | page | `home` | 0.9.0 | Phones (narrower than 600 px). |
 | `start.tablet` | page | the first page | 0.9.0 | Tablets and browsers. |
 | `desktop_layout` | `tablet`, `fill` | `tablet` | 0.9.0 | A desktop browser window (no touch screen, at least 1000 px wide) lays out like a landscape tablet even when it's taller than wide; `fill` = the whole window height. Touch screens aren't changed. |
-| `screensaver` | `auto`, boolean, object | `auto` | 0.8.5 | A big clock after 2 minutes without a touch: `auto` = touch tablets only, `true` = every screen, `false` = never, or the keys below. |
+| `screensaver` | `auto`, boolean, object | `auto` | 0.8.5 | A big clock after 2 minutes without a touch: `auto` = touch tablets only, `true` = every screen, `false` = never, or the keys below. Or a page to open instead of the clock (`widgets`, or `page:` below). |
+| `screensaver.page` | page | — | 0.10.0 | Open this page after the idle time instead of showing the clock (touch tablets only): no overlay, its tiles and pills work at once. Not while a sheet, Home Assistant's dialog or a full-screen camera or video is open, or in edit mode (the wait starts again); already there: nothing. `screensaver: widgets` is the short form. |
 | `screensaver.idle` | number | `120` | 0.8.5 | Seconds without a touch (at least 10). |
 | `screensaver.color` | string | `'#4D7DB8'` | 0.8.5 | The clock's colour. |
 | `screensaver.pages` | page list | every page but Cameras | 0.8.5 | Only on these pages. |

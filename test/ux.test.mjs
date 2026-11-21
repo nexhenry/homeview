@@ -13,7 +13,7 @@ import { loadHomeView, makeHass, El, win, tapIn } from './harness.mjs';
 await loadHomeView();
 const NAMES = ['buildModel', 'R', 'PILLS', 'PAGES', 'HomeViewPage', 'HomeViewStrategy', 'customPages', 'expandVars', 'missingEntities',
   'cached', 'cache', 'sweepCache', 'getStatToday', 'getEnergyPrefs', 'energyPrefsNow', 'applyKiosk', 'trimSlides', 'SLIDE_KEEP',
-  'availSig', 'sharedModel', 'deviceIndex', 'pairLoad', 'hvPrompt', 'isGuest', 'guestHidden', 'chipList', 'comfortKey', 'HV_TONES', 'KIND_TONES'];
+  'availSig', 'sharedModel', 'deviceIndex', 'pairLoad', 'hvPrompt', 'isGuest', 'guestHidden', 'chipList', 'comfortKey', 'HV_TONES', 'KIND_TONES', 'hvScreensaver'];
 const here = dirname(fileURLToPath(import.meta.url));
 const dir = mkdtempSync(join(tmpdir(), 'homeview-ux-'));
 writeFileSync(join(dir, 'hv.mjs'), `${readFileSync(join(here, '..', 'dist', 'homeview.js'), 'utf8')}\nexport { ${NAMES.join(', ')} };\n`);
@@ -460,4 +460,36 @@ test('guest view: a hidden page says so; Widgets has no agenda and shows the sam
   assert.equal(w.boardClass, 'noagenda');
   const off = hv.PAGES.widgets(h, m, { ...cfg, guest: { entity: 'input_boolean.guests_here', slideshow: false } }, {}, { _guest: true, rebuilder() {} });
   assert.ok(!off.board.some((t) => t.kind === 'slideshow'));
+});
+
+test('screensaver: { page: widgets } opens Widgets after the idle time (no clock); not under a sheet, in edit mode or when already there', () => {
+  const ss = hv.hvScreensaver;
+  const mt = win.maxTouchPoints; win.maxTouchPoints = 5;   // a touch tablet (screen 1280 × 800 in the harness)
+  const mk = (path, opts, extra = {}) => ({ isConnected: true, _config: { page: path, path, order: ['widgets', 'home', 'living'], options: opts }, _interacting: () => false, _editing: false, ...extra });
+  const appended = []; const ap = document.body.appendChild; document.body.appendChild = (e) => { appended.push(e); return e; };
+  try {
+    history.pushed.length = 0;
+    ss.update(mk('home', { screensaver: { page: 'widgets', idle: 30 } }));
+    ss._idleFor(29e3); ss._tick();
+    assert.deepEqual(history.pushed, [], 'not yet');
+    ss._idleFor(31e3); ss._tick();
+    assert.deepEqual(history.pushed, [['replace', '/test-dash/widgets']]);
+    assert.equal(appended.length, 0, 'no clock overlay');
+    history.pushed.length = 0;
+    ss.update(mk('home', { screensaver: 'widgets' }, { _interacting: () => true }));   // a sheet is open
+    ss._idleFor(200e3); ss._tick();
+    assert.deepEqual(history.pushed, []);
+    ss.update(mk('widgets', { screensaver: 'widgets' }));   // already there
+    ss._idleFor(200e3); ss._tick();
+    assert.deepEqual(history.pushed, []);
+    ss.update(mk('home', { screensaver: 'widgets' }, { _editing: true }));   // edit mode: off altogether
+    ss._idleFor(200e3); ss._tick();
+    assert.deepEqual(history.pushed, []);
+    // without page: the clock overlay as before
+    ss.update(mk('home', { screensaver: true }));
+    ss._idleFor(200e3); ss._tick();
+    assert.equal(appended.length, 1);
+    assert.equal(appended[0].id, 'homeview-screensaver');
+    assert.deepEqual(history.pushed, []);
+  } finally { ss.update(null); document.body.appendChild = ap; win.maxTouchPoints = mt; }
 });

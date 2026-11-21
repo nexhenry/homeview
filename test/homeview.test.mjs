@@ -297,10 +297,10 @@ test('light mode: coloured words, state words and the alert fill reach 4.5 : 1 o
   assert.ok(worst >= 4.5);
 });
 
-test('dark mode keeps the bright tones', () => {
+test('dark mode keeps the bright tones; a filled red with white text is darker (6.2 : 1; #FF3B30 was 3.55)', () => {
   const p = hv.palette(28, true);
   assert.equal(p['--hv-ok-tx'], '#34C759');
-  assert.equal(p['--hv-alert-fill'], '#FF3B30');
+  assert.equal(p['--hv-alert-fill'], '#C41E18');
 });
 
 // ---- 10: a desktop window taller than wide lays out like a landscape tablet --------------------

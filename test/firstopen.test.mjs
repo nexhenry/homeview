@@ -228,17 +228,18 @@ test('slideshow: the photo loaded ahead is what\'s shown (not loaded again); a p
   const layers = [];
   const box = { querySelector: (sel) => (sel === 'img' && layers.length ? {} : null), appendChild: (l) => { layers.push(l); }, querySelectorAll: () => layers.map((l) => ({ remove() {} })) };
   const tile = { shadowRoot: { querySelector: () => box }, visible: true };
-  const ce = document.createElement, img0 = globalThis.Image;
+  const ce = document.createElement, img0 = globalThis.Image, now0 = Date.now;
   globalThis.Image = Img;
   document.createElement = (t) => { if (t === 'img') return new Img(); const e = new El(t); e.append = (...c) => { e.children.push(...c); }; return e; };
+  Date.now = () => 12 * 60e3 * 1000 + 5000;   // a slot at the start of a shuffle pass: this photo and the next two in one pass
   try {
-    hv.R.slideshow.update(makeHass(), { folder: 'samples', interval: 60 }, tile);
-    await sleep(10);
+    // (at a shuffle's pass boundary the next photo can be this one, still loading: the next tick shows it)
+    for (let i = 0; i < 3 && !layers.length; i++) { hv.R.slideshow.update(makeHass(), { folder: 'samples', interval: 60 }, tile); await sleep(10); }
     assert.equal(layers.length, 1);
     const [shown] = layers[0].children;
     assert.ok(shown instanceof Img && !shown.copy, 'the element loaded ahead');
-    assert.equal(loads.length, 3, 'the current photo and the next two, each once');
-    assert.equal(new Set(loads).size, 3);
+    assert.ok(loads.length >= 2 && loads.length <= 3, 'the current photo and the next two');
+    assert.equal(new Set(loads).size, loads.length, 'each once');
     // a portrait photo: the loaded one (contain) over a blurred copy
     const st = hv.slideState('samples');
     const url = loads[0], pre = st.imgs.get(url);   // loaded first: the next photo (then the one after, then this one)
@@ -251,7 +252,7 @@ test('slideshow: the photo loaded ahead is what\'s shown (not loaded again); a p
     assert.equal(photo.style.objectFit, 'contain');
     assert.ok(blur.copy && blur.className === 'blur');
     assert.ok(st.imgs.size <= 4);
-  } finally { document.createElement = ce; globalThis.Image = img0; }
+  } finally { document.createElement = ce; globalThis.Image = img0; Date.now = now0; }
 });
 
 // ---- Home's camera: the first still once the page is on screen; the loaded still itself is shown ----

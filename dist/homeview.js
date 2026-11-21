@@ -11,7 +11,7 @@
  * Widgets, Home, Living, a page per person (Rooms), a details page per room, Energy and Cameras. Everything is
  * optional and can be tuned in the strategy config — see README.md.
  */
-const HV_VERSION = '0.9.2';
+const HV_VERSION = '0.10.0';
 // where this file was loaded from (to re-download it after an update)
 const HV_URL = (() => { try { return import.meta.url; } catch (e) { return null; } })();
 
@@ -80,7 +80,7 @@ const KNOWN_OPTIONS = ['type', 'title', 'theme', 'pages', 'pages_config', 'room_
   'people_chips', 'energy', 'tile_size', 'max_columns', 'swipe', 'custom_pages', 'edit_button', 'update_notice',
   'kiosk', 'kiosk_chip', 'members', 'living_rooms', 'widgets', 'avatars', 'phone_favorites', 'access',
   'comfort', 'comfort_thermostat', 'comfort_margin', 'comfort_limits', 'screensaver', 'rows_on_screen', 'ui_edits', 'from', 'edits', 'font', 'warnings',
-  'desktop_layout', 'start', 'night', 'page_dots', 'guest', 'calendar_days', 'fullscreen_button', 'location_stale_minutes'];   // energy.* : see the energy page
+  'desktop_layout', 'start', 'night', 'page_dots', 'guest', 'calendar_days', 'fullscreen_button', 'location_stale_minutes', 'style', 'glass'];   // energy.* : see the energy page
 
 // What a room page / room row shows, in this order
 const ROOM_GROUPS = [
@@ -273,7 +273,7 @@ function textTones(dark) {
   const out = {};
   for (const [k, [l, on, d]] of Object.entries(TEXT_TONES)) { out[`--hv-${k}-tx`] = dark ? d : l; out[`--hv-${k}-tx-on`] = dark ? d : on; }
   // a filled red pill / chip with white text: 5.4 : 1 in light mode (dark mode as before)
-  out['--hv-alert-fill'] = dark ? '#FF3B30' : '#D70015';
+  out['--hv-alert-fill'] = dark ? '#C41E18' : '#D70015';   // dark: 6.2 : 1 under white (#FF3B30 was 3.55)
   // icons: "on" a warm yellow, "needs a look" a deeper amber in light mode, so they read apart
   // (1.77 : 1; they were 1.07); the offline badge's fill: 3.4 : 1 or more against any tile, its "!" 4.7 : 1
   out['--hv-on-ic'] = '#FFB800';
@@ -298,6 +298,9 @@ function haBase(h, dark, sat) {
     '--hv-fg-rgb': hslTriple(h, ...fg), '--hv-fg2-rgb': hslTriple(h, ...fg2), '--hv-tile-rgb': hslTriple(h, ...tile),
     '--hv-accent-rgb': hslTriple(h, ...acc),
     '--hv-on-accent': dark ? `hsl(${h} 30% 12%)` : '#fff',
+    // a filled button / avatar with white text (Save, Update, a letter avatar): the accent was 1.7–3 : 1
+    // under white on warm, yellow and green hues; this one is 4.6 : 1 or more on every hue
+    '--hv-accent-fill': `hsl(${h} 78% ${capL(h, 78, 50, 0, 0.175)}%)`,
   };
 }
 
@@ -473,15 +476,259 @@ const styleVars = (vars) => Object.entries(vars).map(([k, v]) => `${k}:${v}`).jo
 const TONE_KEYS = new Set(Object.keys(textTones(false)));
 const _hueStyles = new Map();
 function hueStyle(h, dark, night = false) {
-  const k = `${h}|${!!dark}|${!!night}`;
+  const k = `${h}|${!!dark}|${!!night}|${lookKey(hvLook)}`;
   let s = _hueStyles.get(k);
   if (s === undefined) {
     const p = night ? nightPalette(1) : palette(h, dark);
+    // style: glass — the room's own glass surfaces (no wallpaper: that's the page's)
+    if (hvLook) { const { '--g-wall': _w, ...g } = glassPalette(night ? 28 : h, dark, night ? 0.6 : 1, night, hvLook); Object.assign(p, g); }
     s = Object.entries(p).filter(([key]) => !TONE_KEYS.has(key)).map(([key, v]) => `${key}:${v}`).join(';');
     if (_hueStyles.size > 500) _hueStyles.clear();
     _hueStyles.set(k, s);
   }
   return s;
+}
+
+/* ============================================================================================
+ * style: glass (default) — Liquid Glass. Three layers (spec: docs liquid-glass §2):
+ *   0 a static wallpaper "aura" behind every page (four radial gradients in the page's hue, each at a
+ *     fixed luminance band, on a position:fixed layer: never repainted on scroll);
+ *   1 content = a material: translucent fill + specular rim + sheen + lift, NO backdrop-filter (the
+ *     blur lives in the wallpaper: a translucent fill over a soft gradient looks like a live blur, free);
+ *   2 function = glass: pills, chips, buttons as glass capsules (no blur over the static wallpaper);
+ *     only the floating ones (page dots, ✕, full-screen button, toast) and the sheet backdrop blur live.
+ * style: classic = the look before 0.10 (every --g-* token unset: the CSS falls back to it).
+ * ========================================================================================== */
+const _lin = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+function hslRgb(h, s, l) {
+  h = ((h % 360) + 360) % 360; s /= 100; l /= 100;
+  const k = (n) => (n + h / 30) % 12, a = s * Math.min(l, 1 - l);
+  const f = (n) => l - a * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1));
+  return [f(0), f(8), f(4)];
+}
+const relLum = (rgb) => 0.2126 * _lin(rgb[0]) + 0.7152 * _lin(rgb[1]) + 0.0722 * _lin(rgb[2]);
+/** The lightness at which hsl(h s% l%) has a relative luminance within [lo, hi]: the wallpaper is
+ *  equally bright on every hue (yellow and blue), which is what keeps the contrast guarantees. */
+const _capL = new Map();
+function capL(h, s, l, lo, hi) {
+  const key = `${h}|${s}|${l}|${lo}|${hi}`;
+  let v = _capL.get(key);
+  if (v !== undefined) return v;
+  let n = 0, x = l;
+  while (relLum(hslRgb(h, s, x)) > hi && x > 0 && n++ < 400) x -= 0.25;
+  while (relLum(hslRgb(h, s, x)) < lo && x < 100 && n++ < 800) x += 0.25;
+  v = +x.toFixed(2);
+  if (_capL.size > 4000) _capL.clear();
+  _capL.set(key, v);
+  return v;
+}
+const hue360 = (x) => ((x % 360) + 360) % 360;
+/** The wallpaper: four blobs (h, h−45, h+190, h+20) over a base; night: one ember glow on near-black. */
+function glassWall(h, dark, sat, night) {
+  if (night) return `radial-gradient(70% 60% at 12% 100%, hsl(28 ${45 * sat}% ${capL(28, 45 * sat, 12, 0, 0.012)}% / .6), transparent 70%), hsl(28 ${20 * sat}% 3.5%)`;
+  // [hue offset, saturation, alpha, luminance band, position]: light Y .57–.69 over a .70–.74 base; dark Y .015–.04 over .004–.006
+  const blobs = dark
+    ? [[0, 75, .75, [0.03, 0.04], '62% 58% at 8% 0%'], [-45, 60, .6, [0.02, 0.03], '58% 62% at 96% 100%'], [190, 55, .55, [0.02, 0.03], '46% 52% at 0% 92%'], [20, 60, .5, [0.015, 0.025], '42% 46% at 92% 4%']]
+    : [[0, 90, .85, [0.57, 0.62], '62% 58% at 8% 0%'], [-45, 80, .8, [0.58, 0.63], '58% 62% at 96% 100%'], [190, 60, .7, [0.60, 0.65], '46% 52% at 0% 92%'], [20, 85, .7, [0.64, 0.69], '42% 46% at 92% 4%']];
+  const base = dark ? [25, 6, 0.004, 0.006] : [45, 90, 0.70, 0.74];
+  return blobs.map(([dh, sx, a, [lo, hi], pos]) => { const hh = hue360(h + dh), ss = sx * sat; return `radial-gradient(${pos}, hsl(${hh} ${ss}% ${capL(hh, ss, 50, lo, hi)}% / ${a}), transparent 70%)`; }).join(', ')
+    + `, hsl(${h} ${base[0] * sat}% ${capL(h, base[0] * sat, base[1], base[2], base[3])}%)`;
+}
+/**
+ * The glass tokens for a hue (page, room or section), merged over palette(): surfaces (--g-*), the
+ * text shades glass needs (darker secondary text over the wallpaper), light and depth. look (lookOf):
+ *   solid  reduced transparency (the screen's switch, prefers-reduced-transparency) or no
+ *          backdrop-filter: the same shapes, rims and wallpaper, opaque fills, no live blur
+ *   hc     increased contrast / forced colours: opaque, a visible edge, secondary text = primary
+ *   blur   the few live blurs (page dots, ✕, the full-screen button, toast, the sheet backdrop)
+ * Every alpha is sized to pass WCAG AA with no blur at all (a browser that says it blurs but doesn't).
+ */
+function glassPalette(h, dark, sat = 1, night = false, look = {}) {
+  const sheen = (a) => `linear-gradient(172deg, rgb(255 255 255 / ${a}) 0%, rgb(255 255 255 / 0) 46%)`;
+  const baseL = dark ? capL(h, 25 * sat, 6, 0.004, 0.006) : capL(h, 45 * sat, 90, 0.70, 0.74);
+  const solid = (c, a) => `color-mix(in srgb, ${c} ${Math.round(a * 100)}%, hsl(${h} ${(dark ? 25 : 45) * sat}% ${baseL}%))`;   // the fill over the wallpaper's base, opaque
+  let g;
+  if (night) {
+    const p = nightPalette(1);
+    g = { '--g-wall': glassWall(28, true, 0.6, true), '--g-tile': `color-mix(in srgb, ${p['--hv-tile']} 82%, transparent)`, '--g-tile-on': `color-mix(in srgb, ${p['--hv-tile-on']} 90%, transparent)`,
+      '--g-ctl': `color-mix(in srgb, ${p['--hv-pill']} 85%, transparent)`, '--g-ctl-on': `color-mix(in srgb, ${p['--hv-tile-on']} 90%, transparent)`,
+      '--g-sheen': 'none', '--g-sheen-on': 'none', '--g-sheen-alert': 'none',
+      '--g-rim': 'inset 0 1px 0 rgb(255 255 255 / .06), inset 0 0 0 .5px rgb(255 255 255 / .04)', '--g-rim-on': 'inset 0 1px 0 rgb(255 255 255 / .08)',
+      '--g-rim-img': 'inset 0 0 0 .5px rgb(255 255 255 / .06)', '--g-rim-alert': 'inset 0 1px 0 rgb(255 255 255 / .12)', '--g-rim-row': 'inset 0 1px 0 rgb(255 255 255 / .05)',
+      '--g-lift': '0 6px 18px -10px rgb(0 0 0 / .8)', '--g-lift-on': '0 6px 18px -10px rgb(0 0 0 / .8)', '--g-glow-geo': '0 0 0', '--g-glow-a': '0%',
+      '--g-lift-ctl': '0 0 0 transparent', '--g-lift-alert': '0 0 0 transparent', '--g-alert': '#B3261E',
+      '--g-float': `color-mix(in srgb, ${p['--hv-pill']} 92%, transparent)`, '--g-float-filter': 'none',
+      '--g-dim': 'rgb(0 0 0 / .55)', '--g-pop-filter': 'none', '--g-sheet': p['--hv-tile'], '--g-sheet-solid': p['--hv-tile'],
+      '--g-row': p['--hv-pill'], '--g-row-on': p['--hv-tile-on'],
+      '--g-line': p['--hv-line'], '--g-board': 'hsl(28 10% 5%)', '--g-veil': 'transparent', '--g-pane': `color-mix(in srgb, ${p['--hv-tile']} 70%, transparent)`,
+      '--g-bigshadow': 'none', '--g-edge-hc': 'rgb(255 255 255 / .5)',
+      '--g-tile-solid': p['--hv-tile'], '--g-tile-on-solid': p['--hv-tile-on'], '--g-ctl-solid': p['--hv-pill'], '--g-ctl-on-solid': p['--hv-tile-on'],
+      '--g-dim-solid': 'rgb(0 0 0 / .6)', '--g-pane-solid': p['--hv-tile'] };
+  } else if (!dark) {
+    g = { '--g-wall': glassWall(h, false, sat), '--hv-fg': `hsl(${h} 25% 14%)`, '--hv-fg2': `hsl(${h} 16% 28%)`, '--hv-icon': `hsl(${h} 18% 36%)`,
+      '--hv-on-fg': `hsl(${h} 65% 24%)`, '--hv-on-fg2': `hsl(${h} 50% 27%)`,
+      '--g-tile': `hsl(${h} ${35 * sat}% 96% / .40)`, '--g-tile-on': `hsl(${h} ${70 * sat}% 99.2% / .96)`,
+      '--g-ctl': `hsl(${h} ${50 * sat}% 99% / .50)`, '--g-ctl-on': `hsl(${h} ${70 * sat}% 99.2% / .92)`,
+      '--g-sheen': sheen(.42), '--g-sheen-on': sheen(.6), '--g-sheen-alert': sheen(.22),
+      '--g-rim': 'inset 0 1px 0 rgb(255 255 255 / .85), inset 0 0 0 .5px rgb(255 255 255 / .55)',
+      '--g-rim-on': 'inset 0 1px 0 rgb(255 255 255 / 1), inset 0 0 0 .5px rgb(255 255 255 / .8)',
+      '--g-rim-img': 'inset 0 1px 0 rgb(255 255 255 / .45), inset 0 0 0 .5px rgb(255 255 255 / .35)',
+      '--g-rim-alert': 'inset 0 1px 0 rgb(255 255 255 / .35)', '--g-rim-row': 'inset 0 1px 0 rgb(255 255 255 / .8)',
+      '--g-lift': `0 1px 2px hsl(${h} 30% 20% / .06), 0 8px 22px -10px hsl(${h} 40% 25% / .22)`,
+      '--g-lift-on': `0 2px 4px hsl(${h} 40% 20% / .06), 0 12px 28px -12px hsl(${h} 50% 25% / .3)`,
+      '--g-glow-geo': '0 10px 30px -12px', '--g-glow-a': '70%',
+      '--g-lift-ctl': `0 1px 2px hsl(${h} 30% 20% / .06), 0 4px 14px -6px hsl(${h} 40% 25% / .22)`,
+      '--g-lift-alert': '0 6px 18px -8px rgb(215 0 21 / .55)', '--g-alert': 'rgb(215 0 21 / .94)',
+      '--g-float': `hsl(${h} 40% 98% / .60)`, '--g-float-filter': 'blur(16px) saturate(170%)',
+      '--g-dim': 'rgb(0 0 0 / .16)', '--g-pop-filter': 'blur(14px) saturate(140%)', '--g-sheet': `hsl(${h} ${45 * sat}% 97% / .90)`,
+      '--g-row': `hsl(${h} ${30 * sat}% 100% / .55)`, '--g-row-on': `hsl(${h} ${70 * sat}% 99.5% / .96)`,
+      '--g-line': `hsl(${h} 30% 25% / .14)`, '--g-board': 'hsl(200 13% 72%)', '--g-veil': 'rgb(255 255 255 / .55)', '--g-pane': `hsl(${h} ${30 * sat}% 98% / .60)`,
+      '--g-bigshadow': '0 1px 1px rgb(255 255 255 / .4)', '--g-edge-hc': `hsl(${h} 25% 14% / .55)`,
+      '--g-tile-solid': solid(`hsl(${h} ${35 * sat}% 96%)`, .4), '--g-tile-on-solid': `hsl(${h} ${70 * sat}% 99.2%)`, '--g-ctl-solid': solid(`hsl(${h} ${50 * sat}% 99%)`, .5),
+      '--g-ctl-on-solid': `hsl(${h} ${70 * sat}% 99.2%)`, '--g-sheet-solid': `hsl(${h} ${45 * sat}% 97%)`, '--g-dim-solid': 'rgb(0 0 0 / .3)', '--g-pane-solid': `hsl(${h} ${30 * sat}% 96%)` };
+  } else {
+    g = { '--g-wall': glassWall(h, true, sat), '--hv-fg2': `hsl(${h} 8% 64%)`, '--hv-on-fg': `hsl(${h} 80% 92%)`, '--hv-on-fg2': `hsl(${h} 40% 80%)`,
+      '--g-tile': `hsl(${h} ${12 * sat}% 16% / .50)`, '--g-tile-on': `hsl(${h} ${45 * sat}% 28.5% / .90)`,
+      '--g-ctl': `hsl(${h} ${12 * sat}% 20% / .50)`, '--g-ctl-on': `hsl(${h} ${45 * sat}% 28.5% / .88)`,
+      '--g-sheen': sheen(.09), '--g-sheen-on': sheen(.14), '--g-sheen-alert': sheen(.16),
+      '--g-rim': 'inset 0 1px 0 rgb(255 255 255 / .16), inset 0 0 0 .5px rgb(255 255 255 / .08)',
+      '--g-rim-on': 'inset 0 1px 0 rgb(255 255 255 / .24), inset 0 0 0 .5px rgb(255 255 255 / .12)',
+      '--g-rim-img': 'inset 0 1px 0 rgb(255 255 255 / .22), inset 0 0 0 .5px rgb(255 255 255 / .12)',
+      '--g-rim-alert': 'inset 0 1px 0 rgb(255 255 255 / .3)', '--g-rim-row': 'inset 0 1px 0 rgb(255 255 255 / .1)',
+      '--g-lift': '0 10px 26px -14px rgb(0 0 0 / .75)', '--g-lift-on': '0 10px 26px -14px rgb(0 0 0 / .75)',
+      '--g-glow-geo': '0 10px 32px -12px', '--g-glow-a': '45%',
+      '--g-lift-ctl': '0 6px 16px -10px rgb(0 0 0 / .7)', '--g-lift-alert': '0 6px 18px -8px rgb(255 59 48 / .45)', '--g-alert': 'rgb(196 30 24 / .94)',
+      '--g-float': `hsl(${h} 12% 14% / .50)`, '--g-float-filter': 'blur(16px) saturate(160%) brightness(.7)',
+      '--g-dim': 'rgb(0 0 0 / .38)', '--g-pop-filter': 'blur(14px) saturate(120%)', '--g-sheet': `hsl(${h} ${12 * sat}% 12% / .84)`,
+      // rows 22 % (the spec's 24 % read 4.47 : 1 under secondary text on low-saturation pages: Widgets' sheets)
+      '--g-row': `hsl(${h} ${10 * sat}% 22% / .40)`, '--g-row-on': `hsl(${h} ${45 * sat}% 28.5% / .9)`,
+      '--g-line': `hsl(${h} 20% 85% / .12)`, '--g-board': 'hsl(200 12% 15%)', '--g-veil': 'rgb(0 0 0 / .5)', '--g-pane': `hsl(${h} ${15 * sat}% 10% / .62)`,
+      '--g-bigshadow': '0 2px 12px rgb(0 0 0 / .35)', '--g-edge-hc': 'rgb(255 255 255 / .55)',
+      '--g-tile-solid': solid(`hsl(${h} ${12 * sat}% 16%)`, .5), '--g-tile-on-solid': `hsl(${h} ${45 * sat}% 28.5%)`, '--g-ctl-solid': solid(`hsl(${h} ${12 * sat}% 20%)`, .5),
+      '--g-ctl-on-solid': `hsl(${h} ${45 * sat}% 28.5%)`, '--g-sheet-solid': `hsl(${h} ${12 * sat}% 12%)`, '--g-dim-solid': 'rgb(0 0 0 / .6)', '--g-pane-solid': `hsl(${h} ${15 * sat}% 10%)` };
+  }
+  // shared: no border (the rim draws the edge), the alert tint, embedded HA cards see through to the tile
+  g['--g-border'] = '0 solid transparent';
+  g['--g-alert-tile'] = `color-mix(in srgb, #D70015 12%, ${g['--g-tile']})`;
+  g['--g-card-bg'] = 'transparent';
+  g['--g-edit-btn'] = 'rgba(20,20,20,.72)';
+  g['--g-edit-filter'] = 'none';
+  Object.assign(g, { '--g-cam-lbl': 'rgb(0 0 0 / .55)', '--g-cam-w': 'fit-content', '--g-cam-mw': '92%', '--g-cam-pad': '4px 12px', '--g-cam-m': '0 0 4% 4%', '--g-cam-r': '999px' });
+  g['--g-pane-sheen'] = g['--g-sheen']; g['--g-pane-rim'] = `${g['--g-rim']}, ${g['--g-lift']}`;
+  g['--g-photo-lift'] = `${g['--g-lift']}, 0 14px 34px -16px rgb(0 0 0 / .45)`;
+  if (look.solid || look.hc) {   // reduced transparency / increased contrast: opaque surfaces
+    Object.assign(g, { '--g-tile': g['--g-tile-solid'], '--g-tile-on': g['--g-tile-on-solid'], '--g-ctl': g['--g-ctl-solid'],
+      '--g-ctl-on': g['--g-ctl-on-solid'], '--g-sheet': g['--g-sheet-solid'], '--g-pane': g['--g-pane-solid'], '--g-row': g['--g-ctl-solid'],
+      '--g-float': g['--g-ctl-solid'], '--g-dim': g['--g-dim-solid'] });
+    g['--g-alert-tile'] = `color-mix(in srgb, #D70015 12%, ${g['--g-tile']})`;
+  }
+  if (look.hc) {   // a visible 1.5 px edge, on = a 2.5 px ring, secondary text = primary, no sheen
+    const edge = `inset 0 0 0 1.5px ${g['--g-edge-hc']}`;
+    Object.assign(g, { '--g-sheen': 'none', '--g-sheen-on': 'none', '--g-sheen-alert': 'none', '--g-pane-sheen': 'none',
+      '--g-rim': edge, '--g-rim-row': edge, '--g-rim-alert': edge, '--g-rim-on': `inset 0 0 0 2.5px ${g['--hv-fg'] || (dark ? `hsl(${h} 15% 93%)` : `hsl(${h} 25% 14%)`)}`,
+      '--g-pane-rim': edge, '--g-glow-a': '0%' });
+    g['--hv-fg2'] = g['--hv-fg'] || (dark ? `hsl(${h} 15% 93%)` : `hsl(${h} 25% 14%)`);
+  }
+  if (!look.blur) { g['--g-float-filter'] = 'none'; g['--g-pop-filter'] = 'none'; if (!look.solid && !look.hc) { g['--g-float'] = g['--g-ctl-solid']; } }
+  // everything drawn on the pill colour (energy cells, a room's icon chip, on / off and text buttons inside
+  // tiles, HA's secondary background) takes the control glass instead of the solid classic shade
+  g['--hv-pill'] = g['--g-ctl'];
+  return g;
+}
+
+/** Glass or classic on this screen, and how: null = classic. */
+let hvLook = null;
+const lookKey = (l) => (l ? `g${l.solid ? 's' : ''}${l.hc ? 'c' : ''}${l.blur ? 'b' : ''}` : 'c');
+const REDUCE_KEY = 'homeview-reduce-transparency';
+function screenReduced() { try { return localStorage.getItem(REDUCE_KEY) === '1'; } catch (e) { return false; } }
+const mediaOn = (q) => { try { return !!window.matchMedia?.(q)?.matches; } catch (e) { return false; } };
+let _canBlur;
+const canBlur = () => (_canBlur ??= (() => { try { return !!(window.CSS?.supports?.('backdrop-filter', 'blur(1px)') || window.CSS?.supports?.('-webkit-backdrop-filter', 'blur(1px)')); } catch (e) { return false; } })());
+/** The logins a screens: list names (a person entity or a login's name; guest.screens syntax). */
+function onScreens(hass, list) {
+  const me = hass?.user || {};
+  const mine = Object.keys(hass?.states || {}).filter((id) => id.startsWith('person.') && hass.states[id].attributes?.user_id === me.id);
+  const name = String(me.name || '').toLowerCase();
+  return asList(list).some((k) => mine.includes(k) || String(k).toLowerCase() === name);
+}
+/** This screen's own look (the settings sheet's "Look on this screen"): glass, classic or null (the dashboard's). */
+const SCREEN_LOOK_KEY = 'homeview-look';
+function screenLook() { try { const v = localStorage.getItem(SCREEN_LOOK_KEY); return v === 'glass' || v === 'classic' ? v : null; } catch (e) { return null; } }
+function setScreenLook(v) {
+  try { if (v === 'glass' || v === 'classic') localStorage.setItem(SCREEN_LOOK_KEY, v); else localStorage.removeItem(SCREEN_LOOK_KEY); } catch (e) { /* private mode */ }
+  window.dispatchEvent(new CustomEvent('homeview-look'));
+}
+/**
+ * The dashboard's style: glass | classic, or an entity whose state says which (style: input_select.look —
+ * "Glass" / "Classic", any case; anything else, unknown or unavailable: glass, the default). Read on every
+ * update for the page's signature: a change of that entity's state re-styles the pages (a rebuild, no reload).
+ */
+function styleOf(hass, cfg) {
+  const st = cfg?.style;
+  if (st === undefined || st === null || st === '') return 'glass';
+  const v = String(st).toLowerCase();
+  if (v === 'glass' || v === 'classic') return v;
+  if (v.includes('.')) return String(hass?.states?.[st]?.state ?? '').trim().toLowerCase() === 'classic' ? 'classic' : 'glass';
+  return 'glass';
+}
+/**
+ * style (see styleOf); glass: { live_blur: auto | true | false, photo_aura, wallpaper: aura | plain,
+ * screens }. Which look a screen gets, first match wins:
+ *   1 this screen's "Look on this screen" (settings sheet, saved in its browser), if set;
+ *   2 style: (a fixed value or the entity's state), glass by default — and glass.screens, when set,
+ *     keeps glass to those logins (the others get classic).
+ * Within glass, reduced transparency (this screen's switch, or the system's where the browser tells: not
+ * Safari) makes the surfaces solid. live_blur auto = on (a wall tablet included); off at night, in edit
+ * mode, with reduced transparency or increased contrast, and where the browser can't blur.
+ */
+function lookOf(hass, cfg, night = false, editing = false) {
+  const mine = screenLook();
+  if ((mine || styleOf(hass, cfg)) === 'classic') return null;
+  const g = isObj(cfg?.glass) ? cfg.glass : {};
+  if (!mine && g.screens !== undefined && !onScreens(hass, g.screens)) return null;
+  const solid = screenReduced() || mediaOn('(prefers-reduced-transparency: reduce)') || !canBlur();
+  const hc = mediaOn('(prefers-contrast: more)') || mediaOn('(forced-colors: active)');
+  return { solid, hc, blur: g.live_blur !== false && !solid && !hc && !night && !editing, plain: g.wallpaper === 'plain', aura: g.photo_aura !== false && !night };
+}
+/** A change of the system's transparency / contrast settings, or this screen's switch (in another tab
+ *  too): every HomeView page builds again ('homeview-look'). Set up once. */
+let _lookWatching = false;
+function hvLookWatch() {
+  if (_lookWatching || typeof window === 'undefined' || !window.addEventListener) return;
+  _lookWatching = true;
+  const fire = () => window.dispatchEvent(new CustomEvent('homeview-look'));
+  for (const q of ['(prefers-reduced-transparency: reduce)', '(prefers-contrast: more)', '(forced-colors: active)']) {
+    try { window.matchMedia?.(q)?.addEventListener?.('change', fire); } catch (e) { /* old browser */ }
+  }
+  window.addEventListener('storage', (e) => { if (e.key === REDUCE_KEY) fire(); });
+}
+function setScreenReduced(on) {
+  try { if (on) localStorage.setItem(REDUCE_KEY, '1'); else localStorage.removeItem(REDUCE_KEY); } catch (e) { /* private mode */ }
+  window.dispatchEvent(new CustomEvent('homeview-look'));
+}
+/** The Widgets photo aura: the photo on screen drawn into a 48 × 30 canvas behind the board (the
+ *  browser upscales it: a blur for free; saturation baked in, no CSS filter on a full-screen
+ *  element), crossfaded per photo. Off at night and in classic (the board has no .aura then). A
+ *  cross-origin photo can be drawn and shown (the pixels are never read). */
+function photoAura(tile, img) {
+  const board = tile?.closest?.('.board');
+  if (!board || !board.classList.contains('aura') || !img) return;
+  let cvs = [...board.children].filter((c) => c.localName === 'canvas');
+  while (cvs.length < 2) { const c = document.createElement('canvas'); c.width = 48; c.height = 30; c.className = 'aura'; c.setAttribute('aria-hidden', 'true'); board.prepend(c); cvs = [...board.children].filter((x) => x.localName === 'canvas'); }
+  const next = cvs.find((c) => !c.classList.contains('on')) || cvs[0];
+  const draw = () => {
+    try {
+      const ctx = next.getContext('2d');
+      if (!ctx) return;
+      ctx.filter = 'blur(1.5px) saturate(1.25)';
+      ctx.clearRect(0, 0, 48, 30);
+      ctx.drawImage(img, -2, -2, 52, 34);
+    } catch (e) { return; }
+    cvs.forEach((c) => c.classList.toggle('on', c === next));
+  };
+  // when the browser is idle: scaling a full photo down is the aura's whole cost, and on the dashboard's
+  // first open it fell right after the page appeared (~0.3 s of a 4× slowed tablet); it fades in anyway
+  if (window.requestIdleCallback) requestIdleCallback(draw, { timeout: 3000 }); else setTimeout(draw, 700);
 }
 
 /**
@@ -704,9 +951,13 @@ function restoreScroll() {
  * screensaver: auto (default) = touch tablets only (a touch screen whose smaller side is ≥ 600
  * px), never phones or desktops | true | false | { idle: 120, pages: [...], color: '#4D7DB8' }.
  * Not on Cameras or while editing. Any touch closes it, and that touch doesn't reach the page.
+ * screensaver: widgets | { page: widgets, idle, pages }: after the idle time, open that page instead (no
+ * overlay: its tiles and pills work at once). Not while a sheet or HA's dialog is open, in edit mode or
+ * with something else full screen (a camera, a video): then the wait starts again. Already there: nothing.
  */
 const hvScreensaver = (() => {
   let enabled = false, idleMs = 120e3, color = '#4D7DB8', last = Date.now(), el = null, blockUntil = 0, timer = null, minute = null, night = false;
+  let target = null, cur = null;   // screensaver: { page }: the page to open, and the HomeView page on screen
   const now = () => Date.now();
   const wake = () => { last = now(); };
   const clockSvg = () => {
@@ -768,19 +1019,36 @@ const hvScreensaver = (() => {
     for (const ev of ['click', 'pointerup', 'touchend', 'mouseup']) window.addEventListener(ev, swallow, { capture: true });
     document.addEventListener('visibilitychange', wake);
   };
+  // HA's own dialog (more-info, a camera stream …) open over the dashboard
+  const haDialog = () => {
+    try {
+      const root = document.querySelector('home-assistant')?.shadowRoot;
+      return !!root && [...root.children].some((c) => /-dialog$/.test(c.localName) && (c.open || c.hasAttribute?.('open') || c.shadowRoot?.querySelector?.('[open]')));
+    } catch (e) { return false; }
+  };
+  const busy = () => !!(cur && (cur._interacting?.() || cur._editing)) || haDialog()
+    || (!!document.fullscreenElement && document.fullscreenElement !== document.documentElement);
   const tick = () => {
     if (!enabled || el || document.visibilityState !== 'visible') return;
-    if (now() - last >= idleMs) show();
+    if (now() - last < idleMs) return;
+    if (!target) { show(); return; }
+    // screensaver: { page }: open that page (unless already there, or something is open: wait again)
+    const here = cur?._config?.path || cur?._config?.page;
+    if (here !== target && !busy() && asList(cur?._config?.order).includes(target)) navigate(target, true);
+    wake();
   };
   return {
+    _tick: tick, _idleFor: (ms) => { last = now() - ms; },   // tests
     /** page: the HomeView page on screen (null = none). */
     update(page) {
       const o = page?.isConnected ? page._config?.options || {} : null;
       const opt = o ? (o.screensaver ?? 'auto') : false;
       const pageId = page?._config?.path || page?._config?.page;
       const obj = opt && typeof opt === 'object' ? opt : {};
+      target = typeof opt === 'string' && opt !== 'auto' ? opt : typeof obj.page === 'string' && obj.page ? obj.page : null;
+      cur = page?.isConnected ? page : null;
       const tablet = (navigator.maxTouchPoints || 0) > 0 && Math.min(screen.width, screen.height) >= 600;
-      const on = !!o && opt !== false && obj.enabled !== false && (opt === 'auto' ? tablet : true)
+      const on = !!o && opt !== false && obj.enabled !== false && (opt === 'auto' || target ? tablet : true)   // a page to open: touch tablets only, as auto
         && !page._editing && (obj.pages ? asList(obj.pages).includes(pageId) : pageId !== 'cameras');
       idleMs = Math.max(10, num(obj.idle) ?? 120) * 1000;
       color = typeof obj.color === 'string' ? obj.color : '#4D7DB8';
@@ -1829,18 +2097,21 @@ async function saveStrategyChecked(hass, fallbackOptions, mutate) {
 
 const TILE_CSS = `
 /* an embedded HA card's box: HA's theme variables from this tile's own tint (see HA_VARS) */
-.hacard { ${HA_VARS}; }
+.hacard { ${HA_VARS}; --ha-card-background:var(--g-card-bg, var(--hv-tile)); }   /* glass: the card shows the tile's glass */
 @keyframes hv-alert-pulse { 0%, 100% { box-shadow:0 0 0 0 rgba(255,59,48,.55); } 50% { box-shadow:0 0 0 8px rgba(255,59,48,0); } }
 :host { display:block; height:100%; min-width:0; container-type:size; -webkit-tap-highlight-color:transparent;
   user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
 * { box-sizing:border-box; }
-.t { height:100%; border-radius:var(--hv-radius, 22px); background:var(--hv-tile); border:0.5px solid var(--hv-tile-border);
-  box-shadow:0 1px 2px rgba(0,0,0,.05); color:var(--hv-fg); position:relative; overflow:hidden; cursor:pointer;
+.t { height:100%; border-radius:var(--hv-radius, 22px); background-color:var(--g-tile, var(--hv-tile)); background-image:var(--g-sheen, none);
+  border:var(--g-border, 0.5px solid var(--hv-tile-border)); box-shadow:var(--g-rim, 0 0 0 transparent), var(--g-lift, 0 1px 2px rgba(0,0,0,.05)); color:var(--hv-fg); position:relative; overflow:hidden; cursor:pointer;
   display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center;
   padding:7% 8%; transition:background .25s, transform .12s; }
 .t.press { transform:scale(.97); }
-.t.on { background:var(--hv-tile-on); color:var(--hv-on-fg); box-shadow:var(--hv-on-shadow, 0 1px 2px rgba(0,0,0,.05)); }
-.t.on.alert { background:var(--hv-alert-tile, var(--hv-tile-on)); box-shadow:0 1px 2px rgba(0,0,0,.05); color:var(--hv-fg); }
+.t.on { background-color:var(--g-tile-on, var(--hv-tile-on)); background-image:var(--g-sheen-on, none); color:var(--hv-on-fg);
+  box-shadow:var(--g-rim-on, 0 0 0 transparent), var(--g-lift-on, var(--hv-on-shadow, 0 1px 2px rgba(0,0,0,.05))),
+    var(--g-glow-geo, 0 0 0) color-mix(in srgb, var(--hv-ic-on, var(--hv-on-ic, #FFB800)) var(--g-glow-a, 0%), transparent); }   /* glass: a glow in the on colour */
+.t.on.alert { background-color:var(--g-alert-tile, var(--hv-alert-tile, var(--hv-tile-on))); background-image:var(--g-sheen, none);
+  box-shadow:var(--g-rim, 0 0 0 transparent), var(--g-lift, 0 1px 2px rgba(0,0,0,.05)); color:var(--hv-fg); }
 .t.on.alert .sb { color:var(--hv-fg); }   /* the grey would be 3.8 : 1 on the red tint; the state word stays red (4.7) */
 /* coloured words on a lit tile: the darker shades (light mode; dark mode keeps them) */
 .t.on { --hv-ok-tx:var(--hv-ok-tx-on); --hv-warn-tx:var(--hv-warn-tx-on); --hv-cool-tx:var(--hv-cool-tx-on); --hv-alert-tx:var(--hv-alert-tx-on);
@@ -1850,13 +2121,13 @@ const TILE_CSS = `
 .t.na .ic { color:var(--hv-icon); position:relative; }
 .t.na .sw, .t.na .pv { color:var(--hv-warn-tx, #FF9500); font-weight:600; }
 .ob { position:absolute; top:-8%; right:-16%; width:max(13px, calc(var(--mdc-icon-size, 24px) * .44)); height:max(13px, calc(var(--mdc-icon-size, 24px) * .44));
-  border-radius:50%; background:var(--hv-badge, #FF9500); color:var(--hv-badge-fg, #fff); box-shadow:0 0 0 2px var(--hv-tile); display:flex; align-items:center; justify-content:center;
+  border-radius:50%; background:var(--hv-badge, #FF9500); color:var(--hv-badge-fg, #fff); box-shadow:0 0 0 2px var(--g-tile-solid, var(--hv-tile)); display:flex; align-items:center; justify-content:center;
   font:800 max(9px, calc(var(--mdc-icon-size, 24px) * .3)) / 1 ${FONT}; pointer-events:none; }
 /* an alert's state word ("Open · Entry") in the alert colour */
 .t.alert .sw { color:var(--hv-alert-tx, #FF3B30); font-weight:650; }
 /* keyboard focus */
 :host(:focus-visible) { outline:3px solid var(--hv-accent); outline-offset:2px; border-radius:var(--hv-radius, 22px); }
-.t.white { background:var(--hv-card); }
+.t.white { background-color:var(--g-tile-on, var(--hv-card)); background-image:var(--g-sheen-on, none); }
 .ic { color:var(--hv-icon); display:flex; align-items:center; justify-content:center; --mdc-icon-size:min(30cqh, 52px); }
 .ic.big { --mdc-icon-size:min(34cqh, 60px); }
 .t.on .ic { color:var(--hv-ic-on, var(--hv-accent)); }
@@ -1887,8 +2158,8 @@ const TILE_CSS = `
   display:flex; flex-wrap:wrap; align-content:flex-start; justify-content:flex-end; gap:5px; padding:7px; pointer-events:none; z-index:2;
   animation:hv-wiggle .35s ease-in-out infinite alternate; }
 @keyframes hv-wiggle { from { transform:rotate(-.4deg); } to { transform:rotate(.4deg); } }
-.edit button { all:unset; position:relative; pointer-events:auto; cursor:pointer; width:36px; height:36px; border-radius:50%; background:rgba(20,20,20,.62);
-  color:#fff; display:flex; align-items:center; justify-content:center; --mdc-icon-size:17px; backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px); }
+.edit button { all:unset; position:relative; pointer-events:auto; cursor:pointer; width:36px; height:36px; border-radius:50%; background:var(--g-edit-btn, rgba(20,20,20,.62));
+  color:#fff; display:flex; align-items:center; justify-content:center; --mdc-icon-size:17px; backdrop-filter:var(--g-edit-filter, blur(6px)); -webkit-backdrop-filter:var(--g-edit-filter, blur(6px)); }
 .edit button[data-edit=unfav] { background:#FF9F0A; }
 /* touch targets: at least 44 × 44 px however small the button looks */
 .edit button::after, .lt-b::after, .onoff::after, .fd-ic::after, .ctl button::after { content:''; position:absolute; left:50%; top:50%;
@@ -1897,7 +2168,8 @@ const TILE_CSS = `
 .t.bare { background:transparent; border:none; box-shadow:none; }
 /* pills (layout: pills / keypad) */
 .t.pl { height:auto; min-height:40px; display:flex; flex-direction:row; align-items:center; justify-content:center; gap:7px; padding:9px 14px;
-  border-radius:999px; background:var(--hv-pill, var(--hv-tile)); border:none; box-shadow:none; font-size:14.5px; white-space:nowrap; cursor:pointer; }
+  border-radius:999px; background-color:var(--g-ctl, var(--hv-pill, var(--hv-tile))); background-image:var(--g-sheen, none); border:none;
+  box-shadow:var(--g-rim, 0 0 0 transparent), var(--g-lift-ctl, 0 0 0 transparent); font-size:14.5px; white-space:nowrap; cursor:pointer; }
 .t.pl .ic { --mdc-icon-size:20px; color:var(--hv-fg2); display:flex; }
 .t.pl b { font-weight:650; }
 .t.pl .pv { color:var(--hv-fg2); font-weight:500; }
@@ -1926,7 +2198,16 @@ const TILE_CSS = `
 .fc-hl { display:none; font-weight:600; font-size:clamp(12px, 9cqh, 18px); }
 @container (max-height: 300px) { .fc-rows { display:none; } .fc-hl { display:block; } }
 .ag-list { overflow:hidden; flex:1; min-height:0; -webkit-mask-image:linear-gradient(#000 78%, transparent); mask-image:linear-gradient(#000 78%, transparent); }
-.t.slide { padding:0; background:#5E6E72; overflow:hidden; border-radius:var(--hv-radius, 28px); box-shadow:0 8px 22px rgba(0,0,0,.18); }
+.t.slide { padding:0; background:#5E6E72; overflow:hidden; border-radius:var(--hv-radius, 28px); box-shadow:var(--g-photo-lift, 0 8px 22px rgba(0,0,0,.18)); }
+/* glass: a photo or camera still floats: an inner rim over the picture (none in classic) */
+.t.slide::after, .t.cam::after { content:''; position:absolute; inset:0; border-radius:inherit; box-shadow:var(--g-rim-img, none); pointer-events:none; z-index:3; }
+/* glass: Widgets' Up next and weather on clear-glass panes; the date and clock bare, with a soft shadow */
+:host(.a-next) .t.bare, :host(.a-weather) .t.bare { background-color:var(--g-pane, transparent); background-image:var(--g-pane-sheen, none); box-shadow:var(--g-pane-rim, none); }
+:host(.a-date) .t, :host(.a-clock) .t { text-shadow:var(--g-bigshadow, none); }
+/* a camera's name: a bar in classic, a 55 % black capsule in glass (4.5 : 1 for white over a white sky) */
+.camlbl { position:relative; width:var(--g-cam-w, 100%); max-width:var(--g-cam-mw, 100%); padding:var(--g-cam-pad, 3% 5%); margin:var(--g-cam-m, 0);
+  border-radius:var(--g-cam-r, 0); background:var(--g-cam-lbl, linear-gradient(transparent,rgba(0,0,0,.55))); color:#fff; text-align:left; font-weight:600;
+  font-size:clamp(12px,4.5cqi,17px); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .sl { position:absolute; inset:0; filter:var(--hv-photo-filter, none); }
 .sl img { position:absolute; inset:0; width:100%; height:100%; display:block; object-fit:cover; object-position:50% 35%; }
 .sl img.blur { filter:blur(22px) brightness(.75); transform:scale(1.15); }
@@ -2180,7 +2461,18 @@ R.button = {
   async action(h, s, tile, kind) {
     if (kind === 'hold') {
       const hd = s.hold;
-      if (hd && typeof hd === 'object' && hd.action) return callAction(h, hd.action, hd.data, hd.target);
+      if (hd && typeof hd === 'object' && hd.action) {
+        hvHaptic('heavy');
+        // hold: { action, confirm: 'question' | { text, action } } — asks first (the same sheet and late-tap
+        // guard as a tap's confirm; red when the button is red)
+        const hc = confirmOf(hd.confirm);
+        if (hc) {
+          const ok = await hvConfirm(tile, { title: hc.text || `${s.name || 'Run this'}?`, action: hc.action || 'Run',
+            body: s.watch && h.states[s.watch] ? stateLine(h, h.states[s.watch]) : '', tone: s.color === 'red' ? 'alert' : null });
+          if (!ok) return null;
+        }
+        return callAction(h, hd.action, hd.data, hd.target);
+      }
       const id = s.toggle || s.watch;
       return id ? moreInfo(tile, id) : null;
     }
@@ -2194,11 +2486,18 @@ R.button = {
         body: s.toggle && h.states[s.toggle] ? stateLine(h, h.states[s.toggle]) : '', tone: s.color === 'red' || lit ? 'alert' : null });
       if (!ok) return null;
     }
+    if (s.action || s.toggle) hvHaptic('light');
     if (s.action) return callAction(h, s.action, s.data, s.target);
     if (s.toggle) return h.callService('homeassistant', 'toggle', {}, { entity_id: s.toggle });
     return null;
   },
 };
+/** A haptic: Home Assistant's companion apps play it natively (HA's own 'haptic' event: light, heavy …);
+ *  elsewhere a short vibration where the browser has one (Android; not Safari). */
+function hvHaptic(kind = 'light') {
+  try { window.dispatchEvent(Object.assign(new Event('haptic', { bubbles: true, composed: true }), { detail: kind })); } catch (e) { /* old browser */ }
+  try { navigator.vibrate?.(kind === 'heavy' ? 30 : 10); } catch (e) { /* not allowed */ }
+}
 /** "script.x" / "light.turn_on" with data and a target (entity id(s) or { entity_id, area_id … }) */
 function callAction(h, action, data, target) {
   const [dom, svc] = String(action).split('.');
@@ -3033,9 +3332,9 @@ R.camera = {
     const off = `<div style="margin:auto;display:flex;flex-direction:column;align-items:center;gap:6px;color:${KIND_TONES.neutral}">
         <span class="ic" style="position:relative;display:inline-flex;--mdc-icon-size:min(22cqh, 34px)"><i data-i="mdi:cctv-off"></i><span class="ob" aria-hidden="true" style="--hv-tile:#000">!</span></span>
         <span style="font-weight:650;font-size:clamp(12px,4.2cqi,15px);color:${HV_TONES.warn}">Offline</span></div>`;
-    return `<div class="t" style="padding:0;background:#000;justify-content:flex-end">
+    return `<div class="t cam" style="padding:0;background:#000;justify-content:flex-end;align-items:flex-start">
       ${ok ? `<img class="cam" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;filter:var(--hv-photo-filter, none)" alt="">` : off}
-      <div style="position:relative;width:100%;padding:3% 5%;background:linear-gradient(transparent,rgba(0,0,0,.55));color:#fff;text-align:left;font-weight:600;font-size:clamp(12px,4.5cqi,17px)">${esc(name)}</div></div>`;
+      <div class="camlbl">${esc(name)}</div></div>`;
   },
   update(h, s, tile) {   // runs after render and on every tick: swap in a fresh still, no flicker
     const img = tile.shadowRoot.querySelector('img.cam');
@@ -4004,6 +4303,8 @@ R.slideshow = {
       } else layer.append(img);
       box.querySelector('.sl-msg')?.remove();
       box.appendChild(layer);
+      // style: glass — the board behind takes the photo's colours (photoAura)
+      if (img.complete === false && img.addEventListener) img.addEventListener('load', () => photoAura(tile, img), { once: true }); else photoAura(tile, img);
       const old = [...box.querySelectorAll('.sl')].slice(0, -1);
       setTimeout(() => old.forEach((x) => x.remove()), 1600);
     });
@@ -4220,7 +4521,9 @@ class HomeViewTile extends HTMLElement {
       el.hass = cardHass(this._hass, this._hvDark);
       const box = document.createElement('div');
       box.className = 'hacard';
-      box.style.cssText = 'height:100%;overflow:auto;border-radius:var(--hv-radius,22px);display:flex;flex-direction:column;justify-content:safe center;background:var(--hv-tile)';
+      // the card's box: the tile's surface (glass: the material with its rim; classic: the tile colour)
+      box.style.cssText = 'height:100%;overflow:auto;border-radius:var(--hv-radius,22px);display:flex;flex-direction:column;justify-content:safe center;'
+        + 'background-color:var(--g-tile, var(--hv-tile));background-image:var(--g-sheen, none);box-shadow:var(--g-rim, 0 0 0 transparent), var(--g-lift, 0 0 0 transparent)';
       el.style.setProperty('--ha-card-background', 'transparent');
       // Home Assistant's cards in HomeView's look: its icon / text colours, font and header size
       for (const [k, v] of [['--state-icon-color', 'var(--hv-icon)'], ['--paper-item-icon-color', 'var(--hv-icon)'],
@@ -5867,6 +6170,8 @@ const PAGE_CSS = `
 .palert { display:flex; align-items:center; gap:10px; padding:12px 16px; border-radius:16px; font-size:15px; font-weight:600;
   background:var(--hv-tile); --mdc-icon-size:22px; }
 .palert.critical { box-shadow:inset 0 0 0 1.5px ${HV_TONES.alert}; animation:hv-alert-pulse 1.6s ease-in-out infinite; }
+.page.glass .palert { background-color:var(--g-alert-tile); background-image:var(--g-sheen); }
+.page.glass .palert.notice { background-color:var(--g-tile); }
 .palert.critical ha-icon { color:${HV_TONES.alert}; }
 .palert.notice { box-shadow:inset 0 0 0 1.5px ${HV_TONES.warn}; }
 .palert.notice ha-icon { color:${HV_TONES.warn}; }
@@ -5914,7 +6219,7 @@ const PAGE_CSS = `
 .board.narrow.noagenda { grid-template-areas:"date clock" "cam cam" "weather weather"; }
 .board.narrow.noagenda > homeview-tile.a-weather { display:block; }
 img.lt { object-fit:cover; background:var(--hv-pill); }
-.lt { width:20px; height:20px; border-radius:50%; background:var(--hv-accent); color:#fff; font-size:11px; font-weight:750;
+.lt { width:20px; height:20px; border-radius:50%; background:var(--hv-accent-fill, var(--hv-accent)); color:#fff; font-size:11px; font-weight:750;
   display:inline-flex; align-items:center; justify-content:center; }
 .note { padding:24px; border-radius:22px; background:var(--hv-tile); color:var(--hv-fg2); font-size:15px; }
 .pop { position:fixed; inset:0; z-index:10; background:rgba(0,0,0,.35); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);
@@ -5937,6 +6242,7 @@ img.lt { object-fit:cover; background:var(--hv-pill); }
 .sheet-sub { display:block; margin-top:2px; font-size:13.5px; font-weight:600; color:var(--hv-fg2); }
 .cal-body > .cal-day:first-child { margin-top:2px; }
 .cal-list { background:var(--hv-tile); border-radius:16px; overflow:hidden; }
+.page.glass .cal-list { background-color:var(--g-row); box-shadow:var(--g-rim-row); }   /* glass: a material inside the sheet */
 .cal-ev { display:flex; align-items:center; gap:12px; min-height:54px; padding:9px 16px; }
 .cal-ev + .cal-ev { border-top:1px solid var(--hv-line); }
 .cal-dot { flex:none; width:10px; height:10px; border-radius:50%; }
@@ -5950,7 +6256,7 @@ img.lt { object-fit:cover; background:var(--hv-pill); }
 .pen { margin-left:4px; color:var(--hv-fg2); }
 .txt { all:unset; position:relative; cursor:pointer; display:inline-flex; align-items:center; gap:6px; padding:8px 14px; border-radius:999px; background:var(--hv-pill);
   font-size:14px; font-weight:650; color:var(--hv-fg); --mdc-icon-size:17px; font-family:${FONT}; }
-.txt.primary { background:var(--hv-accent); color:#fff; }
+.txt.primary { background:var(--hv-accent-fill, var(--hv-accent)); color:#fff; }
 .editbar { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px; margin-top:12px; padding:10px 12px 10px 16px;
   flex:1 1 100%; order:9; box-sizing:border-box;
   border-radius:16px; background:var(--hv-pill); font-size:13.5px; color:var(--hv-fg2); --mdc-icon-size:15px; }
@@ -5972,7 +6278,7 @@ img.lt { object-fit:cover; background:var(--hv-pill); }
 .chip { background:var(--hv-pill); color:var(--hv-fg); width:36px; height:36px; padding:0; justify-content:center; --mdc-icon-size:20px; }
 @media (max-width:700px) { .nv > span:not(.lt) { display:none; } .nv { padding:8px 9px; } }
 .upd { all:unset; cursor:pointer; flex-basis:100%; display:flex; align-items:center; gap:10px; padding:10px 14px; border-radius:16px;
-  background:var(--hv-accent); color:#fff; font:500 14px ${FONT}; --mdc-icon-size:22px; box-sizing:border-box; }
+  background:var(--hv-accent-fill, var(--hv-accent)); color:#fff; font:500 14px ${FONT}; --mdc-icon-size:22px; box-sizing:border-box; }
 .upd b { font-weight:700; }
 .title .hb { flex:none; color:var(--hv-fg2); }
 /* the guest view's label by the title (tap: what's hidden) */
@@ -5985,7 +6291,7 @@ img.lt { object-fit:cover; background:var(--hv-pill); }
 .title .back { flex:none; width:40px; height:40px; --mdc-icon-size:22px; }
 .title .back ha-icon, .chp ha-icon { display:flex; }
 .chp i { display:flex; }
-.hb.updi { background:var(--hv-accent); color:#fff; }
+.hb.updi { background:var(--hv-accent-fill, var(--hv-accent)); color:#fff; }
 .tbb { display:inline-flex; gap:8px; }
 .sheet.narrow { width:min(460px, 100%); }
 .hint { color:var(--hv-fg2); font-size:14px; line-height:1.45; margin:0 0 12px; }
@@ -6002,7 +6308,7 @@ homeview-strategy-editor { display:block; }
 .cf-a { display:flex; gap:10px; margin-top:20px; }
 .cf-btn { all:unset; box-sizing:border-box; flex:1; height:48px; border-radius:14px; display:flex; align-items:center; justify-content:center;
   background:var(--hv-pill); color:var(--hv-fg); font:650 16px ${FONT}; cursor:pointer; }
-.cf-btn.go { background:var(--hv-accent); color:#fff; }
+.cf-btn.go { background:var(--hv-accent-fill, var(--hv-accent)); color:#fff; }
 .cf-btn.go.t-alert { background:#D70015; }
 .cf-btn.go.t-ok { background:#1B7130; }
 .cf-btn:focus-visible { outline:3px solid var(--hv-accent); outline-offset:2px; }
@@ -6026,9 +6332,12 @@ homeview-strategy-editor { display:block; }
 .cprow .avatar { width:28px; height:28px; font-size:11px; }
 /* full screen: page dots at the bottom centre (tap a dot: that page; the current one: the pages by name) */
 .dots { position:fixed; z-index:4; left:50%; transform:translateX(-50%); bottom:env(safe-area-inset-bottom, 0px);
-  display:flex; flex-direction:column; align-items:center; gap:4px; transition:opacity .4s; max-width:96vw; }
+  display:flex; flex-direction:column; align-items:center; gap:4px; max-width:96vw; }
 .dots.ph { bottom:calc(env(safe-area-inset-bottom, 0px) + 2px); }
-.dots.idle { opacity:0; }
+/* hidden after a while: the dots and their capsule fade themselves, not their parent (a parent with
+   opacity < 1 is the capsule's backdrop root: its blur would show nothing while it fades) */
+.dot, .drow, .drow::before { transition:opacity .4s; }
+.dots.idle .dot, .dots.idle .drow::before { opacity:0; }
 .drow { display:flex; align-items:center; height:44px; padding:0 6px; }
 .dot { all:unset; cursor:pointer; position:relative; width:22px; height:44px; display:flex; align-items:center; justify-content:center; }
 .dot::before { content:''; width:7px; height:7px; border-radius:4px; background:var(--hv-fg2); opacity:.35; transition:width .2s, opacity .2s; }
@@ -6059,12 +6368,54 @@ homeview-strategy-editor { display:block; }
 .fsb ha-icon { display:flex; }
 .fsb.idle { opacity:0; pointer-events:none; }
 .fsb:focus-visible { outline:3px solid var(--hv-accent); outline-offset:2px; opacity:1; }
+/* ---- style: glass (the tokens come from glassPalette on .page; in classic every --g-* is unset and
+   nothing below applies). Layer 0: the wallpaper, a fixed layer (never repainted on scroll) */
+.page.glass { background:transparent; isolation:isolate; }
+.page.glass::before { content:''; position:fixed; inset:0; z-index:-1; background:var(--g-wall); pointer-events:none; }
+.page.glass.g-plain::before { background:var(--hv-bg); }
+.page.glass.boardpage::before { background:var(--g-board); }
+@media (forced-colors: active) { .page.glass::before { display:none; } }
+/* layer 2 over the static wallpaper: glass capsules and circles, no live blur */
+.page.glass .back, .page.glass .chp, .page.glass .pill, .page.glass .chip, .page.glass .txt:not(.primary), .page.glass .nv.on,
+.page.glass .dname, .page.glass .dnames, .page.glass .cf-btn:not(.go) { background-color:var(--g-ctl); background-image:var(--g-sheen); box-shadow:var(--g-rim), var(--g-lift-ctl); }
+.page.glass .chp.on, .page.glass .chp.ok, .page.glass .chp.warn, .page.glass .chp.armed, .page.glass .dnames .nv.on { background-color:var(--g-ctl-on); box-shadow:var(--g-rim-on), var(--g-lift-ctl); }
+.page.glass .pill.alert, .page.glass .chp.alert { background-color:var(--g-alert); background-image:var(--g-sheen-alert); box-shadow:var(--g-rim-alert), var(--g-lift-alert); }
+.page.glass .txt.primary, .page.glass .cf-btn.go, .page.glass .upd, .page.glass .hb.updi { background-image:var(--g-sheen-alert); box-shadow:var(--g-rim-alert); }
+/* floating over moving content: the only live blurs while browsing (page dots, ✕, full-screen button, toast) */
+.page.glass .dots .drow { background:var(--g-float); -webkit-backdrop-filter:var(--g-float-filter); backdrop-filter:var(--g-float-filter);
+  border-radius:999px; box-shadow:var(--g-rim), 0 6px 20px -8px rgba(0,0,0,.35); height:30px; margin-bottom:8px; }
+.page.glass .dots .drow::before { display:none; }
+.page.glass .dot { height:30px; }
+.page.glass .dots.idle .drow { opacity:0; }   /* the capsule fades itself (see .dots.idle) */
+.page.glass .fsb, .page.glass .head > .xclose { background:var(--g-float); -webkit-backdrop-filter:var(--g-float-filter); backdrop-filter:var(--g-float-filter);
+  box-shadow:var(--g-rim), 0 6px 18px -8px rgba(0,0,0,.35); }
+.page.glass .toast { background:rgb(28 28 30 / .7); -webkit-backdrop-filter:var(--g-float-filter); backdrop-filter:var(--g-float-filter);
+  box-shadow:inset 0 1px 0 rgb(255 255 255 / .14), 0 8px 24px -10px rgb(0 0 0 / .5); }
+/* sheets: one blur for the page behind (.pop, as before), the sheet a glass tint over it, its rows a
+   material (no glass on glass), the sticky title solid so rows don't show through it */
+.rtsw { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 14px; margin:0 0 14px; border-radius:16px;
+  background:var(--g-row, var(--hv-tile)); cursor:pointer; font-size:15px; }
+.rtsw input { width:22px; height:22px; flex:none; margin:0; accent-color:var(--hv-accent-fill, var(--hv-accent)); cursor:pointer; }
+.rtsw select { flex:none; font:600 14px ${FONT}; color:var(--hv-fg); background:var(--g-ctl, var(--hv-pill)); border:0.5px solid var(--hv-line); border-radius:10px; padding:6px 8px; }
+.page.glass .pop { background:var(--g-dim); -webkit-backdrop-filter:var(--g-pop-filter); backdrop-filter:var(--g-pop-filter); }
+.page.glass .sheet { background-color:var(--g-sheet); background-image:var(--g-sheen); box-shadow:var(--g-rim), 0 30px 70px -24px rgba(0,0,0,.5); }
+.page.glass .sheet > * { --g-tile:var(--g-row); --g-tile-on:var(--g-row-on); --g-sheen:none; --g-sheen-on:none; --g-rim:var(--g-rim-row); --g-rim-on:var(--g-rim-row);
+  --g-lift:0 0 0 transparent; --g-lift-on:0 0 0 transparent; --g-glow-geo:0 6px 18px -10px; }
+/* the title: a scroll edge (solid, fading out at its foot) across the sheet's width, so rows don't show through it */
+.page.glass .sheet-h { background:linear-gradient(to bottom, var(--g-sheet-solid) 72%, color-mix(in srgb, var(--g-sheet-solid) 0%, transparent));
+  margin-left:calc(var(--hv-pad) * -1); margin-right:calc(var(--hv-pad) * -1); padding:6px var(--hv-pad) 12px; margin-bottom:6px; }
+/* Widgets: the board on its own colour, the photo aura (two 48 × 30 canvases, crossfaded) under a veil */
+.page.glass .board { background:var(--g-board); }
+.board.aura { position:relative; isolation:isolate; }
+.board.aura::before { content:''; position:absolute; inset:0; z-index:-1; background:var(--g-veil); pointer-events:none; }
+.board > canvas.aura { position:absolute; inset:0; width:100%; height:100%; z-index:-2; opacity:0; transition:opacity 1.2s ease; pointer-events:none; }
+.board > canvas.aura.on { opacity:1; }
 /* room for the dots under the last tiles (phones scroll to the bottom) */
 .page.has-dots { padding-bottom:calc(var(--hv-pad) * 2 + 20px); }
 .page.boardpage.has-dots { padding-bottom:0; }
 /* reduced motion: no wiggle or pulse; a critical banner gets a steady ring instead */
 @media (prefers-reduced-motion: reduce) {
-  .dots, .dot::before, .dname, .fsb { transition:none; }
+  .dots, .dot, .drow, .drow::before, .dot::before, .dname, .fsb, .board > canvas.aura { transition:none; }
   .sorting > [data-chip], .sorting > [data-pill] { animation:none; }
   .chp.busy, .txt.busy { animation:none; }
   .palert.critical { animation:none; box-shadow:inset 0 0 0 2.5px ${HV_TONES.alert}; }
@@ -6150,7 +6501,13 @@ class HomeViewPage extends HTMLElement {
       this._onEditing = (e) => { if (e.detail?.from !== this && this._builtEditing !== undefined && this._builtEditing !== this._editing) this.rebuild(); };
       window.addEventListener('homeview-editing', this._onEditing);
     }
-    if (this._builtEditing !== undefined && this._builtEditing !== this._editing) this.rebuild();
+    // style: glass — the screen's transparency switch or the system's contrast settings changed
+    if (!this._onLook) {
+      this._onLook = () => { if (!this.isConnected || this._builtEditing === undefined) { this._lookStale = true; return; } if (this._interacting()) this._holdRebuild(); else this.rebuild(); };
+      window.addEventListener('homeview-look', this._onLook);
+    }
+    if (this._lookStale && this._hass && this._builtEditing !== undefined) { this._lookStale = false; this.rebuild(); }
+    else if (this._builtEditing !== undefined && this._builtEditing !== this._editing) this.rebuild();
     else if (this._stale && this._hass && this._watch && availSig(this._hass, this._watch) !== this._watchSig) { this._stale = false; this.rebuild(); }
     else if (this._stale && this._hass) { this._stale = false; this._tiles.forEach((t) => { t.hass = this._hass; }); this._renderHead(); }
   }
@@ -6206,8 +6563,9 @@ class HomeViewPage extends HTMLElement {
   // touches nothing HomeView reads (a new registry object with the same areas, devices and names)
   _signature(h) {
     const reg = regVersion(h), n = hvStateCount(h), dark = isDark(h, this._config.options), night = isNight(h, this._config.options);
-    if (this._regV !== reg || this._nStates !== n || this._dark !== dark || this._night !== night) {
-      this._regV = reg; this._nStates = n; this._dark = dark; this._night = night;
+    const style = styleOf(h, this._config.options);   // style: <entity> — its state switches glass / classic
+    if (this._regV !== reg || this._nStates !== n || this._dark !== dark || this._night !== night || this._styleSig !== style) {
+      this._regV = reg; this._nStates = n; this._dark = dark; this._night = night; this._styleSig = style;
       this._gen = (this._gen || 0) + 1;
     }
     return this._gen;
@@ -6346,13 +6704,24 @@ class HomeViewPage extends HTMLElement {
     const hue = hueOf(pageCfg.color, page.hue ?? pd.hue ?? 28);
     const dark = isDark(h, cfg), night = isNight(h, cfg);
     this._dark = dark; this._night = night;
+    // style: glass (default) or classic, and how on this screen (lookOf): every tint below gets its glass
+    // surfaces too (rooms, sections: hueStyle reads hvLook)
+    const look = lookOf(h, cfg, night, this._editing);
+    hvLook = look;
+    this._look = lookKey(look);
     // the night face: every tint warm and quiet (see isNight); otherwise the page's / room's own
-    const pal = (hu, sat) => (night ? nightPalette(sat ?? 1) : palette(hu, dark, sat));
+    const pal = (hu, sat) => {
+      const p = night ? nightPalette(sat ?? 1) : palette(hu, dark, sat);
+      return look ? Object.assign(p, glassPalette(night ? 28 : hu, dark, night ? 0.6 : sat ?? 1, night, look)) : p;
+    };
     this._pal = pal;
     // Home Assistant's theme variables follow too (HA_VARS, haTokens): its primary scale in the accent
     this._root.setAttribute('style', styleVars({ ...pal(hue, pd.sat ?? 1), ...haPrimary(night ? 28 : hue, night ? 0.6 : pd.sat ?? 1) }));
     this._root.classList.toggle('night', night);
     this._root.classList.toggle('hv-dark', dark);
+    this._root.classList.toggle('glass', !!look);
+    this._root.classList.toggle('g-plain', !!look?.plain);
+    hvLookWatch();
     const pf = fontStack(cfg.font);   // font: inter — the whole dashboard
     if (pf) this._root.style.fontFamily = pf;
 
@@ -6427,7 +6796,11 @@ class HomeViewPage extends HTMLElement {
         '--hv-fg': night ? '#CFC4B8' : dark ? '#EEF2F3' : '#15191B', '--hv-fg2': night ? 'hsl(28 8% 58%)' : dark ? `hsl(${bh} 8% 66%)` : `hsl(${bh} 9% 24%)`,
         // the weekday in a deeper orange on the light board (3.6 : 1 for its big type; the accent was 1.7)
         '--hv-accent': dark ? '#FF9F45' : '#E8640C', '--hv-accent-tx': dark ? '#FF9F45' : '#9A3A00', '--hv-clock-num': 'var(--hv-fg)', '--hv-line': dark ? 'rgba(255,255,255,.14)' : 'rgba(0,0,0,.14)',
-        '--hv-tile': 'transparent', '--hv-pill': dark ? 'rgba(255,255,255,.08)' : 'rgba(255,255,255,.35)' }));
+        '--hv-tile': 'transparent', '--hv-pill': dark ? 'rgba(255,255,255,.08)' : 'rgba(255,255,255,.35)',
+        // glass: secondary text a little lighter over the dark photo aura
+        ...(look && dark && !night ? { '--hv-fg2': `hsl(${bh} 8% 70%)` } : {}) }));
+      // glass: the photo's colours behind the board (photoAura draws them; off at night and in classic)
+      if (look?.aura && cfg.glass?.photo_aura !== false) b.classList.add('aura');
       const bf = fontStack(cfg.widgets?.font);   // widgets: { font: inter } (the clock keeps the system font)
       if (bf) b.style.fontFamily = bf;
       for (const spec of page.board) {
@@ -6973,6 +7346,20 @@ class HomeViewPage extends HTMLElement {
       return;
     }
     const { sheet, close } = this._sheet('HomeView settings', '<button class="txt" data-yaml>YAML</button><button class="txt primary" data-save>Save</button>');
+    // style: glass — this screen's "reduce transparency" (iPhone / iPad: Safari never tells a page about the
+    // system's setting, so this is the way there)
+    {   // this screen's look (it wins over style:), and its reduced transparency (for glass)
+      const sl = screenLook() || '';
+      const look = document.createElement('label'); look.className = 'rtsw';
+      look.innerHTML = `<span><b>Look on this screen</b><span class="sheet-sub">Saved in this browser; wins over the dashboard's Look.</span></span>
+        <select>${[['', 'As the dashboard'], ['glass', 'Glass'], ['classic', 'Classic']].map(([v, t]) => `<option value="${v}"${v === sl ? ' selected' : ''}>${t}</option>`).join('')}</select>`;
+      look.querySelector('select').addEventListener('change', (e) => setScreenLook(e.target.value));
+      sheet.appendChild(look);
+      const row = document.createElement('label'); row.className = 'rtsw';
+      row.innerHTML = `<span><b>Reduce transparency on this screen</b><span class="sheet-sub">Glass: solid surfaces, no blur. This screen only; saved in its browser.</span></span><input type="checkbox"${screenReduced() ? ' checked' : ''}>`;
+      row.querySelector('input').addEventListener('change', (e) => setScreenReduced(e.target.checked));
+      sheet.appendChild(row);
+    }
     const ed = document.createElement('homeview-strategy-editor');
     ed.hass = h;
     ed.setConfig(draft);
@@ -7744,6 +8131,7 @@ customElements.get('homeview-page') || customElements.define('homeview-page', Ho
 const EDITOR_LABELS = {
   title: ['Title', 'The Home page heading. Empty = your home\'s name.'],
   theme: ['Theme'],
+  style: ['Look', 'Glass: translucent tiles and controls over a soft colour wallpaper. Classic: the solid look of HomeView before 0.10. Or an entity (input_select.dashboard_look) whose state, Glass or Classic, switches it.'],
   pages: ['Pages', 'Which pages to show, in swipe order. Pages with nothing to show are skipped.'],
   swipe: ['Swipe between pages'],
   edit_button: ['Double-tap a page title to edit', 'Admins only. Off: no edit mode on the dashboard.'],
@@ -7785,7 +8173,7 @@ const PILL_NAMES = { alarm: 'Alarm', climate: 'Climate', lights: 'Lights on', lo
   safety: 'Leaks, smoke & gas', batteries: 'Batteries', media: 'Now playing', warnings: 'Warnings (warnings:)' };
 
 // What HomeView does when an option is not set: shown in the editor, left out when saving
-const EDITOR_DEFAULTS = { theme: 'auto', pages: DEFAULT_PAGES, swipe: true, edit_button: true, update_notice: true, kiosk: true, kiosk_chip: true, avatars: 'samples', people_chips: true, battery_low: 20,
+const EDITOR_DEFAULTS = { theme: 'auto', style: 'glass', pages: DEFAULT_PAGES, swipe: true, edit_button: true, update_notice: true, kiosk: true, kiosk_chip: true, avatars: 'samples', people_chips: true, battery_low: 20,
   home: { rooms: false, scenes: true, max_scenes: 8 } };
 
 /**
@@ -7881,6 +8269,7 @@ function editorSchema(hass) {
       { name: 'title', selector: { text: {} } },
       { name: 'theme', selector: { select: { mode: 'dropdown', options: [
         { value: 'auto', label: 'Follow Home Assistant' }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }] } } },
+      { name: 'style', selector: { select: { mode: 'dropdown', custom_value: true, options: [{ value: 'glass', label: 'Glass' }, { value: 'classic', label: 'Classic' }] } } },
       { name: 'pages', selector: { select: { multiple: true, reorder: true,
         options: Object.keys(PAGE_DEFS).map((p) => ({ value: p, label: { rooms: 'Rooms (a page per family member)', all_rooms: 'All rooms (directory)' }[p] || PAGE_DEFS[p].title })) } } },
       { name: 'swipe', selector: { boolean: {} } },

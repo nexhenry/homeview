@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.10.0 — 2026-11-20
+
+**0.10.0 changes how HomeView looks: it's now in glass by default. To keep the look you had, set
+`style: classic`** (in YAML, or Look → Classic in the settings).
+
+- **Glass (Liquid Glass), the new default look.** Tiles and controls are translucent materials over a
+  soft wallpaper in each page's colours, with a light rim and sheen; lit tiles glow in their colour; pills,
+  chips and buttons are glass capsules; pop-ups are a glass sheet over the dimmed, blurred page. The
+  wallpaper carries the blur, so only a few floating parts blur live (the page dots, the ✕ of a page that
+  opens over another, Widgets' full-screen button, a toast, and the page behind a pop-up), none at night or in
+  edit mode. Every text and icon colour passes WCAG AA over every page colour in light, dark and night,
+  even where a browser draws no blur. Options: `style: glass | classic`; `glass: { live_blur: auto | false,
+  photo_aura, wallpaper: aura | plain, screens }` (see Look in the README).
+- **Switch the look from a page:** `style:` takes an entity too, e.g. `style: input_select.dashboard_look` with
+  the options Glass and Classic; the pages change look when it changes, without reloading (unknown or
+  unavailable: glass). Each screen can also pick its own look in the settings (*Look on this screen*), which
+  wins over `style:`.
+- **Widgets as the screensaver:** `screensaver: widgets` (or `{ page: widgets, idle: 120 }`) opens that page
+  after the idle time instead of the big-clock overlay, so the clock, the next events and the photos are there
+  and every tile and pill works at once. It waits while a pop-up, Home Assistant's dialog or a full-screen
+  camera or video is open, or in edit mode; touch tablets only, as `auto`. Without `page` the clock is as before.
+- **A button's hold can ask first:** `hold: { action, target, confirm: 'Sound the siren?' }` (or
+  `{ text, action }`) shows HomeView's "are you sure?" sheet before the hold runs, red when the button is
+  red, with the same guard against a late tap. In the Home Assistant app a hold plays a heavy haptic and a
+  button's tap a light one (a short vibration in other browsers that can). A tap without `confirm` still
+  runs at once.
+- **Glass everywhere:** Home Assistant's cards on HomeView's pages (tile cards, graphs, the energy cards)
+  sit on the glass surface, and so do the cells, buttons and chips inside tiles, Home's clock tile and the
+  alert banners.
+- **Widgets' photo aura** (glass): the photo on screen tints the board behind the clock with its colours;
+  Up next and the weather sit on clear glass panes. Off at night; `glass.photo_aura: false` turns it off.
+- **Reduce transparency on this screen**, in the settings: solid surfaces and no blur on that screen only.
+  It's the way to get it on an iPhone or iPad (Safari doesn't tell web pages about the system setting);
+  browsers that do, and Increase contrast, get the solid look by themselves.
+- **Easier to read in both looks:** white text on a coloured button (Save, Update, a letter avatar) now sits
+  on a deeper shade of the page colour (it was as low as 1.7 : 1 on yellow and green pages; now 4.6 : 1 or
+  more), and red alert pills in dark mode use a deeper red under their white text (3.6 → 6.2 : 1).
+- **The page dots' capsule keeps its blur while it fades** (the fade was on its parent, which turned the
+  blur off for the length of the fade).
+- **Edit mode: the buttons on the tiles no longer blur what's behind them** (glass; a blur on dozens of
+  wiggling tiles was the costliest thing HomeView drew).
+
 ## 0.9.2 — 2026-11-20
 
 - **Opens faster.** A phone opening the dashboard goes straight to its start page (Home) without

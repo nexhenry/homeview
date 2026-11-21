@@ -81,7 +81,9 @@ const EXPORTS = ['HV_VERSION', 'buildModel', 'R', 'PILLS', 'PAGES', 'userTile', 
   'flowOutage', 'mergeOpts', 'fullscreenCapable', 'isFullscreen', 'personLocated', 'locationStaleMinutes', 'personBattery',
   'cleanName', 'nameFor', 'plusWord', 'confirmName', 'nameParts', 'lightOrder', 'liveLightOrder', 'sheetCloser', 'pressGuard', 'SHEET_QUIET_MS',
   'shareCollection', 'sharePeriod', 'shareValue', 'severityTone', 'shareDecimals', 'domainOf', 'slideState', 'SLIDE_RESCAN_MS',
-  'SLIDE_SETTLE_MS', 'loadSourceOptions', 'resolveFrom', 'fontSrc', 'fontStack', 'FONT_PRESETS'];
+  'SLIDE_SETTLE_MS', 'loadSourceOptions', 'resolveFrom', 'fontSrc', 'fontStack', 'FONT_PRESETS', 'glassPalette', 'glassWall', 'capL', 'relLum',
+  'hslRgb', 'lookOf', 'lookKey', 'photoAura', 'TILE_CSS', 'REDUCE_KEY', 'screenReduced', 'setScreenReduced', 'styleOf', 'screenLook',
+  'setScreenLook', 'SCREEN_LOOK_KEY', 'hvScreensaver'];
 
 let loaded = null;
 export async function loadHomeView() {

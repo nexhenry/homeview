@@ -392,3 +392,29 @@ test('admins get a note for typos in show_when, patterns, defaults, format, conf
   p.rebuild();
   assert.doesNotMatch(noteText(), /unknown key/);
 });
+
+test('a button: tap = its action at once (no confirm set), hold = { action, confirm } asks first; cancel runs nothing; haptics', async () => {
+  const haptics = [];
+  const de = globalThis.dispatchEvent; globalThis.dispatchEvent = (e) => { if (e.type === 'haptic') haptics.push(e.detail); return true; };
+  const h = makeHass({ extra: { 'input_boolean.siren_test': { state: 'off' } } });
+  const spec = { kind: 'button', name: 'Siren', icon: 'mdi:alarm-light', color: 'red', watch: 'input_boolean.siren_test', when: 'on',
+    action: 'input_boolean.turn_off', target: 'input_boolean.siren_test',
+    hold: { action: 'input_boolean.turn_on', target: 'input_boolean.siren_test', confirm: { text: 'Sound the siren (60 s)?', action: 'Sound' } } };
+  try {
+    const asked = await answer(() => hv.R.button.action(h, spec, tile, 'tap'));
+    assert.equal(asked, null, 'a tap without confirm doesn\'t ask');
+    assert.deepEqual(sent(h), ['input_boolean.turn_off']);
+    const no = await answer(() => hv.R.button.action(h, spec, tile, 'hold'), false);
+    assert.ok(no, 'the hold asked');
+    assert.deepEqual(sent(h), ['input_boolean.turn_off'], 'cancelled: nothing more');
+    const yes = await answer(() => hv.R.button.action(h, spec, tile, 'hold'), true);
+    assert.match(yes.innerHTML, /cf-btn go t-alert" data-yes>Sound</, 'red button: the alert tone, its own word');
+    assert.match(yes.innerHTML, /Sound the siren \(60 s\)\?/);
+    assert.deepEqual(sent(h), ['input_boolean.turn_off', 'input_boolean.turn_on']);
+    assert.deepEqual(haptics, ['light', 'heavy', 'heavy']);
+    // a hold without confirm runs at once, as before
+    const plain = await answer(() => hv.R.button.action(h, { ...spec, hold: { action: 'input_boolean.turn_on', target: 'input_boolean.siren_test' } }, tile, 'hold'));
+    assert.equal(plain, null);
+    assert.equal(sent(h).at(-1), 'input_boolean.turn_on');
+  } finally { globalThis.dispatchEvent = de; }
+});
