@@ -83,7 +83,9 @@ const EXPORTS = ['HV_VERSION', 'buildModel', 'R', 'PILLS', 'PAGES', 'userTile', 
   'shareCollection', 'sharePeriod', 'shareValue', 'severityTone', 'shareDecimals', 'domainOf', 'slideState', 'SLIDE_RESCAN_MS',
   'SLIDE_SETTLE_MS', 'loadSourceOptions', 'resolveFrom', 'fontSrc', 'fontStack', 'FONT_PRESETS', 'glassPalette', 'glassWall', 'capL', 'relLum',
   'hslRgb', 'lookOf', 'lookKey', 'photoAura', 'TILE_CSS', 'REDUCE_KEY', 'screenReduced', 'setScreenReduced', 'styleOf', 'screenLook',
-  'setScreenLook', 'SCREEN_LOOK_KEY', 'hvScreensaver'];
+  'setScreenLook', 'SCREEN_LOOK_KEY', 'hvScreensaver', 'OFFER_KEY', 'OFFER_TYPE', 'OFFER_TITLE', 'OFFER_TEXT', 'OFFER_DOCS', 'offerIsDev',
+  'offerAnswer', 'offerDashExists', 'offerDecide', 'offerPath', 'offerCreate', 'offerDismiss', 'offerScreenOk', 'offerHtml', 'offerCss',
+  'hvOfferSeen'];
 
 let loaded = null;
 export async function loadHomeView() {

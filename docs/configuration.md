@@ -812,4 +812,5 @@ options:               # the same options as the strategy
   theme: dark
 ```
 
-Use it in a **panel** view so it gets the full width.
+Use it in a **panel** view so it gets the full width. Only using pages as cards? Answer **Not now** when
+HomeView offers to create a dashboard (it asks admins once; the answer is kept per user).

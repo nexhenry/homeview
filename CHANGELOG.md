@@ -4,9 +4,15 @@
 
 - **Create the dashboard in one step:** HomeView now appears in Home Assistant's **Add dashboard** dialog
   (under *Community dashboards*). Pick it, name it, Create — no raw YAML to edit.
+- **Offers to create the dashboard:** after installing, an admin sees a small notice a few seconds after a
+  dashboard (or Settings → Dashboards) opens: *Create a HomeView dashboard?* **Create** adds a *HomeView*
+  dashboard (`/dashboard-homeview`) to the sidebar and opens it; **Not now** is remembered for that user on every
+  device. Asked once, only while no HomeView dashboard exists, never on a kiosk screen (Fully Kiosk, `?kiosk`) or
+  over a dialog; nothing is created without a tap, and other users get no notice and no extra requests.
 - **The resource:** the README now says to use the plain `/hacsfiles/homeview/homeview.js` (JavaScript module,
   no version; the Marketplace and HACS add it for you), and why not `/local/community/…` without a version
-  (browsers cache `/local/` for a month).
+  (browsers cache `/local/` for a month). With `resource_mode: yaml` in `configuration.yaml` the Marketplace and
+  HACS can't add it: the README shows the lines to add (then restart Home Assistant).
 - **Troubleshooting** for "Timeout waiting for strategy element ll-strategy-dashboard-homeview" (the browser
   never loaded `homeview.js`): what to check, in order.
 

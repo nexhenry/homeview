@@ -8419,6 +8419,258 @@ class HomeViewStrategyEditor extends HTMLElement {
 customElements.get('homeview-strategy-editor') || customElements.define('homeview-strategy-editor', HomeViewStrategyEditor);
 
 /* ============================================================================================
+ * Offer to create a HomeView dashboard, once
+ * ========================================================================================== */
+// The Marketplace / HACS run nothing at install: HomeView first runs when a browser loads Home Assistant's
+// dashboard resources. Then, for admins only, once per page load and a few seconds in: the user's remembered
+// answer (frontend user data `homeview_offer`, kept per user by Home Assistant, so "Not now" follows them to
+// every device; once known, this browser remembers it and asks nothing more), else whether a dashboard with
+// `strategy: custom:homeview` exists, else a small notice: Create / Not now. Nothing is written without a tap
+// but the 'found' mark; any doubt (a read error, an odd reply) = no offer. Never from the dev build, on a kiosk
+// screen or over a dialog; non-admins: no request.
+const OFFER_KEY = 'homeview_offer';
+const OFFER_TYPE = 'custom:homeview';   // dev-build.sh makes this custom:homeview-dev: a dev copy never offers
+const OFFER_DOCS = 'https://github.com/nexhenry/homeview#create-the-dashboard';
+const OFFER_TITLE = 'Create a HomeView dashboard?';
+const OFFER_TEXT = 'An Apple Home-style dashboard for every room, person and device.';
+const OFFER_DELAY_MS = 4000;
+const OFFER_STALE_MS = 10 * 60 * 1000;   // a 'creating' mark older than this was left by a screen that closed
+const OFFER_LOCAL = 'homeview-offer-answered';   // this browser: users whose answer is stored (no request at all)
+let hvOfferSeen = false;                 // this browser built a HomeView dashboard (generate): one exists
+const offerIsDev = (type = OFFER_TYPE) => /-dev$/.test(String(type));
+const isHomeViewDash = (c) => !!c && typeof c === 'object' && /^custom:homeview(-dev)?$/.test(String(c.strategy?.type || ''));
+const offerSet = (hass, value) => ws(hass, { type: 'frontend/set_user_data', key: OFFER_KEY, value });
+const offerNow = () => new Date().toISOString();
+const offerSleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const offerLocal = () => { try { const l = JSON.parse(localStorage.getItem(OFFER_LOCAL) || '[]'); return Array.isArray(l) ? l : []; } catch (e) { return []; } };
+const offerKnown = (uid) => !!uid && offerLocal().includes(uid);
+const offerRemember = (uid) => {
+  try { if (uid && !offerKnown(uid)) localStorage.setItem(OFFER_LOCAL, JSON.stringify([...offerLocal(), uid].slice(-20))); } catch (e) { /* private mode */ }
+};
+
+/** The answer stored for this user (an object), or null = not asked yet. Throws when it can't be read. */
+async function offerAnswer(hass) {
+  const r = await ws(hass, { type: 'frontend/get_user_data', key: OFFER_KEY });
+  if (!r || typeof r !== 'object' || !('value' in r)) throw new Error('unexpected reply');
+  const v = r.value;
+  if (v === null || v === undefined) return null;
+  // 'creating': another screen is creating it right now — unless the mark is old (that screen closed half way)
+  if (v && v.state === 'creating' && !(Date.now() - Date.parse(v.at) < OFFER_STALE_MS)) return null;
+  return v;
+}
+
+/** Whether a HomeView dashboard exists (true / false). Throws when that can't be told: a read error other than
+ *  "nothing saved yet", or an odd reply. */
+async function offerDashExists(hass) {
+  if (hvOfferSeen) return true;
+  const list = await ws(hass, { type: 'lovelace/dashboards/list' });
+  if (!Array.isArray(list)) throw new Error('unexpected reply');
+  const named = (d) => (/homeview/i.test(`${d?.url_path} ${d?.title}`) ? 0 : 1);   // the likely ones first
+  const paths = [...new Set([...list].sort((a, b) => named(a) - named(b)).map((d) => d?.url_path).filter((p) => typeof p === 'string' && p))];
+  if (!paths.includes('lovelace')) paths.push(null);   // the default dashboard (null reads "lovelace" when that exists)
+  for (const url_path of paths) {
+    let cfg;
+    try { cfg = await ws(hass, { type: 'lovelace/config', url_path }); } catch (e) {
+      if (e?.code === 'config_not_found') continue;   // nothing saved yet (auto-generated): not HomeView
+      throw e;
+    }
+    if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) throw new Error('unexpected reply');
+    if (isHomeViewDash(cfg)) return true;
+  }
+  return false;
+}
+
+/** What this screen should do: 'offer', or why not ('dev', 'not-admin', 'answered', 'found', 'error'). */
+async function offerDecide(hass, type = OFFER_TYPE) {
+  if (offerIsDev(type)) return 'dev';
+  if (!hass?.user?.is_admin || !hass.connection) return 'not-admin';
+  const uid = hass.user.id;
+  if (offerKnown(uid)) return 'answered';   // answered before, seen from this browser: not even a read
+  try {
+    const a = await offerAnswer(hass);
+    if (a) { if (a.state !== 'creating') offerRemember(uid); return 'answered'; }
+    if (await offerDashExists(hass)) {
+      // not stored: checked again next time
+      await offerSet(hass, { state: 'found', at: offerNow() }).then(() => offerRemember(uid), () => {});
+      return 'found';
+    }
+    return 'offer';
+  } catch (e) { return 'error'; }
+}
+
+/** A free address: dashboard-homeview, then -2, -3 … (Home Assistant wants a hyphen in it and no panel of the
+ *  same name; its own Add dashboard dialog suggests dashboard-<title> too). */
+function offerPath(taken) {
+  const t = new Set(taken);
+  for (let n = 1; n < 1000; n++) { const p = n === 1 ? 'dashboard-homeview' : `dashboard-homeview-${n}`; if (!t.has(p)) return p; }
+  return `dashboard-homeview-${Date.now()}`;
+}
+
+/** Create: the 'creating' mark first (two screens tapping at once), a dashboard at a free address, its config
+ *  (strategy: custom:homeview), then 'created'. Resolves { url }, or { answered } when another screen answered
+ *  meanwhile. A failure clears the mark and throws, err.made = the address if the dashboard was made (made:
+ *  that address from a failed try: a retry only saves its config). */
+async function offerCreate(hass, made = null) {
+  const prev = await offerAnswer(hass);
+  if (prev) return { answered: prev };
+  await offerSet(hass, { state: 'creating', at: offerNow() });
+  let url = made;
+  try {
+    if (!url) {
+      const list = await ws(hass, { type: 'lovelace/dashboards/list' });
+      const taken = [...(Array.isArray(list) ? list.map((d) => d?.url_path) : []), ...Object.keys(hass.panels || {})];
+      for (let i = 0; !url; i++) {
+        const p = offerPath(taken);
+        try {
+          await ws(hass, { type: 'lovelace/dashboards/create', url_path: p, title: 'HomeView', icon: 'mdi:home-variant',
+            show_in_sidebar: true, require_admin: false, mode: 'storage' });
+          url = p;
+        } catch (e) {   // taken since the list was read (another screen): the next one
+          if (i < 3 && (e?.translation_key === 'url_already_exists' || /already in use|already exists/i.test(e?.message || ''))) { taken.push(p); continue; }
+          throw e;
+        }
+      }
+    }
+    await ws(hass, { type: 'lovelace/config/save', url_path: url, config: { strategy: { type: OFFER_TYPE } } });
+  } catch (e) {
+    await offerSet(hass, null).catch(() => {});   // nothing stored: offered again on the next load
+    const err = e instanceof Error ? e : Object.assign(new Error(e?.message || String(e?.code || e)), { code: e?.code });
+    err.made = url;
+    throw err;
+  }
+  // it exists either way (next time: found)
+  await offerSet(hass, { state: 'created', url_path: url, at: offerNow() }).then(() => offerRemember(hass.user?.id), () => {});
+  return { url };
+}
+const offerDismiss = (hass) => offerSet(hass, { state: 'dismissed', at: offerNow() }).then(() => offerRemember(hass.user?.id));
+
+/** Not on a kiosk screen (Fully Kiosk; ?kiosk, ?hide_header, ?hide_sidebar as kiosk-mode uses) or in a frame. */
+function offerScreenOk({ ua = navigator.userAgent, search = location.search, framed, fully = window.fully } = {}) {
+  if (framed === undefined) { try { framed = !!window.top && window.top !== window; } catch (e) { framed = true; } }
+  return !framed && !fully && !/\bfully\b|fullykiosk/i.test(ua || '') && !/[?&](kiosk|hide_header|hide_sidebar)\b/i.test(search || '');
+}
+/** One of Home Assistant's dialogs is open (more-info, Add dashboard, a form …): HA adds them to its root as
+ *  ha-more-info-dialog, ha-dialog-new-dashboard (2026.11), dialog-… and keeps them there closed. */
+function haDialogOpen() {
+  try {
+    const root = document.querySelector('home-assistant')?.shadowRoot;
+    return !!root && [...root.children].some((c) => /dialog/.test(c.localName)
+      && (c.open || c.hasAttribute?.('open') || !!c.shadowRoot?.querySelector?.('[open]')));
+  } catch (e) { return false; }
+}
+
+/** The notice: HomeView's glass sheet material (solid where blur is missing or transparency reduced), light or dark as Home
+ *  Assistant's theme, at the bottom (on narrower screens above HA's floating button), under HA's dialogs (they're
+ *  in the top layer); 44 px buttons. */
+function offerCss(fill) {
+  return `:host { all:initial; position:fixed; z-index:5; left:50%; transform:translateX(-50%);
+  bottom:calc(16px + env(safe-area-inset-bottom, 0px)); width:min(440px, calc(100vw - 24px)); }
+:host([hidden]) { display:none; }
+/* narrower screens: above HA's floating button (Add dashboard …), not over it */
+@media (max-width: 900px) { :host { bottom:calc(88px + env(safe-area-inset-bottom, 0px)); } }
+.card { box-sizing:border-box; padding:16px; border-radius:22px; font:400 15px ${FONT}; -webkit-font-smoothing:antialiased;
+  color:#1C1C1E; background:hsl(30 45% 97% / .88); -webkit-backdrop-filter:blur(20px) saturate(170%); backdrop-filter:blur(20px) saturate(170%);
+  box-shadow:inset 0 1px 0 rgb(255 255 255 / .85), inset 0 0 0 .5px rgb(255 255 255 / .55), 0 0 0 .5px rgb(0 0 0 / .12), 0 12px 32px rgb(0 0 0 / .2);
+  animation:hvo-in .3s cubic-bezier(.2, .8, .2, 1); }
+.card.dark { color:#F5F5F7; background:hsl(30 12% 12% / .84);
+  box-shadow:inset 0 1px 0 rgb(255 255 255 / .16), inset 0 0 0 .5px rgb(255 255 255 / .08), 0 0 0 .5px rgb(0 0 0 / .6), 0 12px 32px rgb(0 0 0 / .5); }
+.row { display:flex; gap:12px; align-items:flex-start; }
+.ic { flex:none; width:40px; height:40px; border-radius:10px; display:grid; place-items:center; background:${fill}; color:#fff; }
+.ic svg { width:24px; height:24px; display:block; }
+.tx { min-width:0; }
+.t { font-weight:700; font-size:17px; line-height:1.25; }
+.d { margin-top:3px; font-size:14px; line-height:1.35; color:#48484A; }
+.dark .d { color:#C7C7CC; }
+.err { margin-top:8px; font-size:14px; line-height:1.35; color:#C41E18; }
+.err:empty { display:none; }
+.dark .err { color:#FF6961; }
+a { color:#0058B3; font-weight:600; }
+.dark a { color:#6CB4FF; }
+.a { display:flex; gap:10px; margin-top:14px; }
+button { all:unset; box-sizing:border-box; flex:1; height:44px; border-radius:12px; display:flex; align-items:center; justify-content:center;
+  font:650 15px ${FONT}; cursor:pointer; background:rgb(120 120 128 / .16); color:inherit; }
+.dark button { background:rgb(120 120 128 / .34); }
+button.go { background:${fill}; color:#fff; }
+button:focus-visible, a:focus-visible { outline:3px solid ${fill}; outline-offset:2px; }
+.dark button:focus-visible, .dark a:focus-visible { outline-color:#F5A25D; }
+button:disabled { opacity:.55; cursor:default; }
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))) { .card { background:hsl(30 45% 97%); } .card.dark { background:hsl(30 12% 12%); } }
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .card { background:hsl(30 45% 97%); -webkit-backdrop-filter:none; backdrop-filter:none; } .card.dark { background:hsl(30 12% 12%); } }
+@media (prefers-contrast: more) { .card { box-shadow:0 0 0 1.5px #1C1C1E; } .card.dark { box-shadow:0 0 0 1.5px #F5F5F7; } .d { color:inherit; } }
+@media (forced-colors: active) { .card { border:1px solid CanvasText; } button { border:1px solid ButtonText; } }
+@media (prefers-reduced-motion: reduce) { .card { animation:none; } }
+@keyframes hvo-in { from { opacity:0; transform:translateY(14px); } }`;
+}
+// the title and line are filled in just after the notice is added, so screen readers announce them (live region)
+function offerHtml(dark) {
+  return `<section class="card${dark ? ' dark' : ''}" role="region" aria-labelledby="hvo-t" aria-describedby="hvo-d">
+  <div class="row"><div class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12,3L20,9V21H15V14H9V21H4V9L12,3Z"/></svg></div>
+  <div class="tx" aria-live="polite"><div class="t" id="hvo-t"></div><div class="d" id="hvo-d"></div><div class="err" role="alert"></div></div></div>
+  <div class="a"><button type="button" data-no>Not now</button><button type="button" class="go" data-yes>Create</button></div></section>`;
+}
+/** Open the new dashboard once Home Assistant's panel list has it (HA sends the new list by itself). */
+async function offerOpen(url) {
+  const has = () => !!document.querySelector('home-assistant')?.hass?.panels?.[url];
+  for (let i = 0; i < 40 && !has(); i++) await offerSleep(150);
+  if (has()) navigate(`/${url}`); else location.assign(`/${url}`);
+}
+function offerShow(getHass) {
+  const host = document.createElement('div');
+  host.className = 'homeview-offer';
+  const root = host.attachShadow({ mode: 'open' });
+  root.innerHTML = `<style>${offerCss(`hsl(26 78% ${capL(26, 78, 50, 0, 0.175)}%)`)}</style>${offerHtml(!!getHass()?.themes?.darkMode)}`;
+  const card = root.querySelector('.card'), yes = root.querySelector('[data-yes]'), no = root.querySelector('[data-no]'), err = root.querySelector('.err');
+  const ok = pressGuard(card);   // a tap on the page just as the notice appears doesn't press one of its buttons
+  let made = null, busy = false;
+  // out of the way while one of HA's dialogs is open; HA's light / dark as it changes
+  const timer = setInterval(() => {
+    if (!host.isConnected) { clearInterval(timer); return; }
+    host.hidden = haDialogOpen();
+    card.classList.toggle('dark', !!getHass()?.themes?.darkMode);
+  }, 1000);
+  const close = () => { clearInterval(timer); host.remove(); };
+  no.addEventListener('click', (e) => {
+    if (busy || !ok(e, no)) return;
+    close();
+    offerDismiss(getHass()).catch(() => {});   // not stored: offered again on the next load
+  });
+  yes.addEventListener('click', async (e) => {
+    if (busy || !ok(e, yes)) return;
+    busy = true; yes.disabled = no.disabled = true; yes.textContent = 'Creating…'; err.textContent = '';
+    try {
+      const r = await offerCreate(getHass(), made);
+      close();
+      const url = r.url || (r.answered?.state === 'created' && r.answered.url_path);
+      if (url) offerOpen(url);
+    } catch (x) {
+      made = x?.made || made;
+      busy = false; yes.disabled = no.disabled = false; yes.textContent = 'Try again';
+      err.innerHTML = `Couldn't create it${x?.message ? ` (${esc(x.message)})` : ''}. <a href="${OFFER_DOCS}" target="_blank" rel="noopener">Create it by hand</a>`;
+    }
+  });
+  // Esc: away for now, nothing stored (asked again on the next load)
+  root.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !busy) { e.stopPropagation(); close(); } });
+  document.body.appendChild(host);
+  setTimeout(() => { root.querySelector('.t').textContent = OFFER_TITLE; root.querySelector('.d').textContent = OFFER_TEXT; }, 100);
+  return host;
+}
+function offerStart() {
+  if (offerIsDev() || window.__homeviewOffer) return;   // never the dev copy; once per page if HomeView loads twice
+  window.__homeviewOffer = true;
+  const getHass = () => document.querySelector('home-assistant')?.hass;
+  customElements.whenDefined('home-assistant-main').then(async () => {
+    for (let i = 0; i < 60 && !getHass()?.user; i++) await offerSleep(1000);
+    if (!getHass()?.user?.is_admin || !offerScreenOk()) return;   // non-admins and kiosk screens: no request at all
+    await offerSleep(OFFER_DELAY_MS);
+    if (await offerDecide(getHass()) !== 'offer') return;
+    // not over a dialog, not on a hidden tab: wait for that (up to 10 minutes)
+    for (let i = 0; i < 300 && (haDialogOpen() || document.visibilityState !== 'visible'); i++) await offerSleep(2000);
+    if (!haDialogOpen() && document.visibilityState === 'visible') offerShow(getHass);
+  }).catch(() => {});
+}
+
+/* ============================================================================================
  * The dashboard strategy: builds the list of views
  * ========================================================================================== */
 
@@ -8444,6 +8696,7 @@ function strategyPages(options) {
 
 class HomeViewStrategy extends HTMLElement {
   static async generate(config, hass) {
+    hvOfferSeen = true;   // a HomeView dashboard exists: no offer to create one
     const input = await HomeViewStrategy._input(config, hass);
     const dash = HomeViewStrategy._views(input, hass);
     if (config && typeof config === 'object') hvGenMemo.set(config, { input, sig: viewsSig(dash), reg: regVersion(hass), n: hvStateCount(hass) });
@@ -8607,6 +8860,8 @@ if (!window.customStrategies.some((s) => s.type === 'homeview')) {
     description: 'Apple Home-style dashboard: rooms, people, energy, cameras and widgets for tablets, phones and browsers.',
     documentationURL: 'https://github.com/nexhenry/homeview' });
 }
+// after installing: offer an admin to create the dashboard, once (see offerStart)
+offerStart();
 
 console.info(`%c HOMEVIEW %c ${HV_VERSION} `, 'color:#fff;background:#E07A2E;font-weight:700;border-radius:4px 0 0 4px;padding:2px 4px',
   'color:#E07A2E;background:#FBF1E6;font-weight:700;border-radius:0 4px 4px 0;padding:2px 4px');

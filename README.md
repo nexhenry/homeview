@@ -217,12 +217,29 @@ turn those requests off. Nothing else leaves your network.
 1. HACS → ⋮ → **Custom repositories** → add `https://github.com/nexhenry/homeview`, type **Dashboard**.
 2. Install **HomeView** and reload the browser (HACS registers the resource).
 
+### `resource_mode: yaml`? Add the resource yourself
+
+If your `configuration.yaml` has `lovelace: resource_mode: yaml`, the Marketplace (and HACS) can't add the
+resource. Add it yourself under `lovelace:`, keeping any resources already listed there:
+
+```yaml
+lovelace:
+  resource_mode: yaml
+  resources:
+    - url: /hacsfiles/homeview/homeview.js
+      type: module
+```
+
+Then **restart** Home Assistant (a reload isn't enough) and hard-reload the browser. Older configurations say
+`mode: yaml` instead of `resource_mode: yaml` (deprecated, still read by Home Assistant 2026.11): the same
+`resources:` entry goes under it. Do this first: HomeView, and its offer to create the dashboard, run only once
+the browser loads this file.
+
 ### Manual
 
 1. Copy `dist/homeview.js` to `<config>/www/homeview/homeview.js`.
 2. Settings → Dashboards → ⋮ → **Resources** → add `/local/homeview/homeview.js?v=1.0.1` as a
-   *JavaScript module*. (With `lovelace: resource_mode: yaml`, add it under `lovelace: resources:` in
-   `configuration.yaml` and restart Home Assistant.)
+   *JavaScript module*. (With `resource_mode: yaml`: [in `configuration.yaml`](#resource_mode-yaml-add-the-resource-yourself), with this address.)
 
 ### Updates
 
@@ -244,7 +261,12 @@ cache**), and purge the file once if the proxy already holds an old one.
 
 ## Create the dashboard
 
-Settings → Dashboards → **Add dashboard** → pick **HomeView** → name it → **Create**. That's it —
+After installing, HomeView offers to create the dashboard: tap **Create**. It asks admins once, a few seconds
+after a dashboard or Settings → Dashboards opens, and only while there's no HomeView dashboard; **Create** adds
+*HomeView* to the sidebar and opens it, **Not now** is remembered for your user on every device (say it if you
+only use HomeView pages as cards). No offer with `resource_mode: yaml`? [Add the resource](#resource_mode-yaml-add-the-resource-yourself) first.
+
+Or any time: Settings → Dashboards → **Add dashboard** → pick **HomeView** → name it → **Create**. That's it —
 HomeView builds the pages.
 
 <details><summary>HomeView isn't in the list, or you prefer YAML</summary>
@@ -262,7 +284,7 @@ strategy:
 **"Error: Timeout waiting for strategy element ll-strategy-dashboard-homeview"** means the browser never
 loaded `homeview.js`. Check, in order: Settings → Dashboards → ⋮ → **Resources** (turn on *Advanced
 mode* in your profile if the menu is missing) lists `/hacsfiles/homeview/homeview.js` as a *JavaScript
-module* — add it if not, or under `lovelace: resources:` with `resource_mode: yaml`; opening that address
+module* — add it if not (with `resource_mode: yaml`: [in `configuration.yaml`](#resource_mode-yaml-add-the-resource-yourself)); opening that address
 in the browser shows the file (a 404: Marketplace → HomeView → ⋮ → **Redownload**); then a hard reload or,
 in the app, **Reset frontend cache**. Still stuck? The browser console's red line about `homeview.js` says
 why — put it in an issue.
