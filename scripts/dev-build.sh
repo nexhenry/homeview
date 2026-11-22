@@ -15,6 +15,7 @@ sed -e 's/ll-strategy-dashboard-homeview\b/ll-strategy-dashboard-homeview-dev/g'
     -e 's/homeview-strategy-editor/homeview-dev-strategy-editor/g' \
     -e "s/^const HV_VERSION = '\([0-9.]*\)';/const HV_VERSION = '\1-dev';/" \
     -e "s/'custom:homeview'/'custom:homeview-dev'/g" \
+    -e "s/s.type === 'homeview')/s.type === 'homeview-dev')/; s/type: 'homeview', strategyType/type: 'homeview-dev', strategyType/; s/name: 'HomeView',$/name: 'HomeView (dev)',/" \
     dist/homeview.js > "$out"
 # the two copies must not share a single custom element name
 if grep -oE "customElements\.define\('[a-z-]+'" "$out" | grep -vq -- '-dev'; then

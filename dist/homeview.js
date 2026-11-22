@@ -11,7 +11,7 @@
  * Widgets, Home, Living, a page per person (Rooms), a details page per room, Energy and Cameras. Everything is
  * optional and can be tuned in the strategy config — see README.md.
  */
-const HV_VERSION = '1.0.0';
+const HV_VERSION = '1.0.1';
 // where this file was loaded from (to re-download it after an update)
 const HV_URL = (() => { try { return import.meta.url; } catch (e) { return null; } })();
 
@@ -8597,6 +8597,15 @@ customElements.get('ll-strategy-dashboard-homeview') || customElements.define('l
 window.customCards = window.customCards || [];
 if (!window.customCards.some((c) => c.type === 'homeview-page')) {
   window.customCards.push({ type: 'homeview-page', name: 'HomeView page', description: 'One HomeView page (home, widgets, living, a person\'s page, a room\'s page, energy, cameras).' });
+}
+
+// HA's "Add dashboard" dialog lists the dashboard strategies registered here: picking HomeView creates a
+// dashboard with `strategy: { type: custom:homeview }`, no YAML to edit
+window.customStrategies = window.customStrategies || [];
+if (!window.customStrategies.some((s) => s.type === 'homeview')) {
+  window.customStrategies.push({ type: 'homeview', strategyType: 'dashboard', name: 'HomeView',
+    description: 'Apple Home-style dashboard: rooms, people, energy, cameras and widgets for tablets, phones and browsers.',
+    documentationURL: 'https://github.com/nexhenry/homeview' });
 }
 
 console.info(`%c HOMEVIEW %c ${HV_VERSION} `, 'color:#fff;background:#E07A2E;font-weight:700;border-radius:4px 0 0 4px;padding:2px 4px',

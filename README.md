@@ -209,17 +209,18 @@ turn those requests off. Nothing else leaves your network.
 1. Settings → **Marketplace** → *Browse*, find **HomeView** (type *Dashboard*) and install it. Not listed?
    Add `https://github.com/nexhenry/homeview` as a custom repository (type *Dashboard*) from the
    Marketplace's ⋮ menu, then install it.
-2. Reload the browser.
+2. Reload the browser. The Marketplace registers the dashboard resource for you
+   (`/hacsfiles/homeview/homeview.js`, JavaScript module); nothing to add by hand.
 
 ### Older Home Assistant: HACS
 
 1. HACS → ⋮ → **Custom repositories** → add `https://github.com/nexhenry/homeview`, type **Dashboard**.
-2. Install **HomeView** and reload the browser.
+2. Install **HomeView** and reload the browser (HACS registers the resource).
 
 ### Manual
 
 1. Copy `dist/homeview.js` to `<config>/www/homeview/homeview.js`.
-2. Settings → Dashboards → ⋮ → **Resources** → add `/local/homeview/homeview.js?v=1.0.0` as a
+2. Settings → Dashboards → ⋮ → **Resources** → add `/local/homeview/homeview.js?v=1.0.1` as a
    *JavaScript module*. (With `lovelace: resource_mode: yaml`, add it under `lovelace: resources:` in
    `configuration.yaml` and restart Home Assistant.)
 
@@ -230,11 +231,11 @@ Assistant's **Settings** (a badge, and the update under *Updates*), in the Marke
 admins, as a small ⬆ icon in front of the Home page's title: tap it for what's new and the **Update**
 button. Don't want it? `update_notice: false`.
 
-**The resource and browsers' caches.** The Marketplace and HACS load HomeView from
-`/hacsfiles/homeview/homeview.js`, which Home Assistant serves with revalidation: after an update every
-screen gets the new file on its next load, no stale copy. A manual install under `/local/` is cached for a
-month, so give the resource a version (`/local/homeview/homeview.js?v=1.0.0`) and bump it with each update;
-the same goes for a `/local/community/…` resource. If a screen still runs the old version, HomeView says so
+**The resource and browsers' caches.** Use `/hacsfiles/homeview/homeview.js` (JavaScript module) — the
+plain address, no version: Home Assistant serves it with revalidation, so after an update every screen gets
+the new file on its next load. Avoid `/local/community/homeview/homeview.js` without a version: `/local/`
+is cached by browsers for a month, so screens would keep the old version after an update. A manual install
+under `/local/` needs the `?v=` and a bump with each update. If a screen still runs the old version, HomeView says so
 (*"… is installed, but this screen still runs …"*) behind a ↻ icon: tap it to reload. Otherwise a hard
 reload (Ctrl/Cmd+Shift+R), or in the Companion app Settings → Companion App → Debugging → **Reset frontend
 cache**. **Behind Cloudflare or another caching proxy,** add a rule so it never caches card files (on
@@ -243,15 +244,28 @@ cache**), and purge the file once if the proxy already holds an old one.
 
 ## Create the dashboard
 
-1. Settings → Dashboards → **Add dashboard** → *New dashboard from scratch*, name it, open it.
-2. ⋮ → **Edit dashboard** → ⋮ → **Raw configuration editor**, replace everything with:
+Settings → Dashboards → **Add dashboard** → pick **HomeView** → name it → **Create**. That's it —
+HomeView builds the pages.
 
-   ```yaml
-   strategy:
-     type: custom:homeview
-   ```
+<details><summary>HomeView isn't in the list, or you prefer YAML</summary>
 
-3. Save. That's it — HomeView builds the pages.
+Add a dashboard *from scratch*, then ⋮ → **Edit dashboard** → ⋮ → **Raw configuration editor**, replace
+everything with the lines below and save. (Not in the list usually means the browser hasn't loaded
+HomeView yet: reload it.)
+
+```yaml
+strategy:
+  type: custom:homeview
+```
+</details>
+
+**"Error: Timeout waiting for strategy element ll-strategy-dashboard-homeview"** means the browser never
+loaded `homeview.js`. Check, in order: Settings → Dashboards → ⋮ → **Resources** (turn on *Advanced
+mode* in your profile if the menu is missing) lists `/hacsfiles/homeview/homeview.js` as a *JavaScript
+module* — add it if not, or under `lovelace: resources:` with `resource_mode: yaml`; opening that address
+in the browser shows the file (a 404: Marketplace → HomeView → ⋮ → **Redownload**); then a hard reload or,
+in the app, **Reset frontend cache**. Still stuck? The browser console's red line about `homeview.js` says
+why — put it in an issue.
 
 HomeView generates the pages each time the dashboard opens, so it follows your home as it
 changes: a new light in the kitchen appears on the Kitchen page by itself.

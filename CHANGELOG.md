@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.1 — 2026-11-21
+
+- **Create the dashboard in one step:** HomeView now appears in Home Assistant's **Add dashboard** dialog
+  (under *Community dashboards*). Pick it, name it, Create — no raw YAML to edit.
+- **The resource:** the README now says to use the plain `/hacsfiles/homeview/homeview.js` (JavaScript module,
+  no version; the Marketplace and HACS add it for you), and why not `/local/community/…` without a version
+  (browsers cache `/local/` for a month).
+- **Troubleshooting** for "Timeout waiting for strategy element ll-strategy-dashboard-homeview" (the browser
+  never loaded `homeview.js`): what to check, in order.
+
 ## 1.0.0 — 2026-11-21
 
 HomeView 1.0: the first stable release, and the version submitted to the Home Assistant Marketplace's
