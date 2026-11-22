@@ -119,7 +119,8 @@ details page; a tap anywhere else still switches its lights, and a hold still op
 What HomeView builds for one real family home, from its own Home Assistant and its HomeView settings
 (favourites, `customize`, a few sections and pages of its own): no hand-made dashboard, just the
 strategy and its config. Use it as ideas for your own fine-tuning. Camera pictures, photos, calendar
-and school details are blurred, and family and place names are changed, for privacy.
+and school details are blurred, family and place names are changed, and the security page is shown in
+part, for privacy.
 
 ### Liquid Glass
 
@@ -143,11 +144,17 @@ The same home on an iPhone: Home first, then Living, a person's page and Energy.
 |---|---|---|---|
 | ![Home on a phone: chips, status pills, favourites, weather and the camera](docs/screenshots/phone-home.webp) | ![Living on a phone: favourites, then each room with its devices](docs/screenshots/phone-living.webp) | ![A person's page on a phone: their location, their room and its devices](docs/screenshots/phone-person-mia.webp) | ![Energy on a phone: the live flow and the right-now cells](docs/screenshots/phone-energy.webp) |
 
-### Your own pages
+### A room and your own pages
 
-Pages made with `custom_pages` and your own tiles: an admin page of the home's own settings (the dashboard's
-look and face, modes, climate control and each room's comfort, each a tap on an HA helper or script) and a
-media room (karaoke controls, a TV remote, effect presets and mixer levels).
+A room's page (hold its tile or title): right now, the last 24 hours and every device in the room. And
+pages made with `custom_pages` and your own tiles: a security page (the alarm's modes, what's open, the
+cameras), an admin page of the home's own settings (the dashboard's look and face, modes, climate control
+and each room's comfort, each a tap on an HA helper or script) and a media room (karaoke controls, a TV
+remote, effect presets and mixer levels).
+
+| A room | Security |
+|---|---|
+| ![A room's page in glass, light: right now (temperature, its door and lock, comfort, humidity), its lights, presence and power, the last 24 hours, then the room's devices](docs/screenshots/glass-living-room-light.webp) | ![A security page in glass, light: the alarm's modes, open sensors and the door, and the cameras](docs/screenshots/glass-security-light.webp) |
 
 | Admin | Media |
 |---|---|
