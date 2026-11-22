@@ -11,7 +11,7 @@
  * Widgets, Home, Living, a page per person (Rooms), a details page per room, Energy and Cameras. Everything is
  * optional and can be tuned in the strategy config — see README.md.
  */
-const HV_VERSION = '0.10.0';
+const HV_VERSION = '1.0.0';
 // where this file was loaded from (to re-download it after an update)
 const HV_URL = (() => { try { return import.meta.url; } catch (e) { return null; } })();
 

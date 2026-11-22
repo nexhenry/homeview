@@ -219,7 +219,7 @@ turn those requests off. Nothing else leaves your network.
 ### Manual
 
 1. Copy `dist/homeview.js` to `<config>/www/homeview/homeview.js`.
-2. Settings → Dashboards → ⋮ → **Resources** → add `/local/homeview/homeview.js?v=0.10.0` as a
+2. Settings → Dashboards → ⋮ → **Resources** → add `/local/homeview/homeview.js?v=1.0.0` as a
    *JavaScript module*. (With `lovelace: resource_mode: yaml`, add it under `lovelace: resources:` in
    `configuration.yaml` and restart Home Assistant.)
 
@@ -233,7 +233,7 @@ button. Don't want it? `update_notice: false`.
 **The resource and browsers' caches.** The Marketplace and HACS load HomeView from
 `/hacsfiles/homeview/homeview.js`, which Home Assistant serves with revalidation: after an update every
 screen gets the new file on its next load, no stale copy. A manual install under `/local/` is cached for a
-month, so give the resource a version (`/local/homeview/homeview.js?v=0.10.0`) and bump it with each update;
+month, so give the resource a version (`/local/homeview/homeview.js?v=1.0.0`) and bump it with each update;
 the same goes for a `/local/community/…` resource. If a screen still runs the old version, HomeView says so
 (*"… is installed, but this screen still runs …"*) behind a ↻ icon: tap it to reload. Otherwise a hard
 reload (Ctrl/Cmd+Shift+R), or in the Companion app Settings → Companion App → Debugging → **Reset frontend

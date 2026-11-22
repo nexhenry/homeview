@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.0 — 2026-11-21
+
+HomeView 1.0: the first stable release, and the version submitted to the Home Assistant Marketplace's
+community catalog. No change in how it works or looks from 0.10.0; your config keeps working as it is.
+
+- **Install from the Marketplace** (Home Assistant 2026.11 and later: Settings → Marketplace), from HACS on
+  older Home Assistant, or by hand. The README covers all three.
+- **A shorter README.** The full option reference, the looks, night, guest view, your own tiles and pages,
+  power outages, colours and taps moved to [docs/configuration.md](docs/configuration.md).
+- **Gallery:** a room's page, a security page (shown in part), Admin, and glass and phone shots.
+
 ## 0.10.0 — 2026-11-20
 
 **0.10.0 changes how HomeView looks: it's now in glass by default. To keep the look you had, set
