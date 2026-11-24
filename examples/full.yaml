@@ -107,7 +107,7 @@ strategy:
       icon_on: mdi:garage-open    # The icon while it's on (open, unlocked …)
       icon_off: mdi:garage        # The icon while it's off
       color_on: red               # The icon's colour while on: green, amber, red, orange, blue (the colour
-                                  # code) or any CSS colour
+                                  # code) or a CSS colour (#hex, a name, rgb() / hsl(), var(--…))
       color_off: green            # The icon's colour while off
     media_player.tv:
       tap: more-info              # more-info, toggle, none, or a page path to open

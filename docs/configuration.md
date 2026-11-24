@@ -438,7 +438,7 @@ key](../custom_pages/README.md#every-key).
 | `customize.<entity>.icon` | icon | — | 0.2.0 | The tile's icon (◇ in edit mode). |
 | `customize.<entity>.icon_on` | icon | — | 0.8.10 | The icon while it's on (open, unlocked …). |
 | `customize.<entity>.icon_off` | icon | — | 0.8.10 | The icon while it's off. |
-| `customize.<entity>.color_on` | color | — | 0.8.10 | The icon's colour while on: `green`, `amber`, `red`, `orange`, `blue` (the [colour code](#colours)) or any CSS colour. |
+| `customize.<entity>.color_on` | color | — | 0.8.10 | The icon's colour while on: `green`, `amber`, `red`, `orange`, `blue` (the [colour code](#colours)) or a CSS colour (`#hex`, a name, `rgb()` / `hsl()`, `var(--…)`). |
 | `customize.<entity>.color_off` | color | — | 0.8.10 | The icon's colour while off. |
 | `customize.<entity>.size` | size | — | 0.2.0 | `WxH` in grid cells: `1x1`, `2x1`, `2x2` … (⤢ in edit mode). |
 | `customize.<entity>.tap` | string | — | 0.2.0 | `more-info`, `toggle`, `none`, or a page path to open. |
@@ -603,7 +603,7 @@ key](../custom_pages/README.md#every-key).
 | `screensaver` | `auto`, boolean, object | `auto` | 0.8.5 | A big clock after 2 minutes without a touch: `auto` = touch tablets only, `true` = every screen, `false` = never, or the keys below. Or a page to open instead of the clock (`widgets`, or `page:` below). |
 | `screensaver.page` | page | — | 0.10.0 | Open this page after the idle time instead of showing the clock (touch tablets only): no overlay, its tiles and pills work at once. Not while a sheet, Home Assistant's dialog or a full-screen camera or video is open, or in edit mode (the wait starts again); already there: nothing. `screensaver: widgets` is the short form. |
 | `screensaver.idle` | number | `120` | 0.8.5 | Seconds without a touch (at least 10). |
-| `screensaver.color` | string | `'#4D7DB8'` | 0.8.5 | The clock's colour. |
+| `screensaver.color` | string | `'#4D7DB8'` | 0.8.5 | The clock's colour: `#hex`, a name, `rgb()` / `hsl()` or `var(--…)`. |
 | `screensaver.pages` | page list | every page but Cameras | 0.8.5 | Only on these pages. |
 | `screensaver.enabled` | boolean | `true` | 0.8.5 | `false` = off. |
 | `night` | entity, `auto`, object, `false` | `false` | 0.9.0 | The night face (see [Night](#night)): an entity (night while it's on), `auto` (the sun is down and it's 9 pm or later, until morning), or `{ from, to }` every day. |
@@ -755,9 +755,14 @@ One colour code on every page — chips, status pills, tiles and their sheets:
 | 🔵 Blue | Climate | Cooling, fans |
 
 A chip for a switch (auto-lights, a security automation) is grey while off and coloured while on.
-It's green by default, or `color: light` / `climate` / any CSS colour. `off_warn: true` makes it
+It's green by default, or `color: light` / `climate` / a CSS colour. `off_warn: true` makes it
 amber while it's off. `label: Auto lights` puts a word beside its icon on tablets, so a mode switch
 says what it is; a `'|'` in `home.chips` starts a new group (security, then modes).
+
+**Your own colours** (`color`, `color_on` / `color_off`, a chip's `color`, the screensaver's `color`): the
+words above where the option takes them, or a CSS colour — `#4D7DB8`, a name like `teal`, `rgb()` / `hsl()`
+(numbers only) or `var(--a-variable)`. Anything else is ignored and the usual colour shows, so a page file
+from someone else can't put anything but a colour into the page.
 
 Coloured **words** (Comfy, Cold, Warm, Offline, an open door's "Open") use darker shades of the same
 colours in light mode, so they can be read on every room tint (WCAG 4.5 : 1); icons and fills keep

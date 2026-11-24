@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.2 — 2026-11-24
+
+- **Security:** a chart tile's `color` and the screensaver's `color` went into the page unchecked: a value
+  from a config or a shared page file could break out of the markup and run script for everyone who opened
+  the page. So could a calendar tile's `days`, a fader's unit and a light's `rgb_color` (entity attributes). All fixed:
+  colours must be real colours — the colour code's words or a CSS colour (`#hex`, a name, `rgb()` / `hsl()`
+  of numbers, `var(--…)`) — and are escaped too; anything else is ignored and the usual colour shows (so a
+  colour like `oklch(…)` or `var(--x, red)` now needs one of those forms). A button's, fader's, pill's and
+  chip's `color` and an entity tile's `color_on` / `color_off` (escaped, but able to add other styles) are
+  checked the same way; pictures (avatars, camera stills, photos) are never a `javascript:` address. Every
+  other place a config, a page file or an entity reaches the page was checked. Reported in the HACS catalog
+  review — thank you.
+- **README:** the status line says 1.0 (stable), not 0.8 (preview).
+
 ## 1.0.1 — 2026-11-21
 
 - **Create the dashboard in one step:** HomeView now appears in Home Assistant's **Add dashboard** dialog

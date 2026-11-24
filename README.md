@@ -26,8 +26,8 @@ no YAML per tile.
   / right between pages, one page per swipe, from anywhere on the page (a slider or fader keeps its
   own drag).
 
-> Status: **0.8 (preview)**. The layout and config keys may still change before 1.0.
-> Use at your own risk — see [Disclaimer](#disclaimer).
+> Status: **1.0 (stable)**. Config keys keep working from one 1.x release to the next; what changes is in the
+> [changelog](CHANGELOG.md). Use at your own risk — see [Disclaimer](#disclaimer).
 
 ## Contents
 
@@ -238,7 +238,7 @@ the browser loads this file.
 ### Manual
 
 1. Copy `dist/homeview.js` to `<config>/www/homeview/homeview.js`.
-2. Settings → Dashboards → ⋮ → **Resources** → add `/local/homeview/homeview.js?v=1.0.1` as a
+2. Settings → Dashboards → ⋮ → **Resources** → add `/local/homeview/homeview.js?v=1.0.2` as a
    *JavaScript module*. (With `resource_mode: yaml`: [in `configuration.yaml`](#resource_mode-yaml-add-the-resource-yourself), with this address.)
 
 ### Updates

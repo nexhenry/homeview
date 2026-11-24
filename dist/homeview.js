@@ -11,7 +11,7 @@
  * Widgets, Home, Living, a page per person (Rooms), a details page per room, Energy and Cameras. Everything is
  * optional and can be tuned in the strategy config — see README.md.
  */
-const HV_VERSION = '1.0.1';
+const HV_VERSION = '1.0.2';
 // where this file was loaded from (to re-download it after an update)
 const HV_URL = (() => { try { return import.meta.url; } catch (e) { return null; } })();
 
@@ -181,6 +181,26 @@ const USER_TILE_TYPES = ['clock', 'weather', 'forecast', 'date', 'next_event', '
 // called for every entity, several times, on every build: no array per call (split)
 const domainOf = (id) => { const i = id.indexOf('.'); return i < 0 ? id : id.slice(0, i); };
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+/**
+ * A colour from a config or a page file (page files are shared), checked before it goes into a style:
+ * #rgb, #rgba, #rrggbb, #rrggbbaa, a CSS colour name (letters only), rgb() / rgba() / hsl() / hsla() of
+ * numbers (digits, %, ., commas, spaces, /, + / − and deg) or var(--name). Anything else — `red" onmouseover=…`,
+ * `red;background:url(…)` — is the fallback. The markup still esc()s what this returns.
+ */
+const CSS_COLOR_RE = /^(?:#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})|[a-z]+|(?:rgba?|hsla?)\((?:[0-9.,%+/ -]|deg)*\)|var\(--[a-z0-9_-]+\))$/i;
+const cssColor = (v, fallback = null) => (typeof v === 'string' && v.length <= 100 && CSS_COLOR_RE.test(v.trim()) ? v.trim() : fallback);
+/** A picture's address (a config's, an entity's) for an <img>: relative, http(s), blob: or data:image/…;
+ *  anything else (javascript:, data:text/html …) is null. */
+function safeUrl(u) {
+  if (typeof u !== 'string' || !u) return null;
+  const s = u.replace(/[\u0000-\u0020\u007f]/g, '');   // browsers skip these around (tab, newline: inside) a scheme
+  const m = /^([a-z][a-z0-9+.-]*):/i.exec(s);
+  if (!m) return u;   // relative: /local/…, /api/…
+  const sc = m[1].toLowerCase();
+  return sc === 'http' || sc === 'https' || sc === 'blob' || (sc === 'data' && /^data:image\//i.test(s)) ? u : null;
+}
+/** o[k] when it's o's own key (a config's word as a key: never a prototype's `constructor` …) */
+const ownVal = (o, k) => (o && typeof k === 'string' && Object.prototype.hasOwnProperty.call(o, k) ? o[k] : undefined);
 const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };
 // one number format per decimal count (toLocaleString with options builds a new one each call,
 // and numbers are formatted on every header / tile redraw)
@@ -245,8 +265,8 @@ function toYaml(v, ind = '') {
 }
 
 function hueOf(color, fallback) {
-  if (typeof color === 'number') return color;
-  if (typeof color === 'string' && color in COLOR_HUES) return COLOR_HUES[color];
+  if (typeof color === 'number') return Number.isFinite(color) ? color : fallback;
+  if (typeof color === 'string' && ownVal(COLOR_HUES, color) !== undefined) return COLOR_HUES[color];
   return fallback;
 }
 
@@ -968,7 +988,8 @@ const hvScreensaver = (() => {
     const ar = (window.innerWidth || 1180) / (window.innerHeight || 820);
     const W = Math.max(100, 100 * ar), H = Math.max(100, 100 / ar), cx = W / 2, cy = H / 2;
     // the night face: black, a dim warm clock, no seconds hand (nothing bright in a dark room)
-    const ink = night ? '#5A524A' : '#0B0B0C', handC = night ? '#5A524A' : '#FFF', bg = night ? '#000' : color;
+    // bg: screensaver.color, checked (cssColor) when it's set and escaped here, as it goes into two fill="…"
+    const ink = night ? '#5A524A' : '#0B0B0C', handC = night ? '#5A524A' : '#FFF', bg = esc(night ? '#000' : color);
     // reduce motion: the hands stand still and move once a minute (the face is redrawn every minute)
     const still = !!window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
     const num = (t, x, y) => `<text x="${x}" y="${y}" text-anchor="middle" dominant-baseline="central" fill="${ink}" font-size="56" font-weight="300" letter-spacing="-3">${t}</text>`;
@@ -1051,7 +1072,7 @@ const hvScreensaver = (() => {
       const on = !!o && opt !== false && obj.enabled !== false && (opt === 'auto' || target ? tablet : true)   // a page to open: touch tablets only, as auto
         && !page._editing && (obj.pages ? asList(obj.pages).includes(pageId) : pageId !== 'cameras');
       idleMs = Math.max(10, num(obj.idle) ?? 120) * 1000;
-      color = typeof obj.color === 'string' ? obj.color : '#4D7DB8';
+      color = cssColor(obj.color, '#4D7DB8');   // a real colour only (it's drawn into the clock's SVG)
       const n = !!o && isNight(hvHass || page?._hass, o);
       if (n !== night) { night = n; if (el) el.innerHTML = clockSvg(); }
       if (on && !enabled) wake();
@@ -1644,8 +1665,9 @@ function activeColor(st) {
   if (isAlert(st)) return HV_TONES.alert;
   if (d === 'light') {
     if (Array.isArray(a.rgb_color)) {
-      const [r, g, b] = a.rgb_color;
-      if (!(r > 235 && g > 235 && b > 235)) return `rgb(${r},${g},${b})`;
+      // numbers only: an attribute is data (any integration can set it), and this goes into a style
+      const [r, g, b] = a.rgb_color.slice(0, 3).map((x) => clamp(Math.round(Number(x)), 0, 255));
+      if ([r, g, b].every(Number.isFinite) && !(r > 235 && g > 235 && b > 235)) return `rgb(${r},${g},${b})`;
     }
     return HV_TONES.on;
   }
@@ -2413,7 +2435,9 @@ function toWatts(st) {
 /** 720 -> "0.72 kW", 2 -> "0.002 kW", 1015 -> "1.02 kW" */
 const fmtKw = (w) => { const k = w / 1000; return `${fmt(k, Math.abs(k) < 0.01 ? 3 : 2)} kW`; };
 const NAMED_TONES = () => ({ green: HV_TONES.ok, amber: HV_TONES.warn, red: HV_TONES.alert, orange: HV_TONES.on, blue: HV_TONES.cool });
-const toneColor = (c) => (c ? NAMED_TONES()[c] || HV_TONES[c] || c : null);
+/** color: / color_on: … from a config or page file: a word of the colour code (green, amber, red, orange,
+ *  blue; ok, warn, on …), else a real CSS colour (cssColor), else null (the default colour) */
+const toneColor = (c) => (c ? ownVal(NAMED_TONES(), c) || ownVal(HV_TONES, c) || cssColor(c, null) : null);
 /** A pill-shaped tile (layout: pills / keypad): icon, name and (info pills) the state. */
 function pillHtml({ icon, entity, name, value, color, active, dim, iconOnly, na }) {
   const c = color || 'var(--hv-accent)';
@@ -2520,7 +2544,7 @@ R.fader = {
     const unit = a.unit_of_measurement || '';
     return `<div class="t fader${muted ? ' muted' : ''}${!st ? ' na' : ''}" style="--fc:${esc(toneColor(s.color) || 'var(--hv-accent)')}">
       <span class="fd-ic" data-act="mute" title="${muted ? 'Unmute' : 'Mute'}"><i data-i="${esc(s.icon || 'mdi:tune-vertical-variant')}"></i></span>
-      <span class="fd-tx"><b>${esc(s.name || a.friendly_name || s.entity)}</b><span>${v === null ? '—' : `${fmt(v, Number.isInteger(v) ? 0 : 1)}${unit}`}</span></span>
+      <span class="fd-tx"><b>${esc(s.name || a.friendly_name || s.entity)}</b><span>${v === null ? '—' : `${fmt(v, Number.isInteger(v) ? 0 : 1)}${esc(unit)}`}</span></span>
       <span class="fd-bar" data-act="bar"><span class="fd-fill" style="width:${pct}%"></span>${muted ? '<span class="fd-m">MUTED</span>' : ''}</span></div>`;
   },
   // the bar: drag (or tap) sets the level, sent once on release
@@ -2603,14 +2627,14 @@ R.entity = {
     const subHtml = alert && s.sub === undefined && sub.startsWith(state) ? `<span class="sw">${esc(state)}</span>${esc(sub.slice(state.length))}` : esc(sub);
     const tone = secureTone(st);
     if (s.icon_on || s.icon_off) s = { ...s, icon: (on || st.state === 'open' ? s.icon_on : s.icon_off) || s.icon };   // icon_on / icon_off
-    // color_on / color_off: the icon's colour by state — green / amber / red / orange / blue (the colour code) or any CSS colour
-    const named = { green: HV_TONES.ok, amber: HV_TONES.warn, red: HV_TONES.alert, orange: HV_TONES.on, blue: HV_TONES.cool };
+    // color_on / color_off: the icon's colour by state — green / amber / red / orange / blue (the colour code) or a
+    // CSS colour (toneColor: a real colour only, anything else = the usual colour)
     const pick = on || st.state === 'open' ? s.color_on : s.color_off;
-    const own = pick ? named[pick] || HV_TONES[pick] || pick : null;
+    const own = toneColor(pick);
     if (own) return `<div class="t flex${on ? ' on' : ''}${alert ? ' alert' : ''}" style="--hv-ic-on:${esc(own)}">
       <div class="ic" style="color:${esc(own)}">${icon(s.entity, s.icon)}</div>
       <div class="tx"><div class="nm">${esc(name)}</div><div class="sb">${subHtml}</div></div></div>`;
-    const color = tone ? `style="--hv-ic-on:${HV_TONES[tone]}"` : on || alert ? `style="--hv-ic-on:${activeColor(st)}"` : '';
+    const color = tone ? `style="--hv-ic-on:${HV_TONES[tone]}"` : on || alert ? `style="--hv-ic-on:${esc(activeColor(st))}"` : '';
     let ctl = '';
     if (d === 'climate' && st.state !== 'off' && st.attributes.temperature != null && s.size?.[0] >= 2) {
       ctl = `<div class="ctl"><button data-act="down" aria-label="Lower"><ha-icon icon="mdi:minus"></ha-icon></button><button data-act="up" aria-label="Raise"><ha-icon icon="mdi:plus"></ha-icon></button></div>`;
@@ -3043,7 +3067,7 @@ R.next_event = {
     const calName = e ? (h.states[e.calendar]?.attributes?.friendly_name || '') : '';
     if (!e) {
       return `<div class="t flex"><div class="ic"><i data-i="${esc(s.icon || 'mdi:calendar-check')}"></i></div><div class="tx">
-        <div class="up">${esc(s.title || 'Up next')}</div><div class="nm">${evs === undefined ? 'Loading…' : 'Nothing planned'}</div><div class="sb">${days === 14 ? 'Next 2 weeks' : `Next ${days} days`}</div></div></div>`;
+        <div class="up">${esc(s.title || 'Up next')}</div><div class="nm">${evs === undefined ? 'Loading…' : 'Nothing planned'}</div><div class="sb">${days === 14 ? 'Next 2 weeks' : `Next ${esc(days)} days`}</div></div></div>`;
     }
     const w = eventWhen(h, e);
     const sp = (s.match || s.all_day) && e.allDay ? eventSpan(h, e) : null;   // a filtered list (days off …): its dates
@@ -3071,7 +3095,7 @@ R.agenda = {
         <span style="color:var(--hv-fg2);flex:none">${esc(w.time)}</span></div>`;
     }
     const span = (s.days || 7) === 14 ? 'the next 2 weeks' : (s.days || 7) === 7 ? 'the next week' : `the next ${s.days} days`;
-    if (!rows) rows = `<div class="sb" style="margin-top:8px">${evs === undefined ? 'Loading…' : `Nothing in ${span}`}</div>`;
+    if (!rows) rows = `<div class="sb" style="margin-top:8px">${evs === undefined ? 'Loading…' : `Nothing in ${esc(span)}`}</div>`;
     // events past max (and those that don't fit, see update): "+3 more"
     else if (s.bare) s._more = Math.max(0, (evs || []).length - max);
     // the Widgets board: centred in its area, a hand-made HomeView's 16–17 px on a tablet
@@ -3210,7 +3234,7 @@ function calendarSheetHtml(h, evs, s, { days = CAL_DAYS, colors = {}, now = new 
     }
     const who = several ? h.states[e.calendar]?.attributes?.friendly_name || '' : '';
     const sub = [who, until, e.location].filter(Boolean).join(' · ');
-    out += `<div class="cal-ev${on ? ' now' : ''}"><span class="cal-dot" style="background:${colors[e.calendar] || 'var(--hv-accent)'}"></span>
+    out += `<div class="cal-ev${on ? ' now' : ''}"><span class="cal-dot" style="background:${esc(ownVal(colors, e.calendar) || 'var(--hv-accent)')}"></span>
       <span class="cal-t"><b>${esc(eventTitle(e, s))}</b>${sub ? `<span>${esc(sub)}</span>` : ''}</span><span class="cal-w">${esc(when)}</span></div>`;
   }
   return `${out}</div>`;
@@ -3236,12 +3260,13 @@ function seedOf(text) {
   return (x >>> 0).toString(36);
 }
 function avatarUrl(h, personId) {
-  const pic = h.states[personId]?.attributes?.entity_picture;
+  // an <img>'s address: never javascript: or the like (safeUrl), whether HA's or the config's
+  const pic = safeUrl(h.states[personId]?.attributes?.entity_picture);
   if (pic) return pic;
   const cfg = hvAvatarMode && typeof hvAvatarMode === 'object' ? hvAvatarMode : { mode: hvAvatarMode };
-  let own = cfg[personId];
-  if (typeof own === 'string') own = AVATAR_ALIASES[own.toLowerCase()] || own;
-  if (typeof own === 'string' && own && !AVATAR_HAIR[own]) return own;   // a picture URL
+  let own = ownVal(cfg, personId);
+  if (typeof own === 'string') own = ownVal(AVATAR_ALIASES, own.toLowerCase()) || own;
+  if (typeof own === 'string' && own && !ownVal(AVATAR_HAIR, own)) return safeUrl(own);   // a picture URL (else initials)
   if (cfg.mode === false || cfg.mode === 'initials') return null;
   const hair = AVATAR_HAIR[own] ? `&hair=${AVATAR_HAIR[own].join(',')}` + (own === 'man' ? '&earringsProbability=0' : '') : '';
   return `https://api.dicebear.com/9.x/adventurer/svg?seed=hv${seedOf(personId)}${hair}&backgroundColor=${AVATAR_BG.join(',')}`;
@@ -3338,7 +3363,7 @@ R.camera = {
   },
   update(h, s, tile) {   // runs after render and on every tick: swap in a fresh still, no flicker
     const img = tile.shadowRoot.querySelector('img.cam');
-    const pic = h.states[s.entity]?.attributes?.entity_picture;
+    const pic = safeUrl(h.states[s.entity]?.attributes?.entity_picture);   // HA's /api/camera_proxy/…; never javascript: …
     if (!img || !pic || !tile.visible || tile._camWait) return;
     // the first still waits until the page is on screen (a frame drawn, then a moment): a camera's still
     // is the biggest thing a page asks for (~160 KB), and on a phone opening Home it took the link
@@ -3806,7 +3831,7 @@ R.energy_stat = {
       if (value && typeof value === 'object') { sub = loading ? sub : value.sub; value = value.value; }
     } else value = vals.reduce((a, x) => a + (x.v || 0) * (x.sign || 1), 0);
     const txt = loading ? '…' : value === null || Number.isNaN(value) ? '—' : s.unit === '%' ? `${fmt(value, 0)}%` : `${fmt(value, value >= 100 ? 0 : 1)} kWh`;
-    return `<div class="t card"><div class="up hd"><span class="ic" style="--mdc-icon-size:18px;color:${s.color || 'var(--hv-accent)'}"><i data-i="${s.icon}"></i></span>${esc(s.title)}</div>
+    return `<div class="t card"><div class="up hd"><span class="ic" style="--mdc-icon-size:18px;color:${esc(s.color || 'var(--hv-accent)')}"><i data-i="${esc(s.icon)}"></i></span>${esc(s.title)}</div>
       <div class="big">${txt}</div><div class="sb" style="white-space:normal">${esc(sub)}</div></div>`;
   },
 };
@@ -3820,7 +3845,7 @@ R.energy_today = {
       const loading = vals.some((x) => x.v === undefined);
       const value = it.compute ? it.compute(Object.fromEntries(vals.map((x) => [x.role, x.v]))) : vals.reduce((a, x) => a + (x.v || 0) * (x.sign || 1), 0);
       const txt = loading ? '…' : value === null || Number.isNaN(value) ? '—' : it.unit === '%' ? `${fmt(value, 0)}%` : `${fmt(value, value >= 100 ? 0 : 1)} kWh`;
-      return `<div class="ec"><span class="up hd"><span class="ic" style="--mdc-icon-size:16px;color:${it.color}"><i data-i="${it.icon}"></i></span>${esc(it.title)}</span><b>${txt}</b></div>`;
+      return `<div class="ec"><span class="up hd"><span class="ic" style="--mdc-icon-size:16px;color:${esc(it.color)}"><i data-i="${esc(it.icon)}"></i></span>${esc(it.title)}</span><b>${txt}</b></div>`;
     }).join('');
     return `<div class="t" style="cursor:default;align-items:stretch;justify-content:flex-start;padding:5%;text-align:left">
       <div class="up" style="margin-bottom:4%">Today</div><div class="ecg">${cells}</div></div>`;
@@ -3919,7 +3944,8 @@ R.chart = {
       line = 'M' + xy.map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`).join(' L');
       area = `${line} L100,100 L0,100 Z`;
     }
-    const color = s.color || 'var(--hv-accent)';
+    // color: from a page file (shared): a real colour only, escaped — it goes into four style="…"
+    const color = esc(cssColor(s.color, 'var(--hv-accent)'));
     return `<div class="t chart">
       <div class="ch"><div><div class="ct" style="color:${color}">${esc(s.title)}</div>
         <div class="cv">${cur === null ? '—' : fmt(cur, s.decimals ?? 1)}<span>${esc(unit)}</span>${hi !== null ? `<span class="rg">↑ ${fmt(hi, s.decimals ?? 1)}  ↓ ${fmt(lo, s.decimals ?? 1)}</span>` : ''}</div></div>
@@ -4270,7 +4296,7 @@ R.slideshow = {
       const thumb = s.thumbnail && !st.bad[id] ? id.replace(/^(.*)\/([^/]+)$/, (m0, dir, name) => s.thumbnail.replace('{dir}', dir).replace('{name}', name)) : id;
       ws(h, { type: 'media_source/resolve_media', media_content_id: thumb, expires: 86400 })
         .then((r) => new Promise((ok, fail) => {
-          if (!r?.url) { fail(); return; }
+          if (!r?.url || !safeUrl(r.url)) { fail(); return; }
           const img = new Image();
           img.onload = () => { delete st.urls[id]; st.urls[id] = { url: r.url, exp: Date.now() + 82800e3 }; st.ok[r.url] = true; st.dim[r.url] = img.naturalHeight ? img.naturalWidth / img.naturalHeight : 1.5; keepPhoto(st, r.url, img); trimSlides(st); ok(r.url); };
           img.onerror = fail;
@@ -4967,7 +4993,8 @@ function chipLook(h, c) {
   }
   const on = isActive(st);
   if (!on) return { cls: c.off_warn ? 'warn' : '', word: '' };
-  const col = CHIP_ON[c.color] || c.color || (d === 'light' ? HV_TONES.on : d === 'climate' || d === 'fan' ? HV_TONES.cool : HV_TONES.ok);
+  // color: security | light | climate, or a real CSS colour (cssColor; anything else = the default)
+  const col = ownVal(CHIP_ON, c.color) || cssColor(c.color, null) || (d === 'light' ? HV_TONES.on : d === 'climate' || d === 'fan' ? HV_TONES.cool : HV_TONES.ok);
   return { cls: 'on', word: '', color: col };
 }
 
@@ -8611,6 +8638,8 @@ function offerHtml(dark) {
 }
 /** Open the new dashboard once Home Assistant's panel list has it (HA sends the new list by itself). */
 async function offerOpen(url) {
+  // a dashboard's address is one word (dashboard-homeview): never "/other.host" (stored user data says where)
+  if (typeof url !== 'string' || !/^[a-z0-9][a-z0-9_-]*$/i.test(url)) return;
   const has = () => !!document.querySelector('home-assistant')?.hass?.panels?.[url];
   for (let i = 0; i < 40 && !has(); i++) await offerSleep(150);
   if (has()) navigate(`/${url}`); else location.assign(`/${url}`);

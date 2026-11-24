@@ -85,7 +85,7 @@ const EXPORTS = ['HV_VERSION', 'buildModel', 'R', 'PILLS', 'PAGES', 'userTile', 
   'hslRgb', 'lookOf', 'lookKey', 'photoAura', 'TILE_CSS', 'REDUCE_KEY', 'screenReduced', 'setScreenReduced', 'styleOf', 'screenLook',
   'setScreenLook', 'SCREEN_LOOK_KEY', 'hvScreensaver', 'OFFER_KEY', 'OFFER_TYPE', 'OFFER_TITLE', 'OFFER_TEXT', 'OFFER_DOCS', 'offerIsDev',
   'offerAnswer', 'offerDashExists', 'offerDecide', 'offerPath', 'offerCreate', 'offerDismiss', 'offerScreenOk', 'offerHtml', 'offerCss',
-  'hvOfferSeen'];
+  'hvOfferSeen', 'cssColor', 'safeUrl', 'toneColor', 'activeColor', 'avatarUrl', 'offerOpen', 'hueOf', 'KIND_TONES'];
 
 let loaded = null;
 export async function loadHomeView() {
